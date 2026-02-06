@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy,
                              QColorDialog, QFileDialog, QMessageBox)
 from PyQt6.QtGui import QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication
 from PyQt6.QtSvg import QSvgGenerator
-from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData
+from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint
 from .icons import create_reaction_icon
 
 class ModeManager:
@@ -55,7 +55,7 @@ class ModeManager:
         self.reaction_toolbar.addSeparator()
         
         self.add_tool("Curved", "curved_double", "Draw Curved Arrow")
-        self.add_tool("Fish-hook", "curved_single", "Draw Fish-hook Arrow")
+        self.add_tool("Fish-hook", "curved_fish", "Draw Fish-hook Arrow")
         
         self.reaction_toolbar.addSeparator()
         
@@ -294,16 +294,31 @@ class ModeManager:
     def sync_property_toolbar(self):
         if not self.is_reaction_mode: return
         
-        items = self.main_window.scene.selectedItems()
-        from .items import ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem
+        # Safety check: ensure scene is not deleted
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            # Accessing anything on the scene might raise RuntimeError if deleted
+            items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            # Scene or main window was deleted during teardown
+            return
+        from .items import (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, 
+                            ReactionCircleItem, ReactionPlusItem, ReactionMinusItem)
         try:
              from modules.atom_item import AtomItem
              from modules.bond_item import BondItem
-        except:
-             from moleditpy.modules.atom_item import AtomItem
-             from moleditpy.modules.bond_item import BondItem
+        except ImportError:
+             try:
+                 from moleditpy.modules.atom_item import AtomItem
+                 from moleditpy.modules.bond_item import BondItem
+             except ImportError:
+                 AtomItem = type('AtomItem', (), {})
+                 BondItem = type('BondItem', (), {})
         
-        reaction_items = [i for i in items if isinstance(i, (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem, AtomItem, BondItem))]
+        reaction_items = [i for i in items if isinstance(i, (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, 
+                                                              ReactionCircleItem, ReactionPlusItem, ReactionMinusItem, 
+                                                              AtomItem, BondItem))]
         
         if not reaction_items:
             # Maybe hide or disable? For now just return if none
@@ -318,25 +333,31 @@ class ModeManager:
             color = first.defaultTextColor()
         self.update_color_button(color)
         
-        # Sync font if text
+        # Sync size (for text or signs)
         if isinstance(first, ReactionTextItem):
             f = first.font()
             idx = self.font_combo.findText(f.family())
             if idx >= 0: self.font_combo.setCurrentIndex(idx)
             self.bold_action.setChecked(f.bold())
             self.italic_action.setChecked(f.italic())
-            self.size_spin.setValue(f.pointSize())
+            self.size_spin.setValue(int(f.pointSize()))
             self.font_combo.setEnabled(True)
             self.bold_action.setEnabled(True)
             self.italic_action.setEnabled(True)
             self.size_spin.setEnabled(True)
-        else:
+        elif hasattr(first, "size"):
+            self.size_spin.setValue(int(first.size))
+            self.size_spin.setEnabled(True)
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
+        else:
             self.size_spin.setEnabled(False)
-            
-        # Sync width if arrow/bracket
+            self.font_combo.setEnabled(False)
+            self.bold_action.setEnabled(False)
+            self.italic_action.setEnabled(False)
+
+        # Sync width if arrow/bracket/signs
         if hasattr(first, "pen_width"):
             self.width_spin.setValue(int(first.pen_width))
             self.width_spin.setEnabled(True)
@@ -349,7 +370,12 @@ class ModeManager:
         if self._updating_props: return
         if not self.is_reaction_mode: return
         
-        items = self.main_window.scene.selectedItems()
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            return
         from .items import ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem
         
         color = self.color_btn.property("current_color")
@@ -368,8 +394,11 @@ class ModeManager:
             elif isinstance(item, (ReactionArrowItem, ReactionBracketItem, ReactionCircleItem)):
                  if hasattr(item, "pen_color"): item.pen_color = color
                  if hasattr(item, "pen_width"): item.pen_width = width
-            else:
-                 # AtomItem or BondItem
+            elif hasattr(item, "set_size"):
+                 item.set_size(size)
+                 if hasattr(item, "pen_color"): item.pen_color = color
+            elif hasattr(item, "pen_color"):
+                 # AtomItem, BondItem
                  item.pen_color = color
             item.update()
         
@@ -380,12 +409,163 @@ class ModeManager:
                 self.main_window.push_undo_state()
 
     def add_tool(self, name, icon_name, tooltip):
-        action = self.reaction_toolbar.addAction(create_reaction_icon(icon_name), name)
+        # Create action for the group to manage exclusivity
+        action = self.action_group.addAction(name)
+        action.setIcon(create_reaction_icon(icon_name))
         action.setToolTip(tooltip)
         action.setCheckable(True)
         action.setProperty("tool_name", icon_name)
-        self.action_group.addAction(action)
-        return action
+        
+        # Create button for the toolbar to support popup menus
+        button = QToolButton(self.reaction_toolbar)
+        button.setDefaultAction(action)
+        button.setFixedSize(36, 36)
+        
+        # Add Style Menu for relevant tools
+        if icon_name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", 
+                         "curved_double", "curved_fish", "bracket", "circle", "plus", "minus", "text"]:
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+            menu = self.create_tool_style_menu(icon_name)
+            button.setMenu(menu)
+
+        button.triggered.connect(lambda act: self.on_action_triggered(act))
+        self.reaction_toolbar.addWidget(button)
+        return button
+
+    def on_action_triggered(self, action):
+        tool_name = action.property("tool_name")
+        if self.interaction_handler:
+            self.interaction_handler.set_tool(tool_name)
+
+    def create_tool_style_menu(self, tool_name):
+        from PyQt6.QtWidgets import QMenu
+        from .icons import create_style_icon
+        menu = QMenu(self.main_window)
+        menu.setStyleSheet("""
+            QMenu { background-color: #ffffff; border: 1px solid #d0d0d0; border-radius: 4px; padding: 4px; }
+            QMenu::item { padding: 4px 24px 4px 10px; border-radius: 2px; }
+            QMenu::item:selected { background-color: #e3f2fd; color: #0078d7; }
+            QMenu::separator { height: 1px; background: #e0e0e0; margin: 4px 0; }
+        """)
+        
+        if tool_name == "arrow_no":
+            # Slash
+            act_slash = menu.addAction(create_style_icon("arrow_no", "slash"), "Slash Style")
+            act_slash.triggered.connect(lambda: self.set_arrow_no_style("slash"))
+            # Cross
+            act_cross = menu.addAction(create_style_icon("arrow_no", "cross"), "Cross Style")
+            act_cross.triggered.connect(lambda: self.set_arrow_no_style("cross"))
+        
+        if tool_name in ["curved_double", "curved_fish"]:
+            # Triangle head
+            act_tri = menu.addAction(create_style_icon("curved", "triangle"), "Triangular Head")
+            act_tri.setCheckable(True)
+            # We need to peek at selected or default to set checked
+            act_tri.triggered.connect(lambda checked: self.set_curved_head_style("triangle" if checked else "barb"))
+            
+            menu.addSeparator()
+            
+            # Fish hook toggle
+            hook_act = menu.addAction(create_style_icon("curved", "fish"), "Fish Hook (Single Barb)")
+            hook_act.setCheckable(True)
+            hook_act.setChecked(tool_name == "curved_fish")
+            hook_act.triggered.connect(lambda checked: self.set_curved_hook_style(checked))
+
+        return menu
+
+    def set_text_size(self, size):
+        self.size_spin.setValue(size)
+        self.apply_properties()
+
+    def set_sign_size(self, size):
+        items = self.main_window.scene.selectedItems()
+        from .items import ReactionPlusItem, ReactionMinusItem
+        for item in items:
+            if isinstance(item, (ReactionPlusItem, ReactionMinusItem)):
+                item.size = size
+                item.update()
+        if items:
+            self.main_window.push_undo_state()
+
+    def set_arrow_no_style(self, style):
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            return
+        from .items import ReactionNoArrowItem
+        for item in items:
+            if isinstance(item, ReactionNoArrowItem):
+                item.negation_style = style
+                item.update()
+        
+        # ACTIVATE TOOL
+        if self.interaction_handler:
+             self.interaction_handler.set_tool("arrow_no")
+             for action in self.action_group.actions():
+                 if action.property("tool_name") == "arrow_no":
+                     action.setChecked(True)
+                     break
+                     
+        self.main_window.push_undo_state()
+
+    def set_curved_hook_style(self, is_fish):
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            return
+        from .items import ReactionCurvedArrowItem
+        new_tool = "curved_fish" if is_fish else "curved_double"
+        for item in items:
+            if isinstance(item, ReactionCurvedArrowItem):
+                item.is_fish_hook = is_fish
+                item.update()
+        
+        # ACTIVATE TOOL
+        if self.interaction_handler:
+             self.interaction_handler.set_tool(new_tool)
+             for action in self.action_group.actions():
+                 if action.property("tool_name") == new_tool:
+                     action.setChecked(True)
+                     break
+
+        self.main_window.push_undo_state()
+
+    def set_curved_head_style(self, style):
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            return
+        from .items import ReactionCurvedArrowItem
+        for item in items:
+            if isinstance(item, ReactionCurvedArrowItem):
+                item.head_style = style
+                item.update()
+        
+        # ACTIVATE TOOL
+        if self.interaction_handler:
+             curr = self.interaction_handler.active_tool
+             if curr not in ["curved_double", "curved_fish"]:
+                 self.interaction_handler.set_tool("curved_double")
+                 for action in self.action_group.actions():
+                     if action.property("tool_name") == "curved_double":
+                         action.setChecked(True)
+                         break
+
+        self.main_window.push_undo_state()
+
+    def set_tool_thickness(self, t):
+        self.width_spin.setValue(t)
+        self.apply_properties()
+
+    def set_tool_color(self, color):
+        self.update_color_button(color)
+        self.apply_properties()
 
     def toggle_reaction_mode(self):
         self.is_reaction_mode = not self.is_reaction_mode
