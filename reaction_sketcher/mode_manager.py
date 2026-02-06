@@ -321,7 +321,6 @@ class ModeManager:
                                                               AtomItem, BondItem))]
         
         if not reaction_items:
-            # Maybe hide or disable? For now just return if none
             return
 
         self._updating_props = True

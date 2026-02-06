@@ -9,14 +9,20 @@ import math
 def get_main_window(scene):
     """Helper to get MainWindow from a QGraphicsScene."""
     if not scene: return None
+    # ビューが存在しない場合は即座に None を返す（終了時など）
     views = scene.views()
     if not views: return None
-    win = views[0].window()
-    # In some cases window() might be the viewport
-    if hasattr(win, "push_undo_state"): return win
-    if hasattr(win, "parent") and win.parent():
-        p = win.parent()
-        if hasattr(p, "push_undo_state"): return p
+    
+    # 最初のビューからウィンドウを取得
+    view = views[0]
+    win = view.window()
+    
+    # 親を遡って MainWindow (push_undo_stateを持つもの) を探す
+    curr = win
+    while curr:
+        if hasattr(curr, "push_undo_state"): return curr
+        curr = curr.parent()
+        
     return None
 
 class ReactionHandle(QGraphicsItem):
@@ -638,9 +644,10 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         data["type"] = "curved_fish" if self.is_fish_hook else "curved_double"
         data["head_style"] = self.head_style
         cp = self.get_control_point()
-        scp = self.mapToScene(cp)
-        data["cp_x"] = scp.x()
-        data["cp_y"] = scp.y()
+        
+        # 【修正】mapToScene(cp) を削除し、ローカル座標 cp をそのまま保存する
+        data["cp_x"] = cp.x()
+        data["cp_y"] = cp.y()
         return data
 
 class ReactionBracketItem(QGraphicsItem):

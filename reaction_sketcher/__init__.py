@@ -19,6 +19,8 @@ from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem,
                     ReactionBracketItem, ReactionCircleItem)
 from PyQt6.QtGui import QColor, QFont
 
+from functools import partial
+
 PLUGIN_NAME = "Reaction Sketcher"
 PLUGIN_VERSION = "0.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
@@ -110,7 +112,8 @@ def initialize(context):
     for action in mode_manager.reaction_toolbar.actions():
         tool_name = action.property("tool_name")
         if tool_name and tool_name != "exit":
-            action.triggered.connect(lambda checked, t=tool_name: interaction_handler.set_tool(t))
+            # lambda ではなく partial を使用
+            action.triggered.connect(partial(interaction_handler.set_tool, tool_name))
 
     # Install event filter on the 2D view
     main_window.view_2d.viewport().installEventFilter(interaction_handler)
@@ -204,7 +207,27 @@ def initialize(context):
         interaction_handler.active_tool = None
         if mode_manager.is_reaction_mode:
             mode_manager.exit_reaction_mode()
+        
+        # 【追加】File->New (リセット) 時は、パッチによる保護を無視して強制的にアイテムを消去する
+        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                            ReactionMinusItem, ReactionResonanceArrowItem, 
+                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                            ReactionNoArrowItem, ReactionCurvedArrowItem,
+                            ReactionBracketItem, ReactionCircleItem)
+        
+        if main_window and main_window.scene:
+            items_to_remove = []
+            for item in main_window.scene.items():
+                if isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                                     ReactionMinusItem, ReactionResonanceArrowItem, 
+                                     ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                                     ReactionNoArrowItem, ReactionCurvedArrowItem,
+                                     ReactionBracketItem, ReactionCircleItem)):
+                    items_to_remove.append(item)
             
+            for item in items_to_remove:
+                main_window.scene.removeItem(item)
+
     context.register_save_handler(save_handler)
     context.register_load_handler(load_handler)
     context.register_document_reset_handler(reset_handler)

@@ -163,69 +163,131 @@ def apply_patches(main_window):
 
     patch(BondItem, 'paint', patched_bond_paint)
     
-    # --- 3. Patch MoleculeScene.delete_items ---
+    # patcher.py の apply_patches 関数内
+
+    # --- 3. Patch MoleculeScene.delete_items (Deleteキー対応) ---
     def patched_delete_items(self, items_to_delete):
-        """
-        Monkey-patch to avoid global reset when all items are deleted.
-        """
-        # Call original delete_items
-        success = _originals[(MoleculeScene, 'delete_items')](self, items_to_delete)
-        return success
+        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                            ReactionMinusItem, ReactionResonanceArrowItem, 
+                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                            ReactionNoArrowItem, ReactionCurvedArrowItem,
+                            ReactionBracketItem, ReactionCircleItem)
+
+        core_items = []
+        reaction_items = []
+        
+        for item in items_to_delete:
+            if isinstance(item, (AtomItem, BondItem)):
+                core_items.append(item)
+            elif isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                                   ReactionMinusItem, ReactionResonanceArrowItem, 
+                                   ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                                   ReactionNoArrowItem, ReactionCurvedArrowItem,
+                                   ReactionBracketItem, ReactionCircleItem)):
+                reaction_items.append(item)
+
+        # リアクションアイテムを手動削除
+        deleted_reaction = False
+        for item in reaction_items:
+            if item.scene() == self:
+                self.removeItem(item)
+                deleted_reaction = True
+
+        # 原子・結合はオリジナル処理へ
+        success_core = False
+        if core_items:
+            success_core = _originals[(MoleculeScene, 'delete_items')](self, core_items)
+            
+        return deleted_reaction or success_core
 
     patch(MoleculeScene, 'delete_items', patched_delete_items)
 
-    # --- 4. Patch MainWindowEditActions.clear_all and clear_2d_editor ---
-    def patched_clear_all(self):
-        # We allow clear_all to proceed as it's usually user-triggered (File > New)
-        return _originals[(MainWindowEditActions, 'clear_all')](self)
+    # --- 3.5 Patch MoleculeScene.clear (全消去時の保護) ---
+    # 【新規追加】原子が0になった時の強制クリアから矢印を守る
+    def patched_scene_clear(self):
+        from PyQt6.QtWidgets import QGraphicsScene
+        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                            ReactionMinusItem, ReactionResonanceArrowItem, 
+                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                            ReactionNoArrowItem, ReactionCurvedArrowItem,
+                            ReactionBracketItem, ReactionCircleItem)
+        
+        # 1. リアクションアイテムを一時退避
+        items_to_save = []
+        for item in self.items():
+            if isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                                 ReactionMinusItem, ReactionResonanceArrowItem, 
+                                 ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                                 ReactionNoArrowItem, ReactionCurvedArrowItem,
+                                 ReactionBracketItem, ReactionCircleItem)):
+                items_to_save.append(item)
+        
+        for item in items_to_save:
+            self.removeItem(item)
+            
+        # 2. 本来の clear() を実行 (QGraphicsSceneのメソッド)
+        QGraphicsScene.clear(self)
+        
+        # 3. 退避していたアイテムを復帰
+        for item in items_to_save:
+            self.addItem(item)
+            
+    # MoleculeSceneにclearメソッドが存在しない場合も考慮してパッチ
+    if hasattr(MoleculeScene, 'clear'):
+        patch(MoleculeScene, 'clear', patched_scene_clear)
+    else:
+        setattr(MoleculeScene, 'clear', patched_scene_clear)
 
-    patch(MainWindowEditActions, 'clear_all', patched_clear_all)
-
+    # --- 4. Patch MainWindowEditActions.clear_2d_editor ---
+    # 【修正】オブジェクト破棄後の再利用によるクラッシュを防ぐ
     def patched_clear_2d_editor(self, push_to_undo=True):
-        # Prevent clearing reaction items if they exist and we are just "refreshing"
-        # usually because atoms were deleted.
         from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
                             ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
-        rs_items = [it for it in self.scene.items() 
-                    if isinstance(it, (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                                       ReactionTextItem, ReactionBracketItem, ReactionCircleItem))]
         
-        # If there are reaction items, we should only clear AtomItems and BondItems
-        # instead of a total scene.clear().
-        if rs_items:
-            # Temporarily remove RS items
-            for it in rs_items: self.scene.removeItem(it)
-            
-            # Call original (which calls scene.clear())
-            _originals[(MainWindowEditActions, 'clear_2d_editor')](self, push_to_undo=push_to_undo)
-            
-            # Restore RS items
-            for it in rs_items: self.scene.addItem(it)
-            
-            # Re-ensure MolecularData is fresh for atoms but preserving plugin items logic
-            # (MolecularData is mostly for atoms/bonds anyway)
-            return
-            
-        return _originals[(MainWindowEditActions, 'clear_2d_editor')](self, push_to_undo=push_to_undo)
+        # データを退避
+        rs_items_data = []
+        for it in self.scene.items():
+            if isinstance(it, (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
+                               ReactionTextItem, ReactionBracketItem, ReactionCircleItem)):
+                if hasattr(it, "create_json_data"):
+                    rs_items_data.append(it.create_json_data())
+        
+        # 本来のクリア処理（オブジェクトは破棄される）
+        _originals[(MainWindowEditActions, 'clear_2d_editor')](self, push_to_undo=push_to_undo)
+        
+        # データから再生成
+        if rs_items_data:
+            from . import load_handler_core
+            load_handler_core(self, rs_items_data)
+        return
 
     patch(MainWindowEditActions, 'clear_2d_editor', patched_clear_2d_editor)
 
-    # --- 5. Patch MainWindowEditActions.clean_up_2d_structure (CoG Preservation) ---
+    # --- 5. Patch MainWindowEditActions.clean_up_2d_structure ---
+    # 【修正】RDKitがない場合のクラッシュガードを追加
     def patched_clean_up_2d_structure(self):
-        from rdkit.Chem import AllChem, rdmolops
+        try:
+            from rdkit.Chem import AllChem, rdmolops
+        except ImportError:
+            self.statusBar().showMessage("Error: RDKit is required for structure optimization.")
+            return
+
         self.statusBar().showMessage("Optimizing 2D structure (CoG Preserved)...")
+        # ... (以下、元のコードのtryの中身をそのまま記述) ...
+        # ※以前提示した修正版の中身と同じです
         self.scene.clear_all_problem_flags()
         if not self.data.atoms:
             self.statusBar().showMessage("Error: No atoms to optimize.")
             return
 
-        mol = self.data.to_rdkit_mol()
-        if mol is None or mol.GetNumAtoms() == 0:
-            self.check_chemistry_problems_fallback()
-            return
-
         try:
-            # Calculate original CoG for each fragment
+            mol = self.data.to_rdkit_mol()
+            if mol is None or mol.GetNumAtoms() == 0:
+                self.check_chemistry_problems_fallback()
+                return
+
+            # ... (中略: RDKit処理) ...
+            # 元のパッチ内容（CoG計算ロジック）をここに維持してください
             frags = rdmolops.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
             orig_cogs = {}
             for i, frag_indices in enumerate(frags):
@@ -241,14 +303,12 @@ def apply_patches(main_window):
                 if atom_count > 0:
                     orig_cogs[i] = QPointF(sum_x / atom_count, sum_y / atom_count)
 
-            # Compute new coordinates
             AllChem.Compute2DCoords(mol)
             conf = mol.GetConformer()
             SCALE = 50.0
             
             for i, frag_indices in enumerate(frags):
                 if i not in orig_cogs: continue
-                # Calculate new CoG for this fragment in RDKit space
                 rd_sum_x = 0.0; rd_sum_y = 0.0
                 for idx in frag_indices:
                     pos = conf.GetAtomPosition(idx)
@@ -256,14 +316,12 @@ def apply_patches(main_window):
                 rd_cog_x = rd_sum_x / len(frag_indices)
                 rd_cog_y = rd_sum_y / len(frag_indices)
                 
-                # Apply new positions relative to fragment CoG
                 for idx in frag_indices:
                     rd_atom = mol.GetAtomWithIdx(idx)
                     aid = rd_atom.GetIntProp("_original_atom_id")
                     if aid in self.data.atoms:
                         item = self.data.atoms[aid]['item']
                         rd_pos = conf.GetAtomPosition(idx)
-                        # RDKit Y is opposite to Qt Y
                         sx = ((rd_pos.x - rd_cog_x) * SCALE) + orig_cogs[i].x()
                         sy = (-(rd_pos.y - rd_cog_y) * SCALE) + orig_cogs[i].y()
                         new_pos = QPointF(sx, sy)
@@ -285,9 +343,15 @@ def apply_patches(main_window):
             import traceback
             traceback.print_exc()
         finally:
-            self.view_2d.setFocus()
+            if hasattr(self, 'view_2d') and self.view_2d:
+                self.view_2d.setFocus()
 
     patch(MainWindowEditActions, 'clean_up_2d_structure', patched_clean_up_2d_structure)
+
+
+    # --- 5. Patch MainWindowEditActions.clean_up_2d_structure ---
+    # 【修正】RDKitがない場合のクラッシュ回避を追加
+    
 
     def patched_get_current_state(self):
         state = _originals[(MainWindowAppState, 'get_current_state')](self)
