@@ -4,13 +4,15 @@
 import time
 import json
 import os
+import uuid
+import re
 from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy, 
-                             QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QWidget, QLabel, 
-                             QColorDialog, QFileDialog, QMessageBox, QMenu)
-from PyQt6.QtGui import QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, QAction
+                             QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QGridLayout, QWidget, QLabel, 
+                             QColorDialog, QFileDialog, QMessageBox, QMenu, QFrame)
+from PyQt6.QtGui import QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor
 from PyQt6.QtSvg import QSvgGenerator
-from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QObject, QEvent
-from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon
+from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, QObject, QEvent
+from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
 from .patcher import apply_patches, unapply_patches
 
 class ModeManager(QObject):
@@ -42,7 +44,7 @@ class ModeManager(QObject):
             "arrow_dashed": "chevron"
         }
         self.default_no_arrow_style = "slash"
-        self.default_circle_shape_type = "rectangle"
+        self.default_circle_shape_type = "circle"
         self.default_circle_line_style = "solid"
         self.default_arrow_props = {}
         self.default_bracket_type = "square"
@@ -51,6 +53,7 @@ class ModeManager(QObject):
         
         # Load persisted defaults
         self.load_defaults()
+        self.setup_shortcuts()
 
     def load_defaults(self):
         """Load default settings from settings.json if available."""
@@ -79,6 +82,14 @@ class ModeManager(QObject):
                              self.default_double_arrow_offset = float(defs["double_arrow_offset"])
             except: pass
 
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts for grouping etc."""
+        self.group_shortcut = QShortcut(QKeySequence("Ctrl+G"), self.main_window)
+        self.group_shortcut.activated.connect(self.group_selected_items)
+        
+        self.ungroup_shortcut = QShortcut(QKeySequence("Ctrl+U"), self.main_window)
+        self.ungroup_shortcut.activated.connect(self.ungroup_selected_items)
+        
 
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
@@ -86,45 +97,165 @@ class ModeManager(QObject):
             
         self.reaction_toolbar = QToolBar("Reaction Tools", self.main_window)
         self.reaction_toolbar.setOrientation(Qt.Orientation.Vertical)
-        self.reaction_toolbar.setIconSize(QSize(32, 32))
         self.reaction_toolbar.setMovable(False)
+        
+        # Create a container widget to hold the grid of buttons
+        container = QWidget()
+        layout = QGridLayout(container)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
         
         self.action_group = QActionGroup(self.main_window)
         self.action_group.setExclusive(True)
         
-        # Tools
+        # Tools List for Grid
+        # (Label/Tooltip, ToolName, ActionName(opt))
+        # Helper to add separator
+        def add_separator(layout, row):
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setFrameShadow(QFrame.Shadow.Sunken)
+            layout.addWidget(sep, row, 0, 1, 2)
+            return row + 1
 
-        # Select tool (Default)
-        select_action = self.add_tool("Select", "select", "Select and Move Objects")
-        select_action.setChecked(True)
+        # Tool Categories
+        # Each category: (Name, List of Tools)
+        # Tool: (Label, ToolName, Tooltip)
+        categories = [
+            ("Selection", [
+                ("Select", "select", "Select and Move Objects"),
+                ("Group", "group", "Group Selected Items"),
+                ("Ungroup", "ungroup", "Ungroup Selected Items"),
+            ]),
+            ("Basic Arrows", [
+                ("Arrow", "arrow", "Draw Reaction Arrow"),
+                ("Dashed Arrow", "arrow_dashed", "Draw Dashed Arrow"),
+                ("No Rxn", "arrow_no", "Draw No-Reaction Arrow"),
+                ("Equilibrium", "arrow_eq", "Draw Equilibrium Arrow"),
+                ("Resonance", "arrow_res", "Draw Resonance Arrow"),
+                ("Retro", "arrow_retro", "Draw Retrosynthetic Arrow"),
+            ]),
+            ("Curved Arrows", [
+                ("Curved", "curved_double", "Draw Curved Arrow"),
+                ("Fish-hook", "curved_fish", "Draw Fish-hook Arrow"),
+            ]),
+            ("Shapes", [
+                ("Bracket", "bracket", "Place Brackets"),
+                ("Circle", "circle", "Place Circle / Rectangle (Right-click for options)"),
+            ]),
+            ("Text & Signs", [
+                ("Plus", "plus", "Place Plus Sign"),
+                ("Minus", "minus", "Place Minus Sign"),
+                ("Text", "text", "Add Text Box")
+            ])
+        ]
         
-        self.reaction_toolbar.addSeparator()
+        row = 0
+        from PyQt6.QtWidgets import QFrame
         
-        self.add_tool("Arrow", "arrow", "Draw Reaction Arrow")
-        self.add_tool("Dashed Arrow", "arrow_dashed", "Draw Dashed Arrow")
-        self.add_tool("No Rxn", "arrow_no", "Draw No-Reaction Arrow")
-        self.add_tool("Equilibrium", "arrow_eq", "Draw Equilibrium Arrow")
-        self.add_tool("Resonance", "arrow_res", "Draw Resonance Arrow")
-        self.add_tool("Retro", "arrow_retro", "Draw Retrosynthetic Arrow")
+        # Define Alignment Tools
+        align_tools = [
+            ("align_top", "Align Top", lambda: self.align_items("top")),
+            ("align_center_v", "Align Vertical Center", lambda: self.align_items("center_v")),
+            ("align_bottom", "Align Bottom", lambda: self.align_items("bottom")),
+            ("distribute_h", "Distribute Horizontally", lambda: self.distribute_items("horizontal")),
+            ("distribute_v", "Distribute Vertically", lambda: self.distribute_items("vertical"))
+        ]
+
+        for cat_name, tools in categories:
+            col = 0
+            for label, name, tooltip in tools:
+                is_action = name in ["group", "ungroup"]
+                
+                btn = QToolButton()
+                btn.setCheckable(not is_action)
+                btn.setIconSize(QSize(32, 32))
+                btn.setToolTip(tooltip)
+                
+                # Create Action
+                action = QAction(self.main_window)
+                action.setCheckable(not is_action)
+                action.setText(label)
+                action.setToolTip(tooltip)
+                action.setProperty("tool_name", name)
+                
+                if name == "group":
+                    action.triggered.connect(self.group_selected_items)
+                elif name == "ungroup":
+                    action.triggered.connect(self.ungroup_selected_items)
+                else:
+                    action.triggered.connect(lambda checked, a=action: self.on_action_triggered(a))
+                
+                # Load Icon
+                icon_path = os.path.join(os.path.dirname(__file__), "icons", f"{name}.png")
+                if os.path.exists(icon_path):
+                    action.setIcon(QIcon(icon_path))
+                else:
+                    # Fallback to generated icon
+                    action.setIcon(create_reaction_icon(name))
+                
+                self.action_group.addAction(action)
+                btn.setDefaultAction(action)
+                
+                # Add Click-again (Left Click) support for tool options
+                if name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", 
+                             "curved_double", "curved_fish", "bracket", "circle", "plus", "minus", "text",
+                             "line", "line_curved", "freehand", "arrow_dashed"]:
+                    btn.pressed.connect(lambda act=action: self.on_tool_pressed(act))
+                    btn.clicked.connect(lambda _, b=btn, act=action: self.on_tool_clicked(b, act))
+
+                layout.addWidget(btn, row, col)
+                col += 1
+                if col > 1:
+                    col = 0
+                    row += 1
+            
+            # If finished odd, move to next row
+            if col != 0:
+                row += 1
+            
+            # Add Separator after category (if not last)
+            if cat_name != "Text & Signs":
+                 row = add_separator(layout, row)
+
+            # [INJECTION] Alignment Tools after Selection
+            if cat_name == "Selection":
+                col = 0
+                for name, tooltip, func in align_tools:
+                    btn = QToolButton()
+                    btn.setIconSize(QSize(32, 32)) # Match other buttons
+                    btn.setToolTip(tooltip)
+                    
+                    action = QAction(self.main_window)
+                    action.setToolTip(tooltip)
+                    action.triggered.connect(func)
+                    
+                    from .icons import create_alignment_icon
+                    action.setIcon(create_alignment_icon(name))
+                    
+                    btn.setDefaultAction(action)
+                    layout.addWidget(btn, row, col)
+                    
+                    col += 1
+                    if col > 1:
+                        col = 0
+                        row += 1
+                
+                if col != 0:
+                    row += 1
+                    
+                # Add separator after alignment
+                row = add_separator(layout, row)
+
 
         
-        self.reaction_toolbar.addSeparator()
+        self.reaction_toolbar.addWidget(container)
         
-        self.add_tool("Curved", "curved_double", "Draw Curved Arrow")
-        self.add_tool("Fish-hook", "curved_fish", "Draw Fish-hook Arrow")
-        
-        self.reaction_toolbar.addSeparator()
-        
-        self.add_tool("Bracket", "bracket", "Place Brackets")
-        self.add_tool("Circle", "circle", "Place Circle")
-        
-        self.reaction_toolbar.addSeparator()
-        
-        self.add_tool("Plus", "plus", "Place Plus Sign")
-        self.add_tool("Minus", "minus", "Place Minus Sign")
-        self.add_tool("Text", "text", "Add Text Box")
-        
-        self.reaction_toolbar.addSeparator()
+        # Select default
+        for action in self.action_group.actions():
+            if action.property("tool_name") == "select":
+                action.setChecked(True)
+                break
         
         # Exit Button
         exit_action = self.reaction_toolbar.addAction(create_reaction_icon("exit"), "Exit Reaction Mode")
@@ -150,7 +281,12 @@ class ModeManager(QObject):
             return
             
         # Avoid infinite loops if we are the ones who triggered this change
+        # Also avoid resetting if the interaction handler is in the middle of a change
         if self.interaction_handler and getattr(self.interaction_handler, '_internal_mode_change', False):
+            return
+        
+        # Check if we are currently switching modes via ModeManager
+        if getattr(self, '_switching_tool', False):
             return
 
         # Modes that should trigger setting plugin tool to Select:
@@ -200,6 +336,24 @@ class ModeManager(QObject):
         self.italic_action.setFont(QFont("Arial", 10, QFont.Weight.Normal, True))
         self.italic_action.triggered.connect(self.apply_properties)
         
+        self.property_toolbar.addSeparator()
+        
+        self.sub_action = self.property_toolbar.addAction("Sub")
+        self.sub_action.setCheckable(False) # Using as toggle via method but button state might need sync? 
+        # Actually my toggle method logic checks current state of TEXT, not button.
+        # So button is just a trigger.
+        self.sub_action.setToolTip("Subscript")
+        self.sub_action.triggered.connect(self.toggle_subscript)
+        
+        self.sup_action = self.property_toolbar.addAction("Sup")
+        self.sup_action.setCheckable(False)
+        self.sup_action.setToolTip("Superscript")
+        self.sup_action.triggered.connect(self.toggle_superscript)
+        
+        self.chem_action = self.property_toolbar.addAction("Chem")
+        self.chem_action.setToolTip("Apply Chemistry Style (e.g. H_2O -> H₂O)")
+        self.chem_action.triggered.connect(self.apply_chem_style)
+        
         self.lbl_font_size = QLabel(" Font Size: ")
         self.property_toolbar.addWidget(self.lbl_font_size)
         self.font_size_spin = QSpinBox()
@@ -235,6 +389,18 @@ class ModeManager(QObject):
         self.update_color_button(QColor("#222222"))
         
         self.property_toolbar.addSeparator()
+        
+        self.property_toolbar.addWidget(QLabel(" Text: "))
+        # Chem Style
+        self.chem_action = self.property_toolbar.addAction("Chem")
+        self.chem_action.setToolTip("Parse Chemistry Syntax (_ for sub, ~ or ^ for sup)")
+        self.chem_action.triggered.connect(self.apply_chem_style)
+        
+        # Sub/Sup (Placeholder/Extra)
+        # self.sub_action = self.property_toolbar.addAction("Sub")
+        # self.sub_action.triggered.connect(self.toggle_subscript)
+        # self.sup_action = self.property_toolbar.addAction("Sup") 
+        # self.sup_action.triggered.connect(self.toggle_superscript)
 
         # SVG Export
         self.property_toolbar.addAction("Export SVG", self.export_svg)
@@ -532,34 +698,50 @@ class ModeManager(QObject):
         self.reaction_toolbar.addWidget(button)
         return button
 
-    def on_tool_pressed(self, tool_name):
-        # Capture state before the action toggles
-        if self.interaction_handler:
-            self._was_active_before_click = (self.interaction_handler.active_tool == tool_name)
-        else:
-            self._was_active_before_click = False
-
-    def on_tool_clicked(self, button, tool_name):
-        # If the tool WAS already active before we clicked it, show menu
-        if getattr(self, '_was_active_before_click', False):
-            # Check if we just closed the menu (prevents re-opening immediately on click)
-            if time.time() - self._last_menu_close_time < 0.2:
-                return
-
-            # Show menu
-            if tool_name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", 
-                             "curved_double", "curved_fish", "bracket", "circle", "plus", "minus", "text",
-                             "line", "line_curved", "freehand", "arrow_dashed"]:
-                self.show_tool_context_menu(button, tool_name, button.rect().bottomLeft())
-
     def on_action_triggered(self, action):
         tool_name = action.property("tool_name")
+        if not tool_name: return
             
         if self.interaction_handler:
-            self.interaction_handler.set_tool(tool_name)
+            # Set a flag to ignore the 'select' mode change notification that 
+            # might be triggered by main_window.activate_select_mode()
+            self._switching_tool = True
+            try:
+                self.interaction_handler.set_tool(tool_name)
+                
+                # One click to activate style on selection
+                if self.main_window and self.main_window.scene:
+                    items = self.main_window.scene.selectedItems()
+                    if items:
+                         if tool_name in ["arrow", "arrow_dashed", "arrow_eq", "arrow_res", "arrow_retro", "curved_double", "curved_fish"]:
+                             self.set_head_style(tool_name, self.default_head_styles.get(tool_name, "triangle"))
+                         elif tool_name == "arrow_no":
+                             self.set_negation_style(getattr(self, "default_no_arrow_style", "slash"))
+                         elif tool_name == "circle":
+                             self.set_circle_variant(getattr(self, "default_circle_shape_type", "circle"), 
+                                                     getattr(self, "default_circle_line_style", "solid"))
+                         elif tool_name == "bracket":
+                             self.set_bracket_type(getattr(self, "default_bracket_type", "square"))
+            finally:
+                self._switching_tool = False
+
             # Ensure focus returns to view so keyboard shortcuts (Space) work immediately
             if self.main_window and hasattr(self.main_window, 'view_2d'):
                 self.main_window.view_2d.setFocus()
+
+    def on_tool_pressed(self, action):
+        # Capture state before the action toggles
+        self._was_active_before_click = action.isChecked()
+
+    def on_tool_clicked(self, button, action):
+        # If the tool WAS already active before we clicked it, show menu
+        if getattr(self, '_was_active_before_click', False):
+            # Check if we just closed the menu (prevents re-opening immediately on click)
+            if time.time() - getattr(self, '_last_menu_close_time', 0) < 0.2:
+                return
+
+            tool_name = action.property("tool_name")
+            self.show_tool_context_menu(button, tool_name, button.rect().bottomLeft())
 
     def show_tool_context_menu(self, button, tool_name, pos):
         menu = self.create_tool_style_menu(tool_name)
@@ -885,7 +1067,7 @@ class ModeManager(QObject):
             "arrow_eq": ReactionEquilibriumArrowItem,
             "arrow_retro": ReactionRetroArrowItem,
             "curved_double": ReactionCurvedArrowItem,
-            # "curved_fish": ReactionCurvedArrowItem # handled separately or via is_fish_hook
+            "curved_fish": ReactionCurvedArrowItem
         }
         
         target_class = tool_map.get(tool_name)
@@ -893,33 +1075,32 @@ class ModeManager(QObject):
         modified = False
         scene = self.main_window.scene
         
-        # We collect updates to avoid modifying list while iterating if we were replacing?
-        # Safe to iterate copy or index?
-        # Only replacing produces new items. 
-        
+        # We collect updates to avoid modifying list while iterating
         for item in list(items): # copy list
             if not isinstance(item, ReactionArrowItem):
                 continue
                 
             # Check if conversion is needed
-            # We convert if the current item class differs from the target tool's class
-            # Exception: ReactionCurvedArrowItem handles both curved_double and curved_fish?
-            # actually curved_fish is not usually passed to set_head_style unless we add it to map.
-            # set_head_style is called for "arrow", "arrow_dashed", etc.
-            
             should_convert = False
             if target_class and not isinstance(item, target_class):
-                # Basic mismatch (e.g. Arrow vs Dashed)
                 should_convert = True
-                
-            # Special case: Don't convert Curved -> Straight or vice versa implicitly unless desired?
-            # User request: "different kinds of arrows... change the type".
-            # So if I have Curved selected and click "Arrow (Straight)" style, it should become Straight.
+            
+            # Additional check for Curved Arrow variants (Double vs Fish)
+            if target_class == ReactionCurvedArrowItem and isinstance(item, ReactionCurvedArrowItem):
+                is_target_fish = (tool_name == "curved_fish")
+                if item.is_fish_hook != is_target_fish:
+                    should_convert = True
             
             if should_convert:
                 # Create new item
                 old_state = item.create_json_data()
-                new_item = target_class(item.start_p, item.end_p)
+                
+                # Pass fish hook parameter if applicable
+                kwargs = {}
+                if tool_name == "curved_fish":
+                    kwargs["is_fish_hook"] = True
+                
+                new_item = target_class(item.start_p, item.end_p, **kwargs)
                 
                 # Copy properties
                 if hasattr(new_item, "pen_color") and "color" in old_state:
@@ -1112,6 +1293,10 @@ class ModeManager(QObject):
 
         self.main_window.push_undo_state()
 
+    def set_tool(self, tool_name):
+        if self.interaction_handler:
+            self.interaction_handler.set_tool(tool_name)
+
     def set_bracket_type(self, b_type):
         self.default_bracket_type = b_type
         
@@ -1176,6 +1361,13 @@ class ModeManager(QObject):
         else:
             self.exit_reaction_mode()
 
+
+    def add_action(self, icon_name, tooltip, callback):
+        """Helper to add simple action buttons (not checkable tools)."""
+        icon = create_alignment_icon(icon_name)
+        action = self.reaction_toolbar.addAction(icon, tooltip)
+        action.triggered.connect(callback)
+        return action
 
     def enter_reaction_mode(self):
         # Save original layout
@@ -1265,3 +1457,350 @@ class ModeManager(QObject):
             
         for action in self._3d_actions:
             action.setEnabled(enabled)
+
+    def group_selected_items(self):
+        """Group selected items logically."""
+        if not self.main_window or not self.main_window.scene: return
+        items = self.main_window.scene.selectedItems()
+        if not items: return
+        
+        # Filter for items that support grouping (our plugin items + patched atoms/bonds)
+        groupable = [i for i in items if hasattr(i, "group_id") or hasattr(i, "atom_id") or hasattr(i, "atom1")]
+        
+        if not groupable:
+            return
+
+        new_group = str(uuid.uuid4())
+        self.main_window.push_undo_state()
+        for item in groupable:
+            item.group_id = new_group
+            item.is_group_selected = True
+            item.update()
+        
+        if self.interaction_handler:
+            self.interaction_handler.update_group_overlay(groupable)
+            
+    def ungroup_selected_items(self):
+        """Ungroup selected items."""
+        if not self.main_window or not self.main_window.scene: return
+        items = self.main_window.scene.selectedItems()
+        if not items: return
+        
+        groupable = [i for i in items if hasattr(i, "group_id") or hasattr(i, "atom_id") or hasattr(i, "atom1")]
+        if not groupable: return
+
+        self.main_window.push_undo_state()
+        for item in groupable:
+            item.group_id = None
+            item.is_group_selected = False
+            item.update()
+            
+        if self.interaction_handler:
+            self.interaction_handler.clear_group_overlay()
+
+    def get_logical_units(self, items):
+        """
+        Partition items into rigid units for alignment/distribution:
+        1. Explicit Groups (all scene items with same group_id)
+        2. Molecule Fragments (all scene items connected to selected atoms/bonds)
+        3. Single Reaction Items
+        """
+        scene = self.main_window.scene if self.main_window else None
+        if not scene: return []
+        
+        # 1. Build a robust mapping from core atom/bond objects/IDs to graphics items
+        atom_to_item = {}
+        bond_to_item = {}
+        mol_data = getattr(self.main_window, "data", None)
+        if mol_data:
+            if hasattr(mol_data, "atoms"):
+                for aid, info in mol_data.atoms.items():
+                    a_item = info.get("item")
+                    if a_item:
+                        atom_to_item[aid] = a_item
+                        core_atom = info.get("atom")
+                        if core_atom: atom_to_item[core_atom] = a_item
+            if hasattr(mol_data, "bonds"):
+                for bid, info in mol_data.bonds.items():
+                    b_item = info.get("item")
+                    if b_item:
+                        bond_to_item[bid] = b_item
+                        core_bond = info.get("bond")
+                        if core_bond: bond_to_item[core_bond] = b_item
+        
+        visited = set()
+        units = []
+        
+        # Helper to find all connected items in a fragment (DFS/BFS)
+        def get_fragment_items(start_item):
+            fragment = set()
+            stack = [start_item]
+            while stack:
+                curr = stack.pop()
+                if curr in fragment: continue
+                fragment.add(curr)
+                
+                # If it's an atom item
+                if hasattr(curr, "bonds"): # Typical for AtomItem
+                    for b_data in curr.bonds:
+                        b_item = bond_to_item.get(b_data)
+                        if b_item and b_item.scene() == scene and b_item not in fragment:
+                            stack.append(b_item)
+                
+                # If it's a bond item
+                if hasattr(curr, "bond"): # Typical for BondItem
+                    core_b = curr.bond
+                    if hasattr(core_b, "atom1"):
+                        for a_data in [core_b.atom1, core_b.atom2]:
+                            a_item = atom_to_item.get(a_data)
+                            if a_item and a_item.scene() == scene and a_item not in fragment:
+                                stack.append(a_item)
+            return fragment
+
+        for item in items:
+            if item in visited: continue
+            
+            unit_members = []
+            
+            # 1. Explicit Group
+            if hasattr(item, "group_id") and item.group_id:
+                gid = item.group_id
+                # Treat the WHOLE group in the scene as one unit
+                unit_members = [i for i in scene.items() if hasattr(i, "group_id") and i.group_id == gid]
+                
+            # 2. Molecule Fragment (Atoms/Bonds)
+            elif hasattr(item, "bonds") or hasattr(item, "bond"):
+                unit_members = list(get_fragment_items(item))
+                
+            # 3. Single Reaction Item
+            else:
+                unit_members = [item]
+                
+            # Mark all as visited so we don't process them again if they were in selection
+            for m in unit_members:
+                visited.add(m)
+            
+            # Calculate total bounding box and COG (Center of Gravity)
+            rect = QRectF()
+            atom_positions = []
+            for m in unit_members:
+                if rect.isNull(): rect = m.sceneBoundingRect()
+                else: rect = rect.united(m.sceneBoundingRect())
+                # If it has .bonds, it's an AtomItem
+                if hasattr(m, "bonds"):
+                    atom_positions.append(m.pos())
+            
+            # Use average of atom positions for molecules, otherwise rect center
+            center = rect.center()
+            if atom_positions:
+                avg_x = sum(p.x() for p in atom_positions) / len(atom_positions)
+                avg_y = sum(p.y() for p in atom_positions) / len(atom_positions)
+                center = QPointF(avg_x, avg_y)
+                
+            units.append({
+                "members": unit_members,
+                "rect": rect,
+                "center": center
+            })
+            
+        return units
+
+    def align_items(self, mode):
+        """Align selected items (Groups/Molecules Rigidly)."""
+        if not self.main_window or not self.main_window.scene: return
+        
+        items = self.main_window.scene.selectedItems()
+        if len(items) < 2: return
+        
+        units = self.get_logical_units(items)
+        if len(units) < 2: return
+        
+        rects = [u["rect"] for u in units]
+        self.main_window.push_undo_state()
+        
+        moved_atoms = []
+        
+        if mode == "top":
+            ref = min(r.top() for r in rects)
+            for u in units:
+                dy = ref - u["rect"].top()
+                for item in u["members"]: 
+                    item.moveBy(0, dy)
+                    if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                
+        elif mode == "bottom":
+            ref = max(r.bottom() for r in rects)
+            for u in units:
+                dy = ref - u["rect"].bottom()
+                for item in u["members"]: 
+                    item.moveBy(0, dy)
+                    if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                
+        elif mode == "center_v":
+            avg_y = sum(u["center"].y() for u in units) / len(units)
+            for u in units:
+                dy = avg_y - u["center"].y()
+                for item in u["members"]: 
+                    item.moveBy(0, dy)
+                    if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+
+        if moved_atoms and hasattr(self.main_window.scene, "update_connected_bonds"):
+             self.main_window.scene.update_connected_bonds(moved_atoms)
+        self.main_window.scene.update()
+
+    def distribute_items(self, mode):
+        """Distribute selected items (Rigid Units)."""
+        if not self.main_window or not self.main_window.scene: return
+        items = self.main_window.scene.selectedItems()
+        if len(items) < 3: return
+        
+        units = self.get_logical_units(items)
+        if len(units) < 3: return
+        
+        self.main_window.push_undo_state()
+        moved_atoms = []
+        
+        if mode == "horizontal":
+            units.sort(key=lambda u: u["center"].x())
+            start_x = units[0]["center"].x()
+            end_x = units[-1]["center"].x()
+            dist = end_x - start_x
+            if len(units) > 1:
+                step = dist / (len(units) - 1)
+                for i, u in enumerate(units):
+                    target_x = start_x + step * i
+                    dx = target_x - u["center"].x()
+                    for item in u["members"]: 
+                        item.moveBy(dx, 0)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                    
+        elif mode == "vertical":
+            units.sort(key=lambda u: u["center"].y())
+            start_y = units[0]["center"].y()
+            end_y = units[-1]["center"].y()
+            dist = end_y - start_y
+            if len(units) > 1:
+                step = dist / (len(units) - 1)
+                for i, u in enumerate(units):
+                    target_y = start_y + step * i
+                    dy = target_y - u["center"].y()
+                    for item in u["members"]: 
+                        item.moveBy(0, dy)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+
+        if moved_atoms and hasattr(self.main_window.scene, "update_connected_bonds"):
+             self.main_window.scene.update_connected_bonds(moved_atoms)
+        self.main_window.scene.update()
+
+            
+    def toggle_subscript(self):
+        self._toggle_text_format("sub")
+
+    def toggle_superscript(self):
+        self._toggle_text_format("sup")
+
+    def _toggle_text_format(self, mode):
+        if not self.main_window or not self.main_window.scene: return
+        
+        # Check for focused text item (editing mode)
+        item = self.main_window.scene.focusItem()
+        from .items import ReactionTextItem
+        from PyQt6.QtGui import QTextCharFormat
+        
+        # If no focus item, check selected items
+        targets = []
+        if isinstance(item, ReactionTextItem) and (item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+             targets.append(item)
+        else:
+            sel = self.main_window.scene.selectedItems()
+            targets = [i for i in sel if isinstance(i, ReactionTextItem)]
+            
+        if not targets: return
+        
+        self.main_window.push_undo_state()
+        
+        for item in targets:
+            cursor = item.textCursor()
+            fmt = cursor.charFormat()
+            current_align = fmt.verticalAlignment()
+            
+            new_align = QTextCharFormat.VerticalAlignment.AlignNormal
+            if mode == "sub":
+                if current_align != QTextCharFormat.VerticalAlignment.AlignSubScript:
+                    new_align = QTextCharFormat.VerticalAlignment.AlignSubScript
+            elif mode == "sup":
+                if current_align != QTextCharFormat.VerticalAlignment.AlignSuperScript:
+                    new_align = QTextCharFormat.VerticalAlignment.AlignSuperScript
+            
+            fmt.setVerticalAlignment(new_align)
+            
+            # If valid cursor selection or editing
+            if cursor.hasSelection():
+                cursor.mergeCharFormat(fmt)
+            else:
+                # If just clicked (no selection), applying format changes style for FUTURE typing at cursor
+                # But if we are manipulating "selected items" (not editing), we should apply to WHOLE text.
+                if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                    cursor.mergeCharFormat(fmt)
+                    item.setTextCursor(cursor) # Ensure update
+                else:
+                    # Apply to whole document
+                    cursor.select(cursor.SelectionType.Document)
+                    cursor.mergeCharFormat(fmt)
+
+    def apply_chem_style(self):
+        """Parse text and apply chemical formatting (sub/sup)."""
+        if not self.main_window or not self.main_window.scene: return
+        
+        from .items import ReactionTextItem
+        from PyQt6.QtGui import QTextCharFormat
+        import re
+        
+        # Prefer focused item
+        focus_item = self.main_window.scene.focusItem()
+        targets = []
+        if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+            targets.append(focus_item)
+        else:
+            sel = self.main_window.scene.selectedItems()
+            targets = [i for i in sel if isinstance(i, ReactionTextItem)]
+            
+        if not targets: return
+        
+        self.main_window.push_undo_state()
+        
+        # Regex for _X or ~X or ^X where X is digit or +/-
+        pattern = re.compile(r'([_~^])([0-9+\-])')
+        
+        for item in targets:
+            cursor = item.textCursor()
+            text = item.toPlainText()
+            
+            # Reset format first
+            cursor.select(cursor.SelectionType.Document)
+            fmt_normal = QTextCharFormat()
+            fmt_normal.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+            cursor.mergeCharFormat(fmt_normal)
+            
+            matches = list(pattern.finditer(text))
+            
+            # Iterate backwards
+            for m in reversed(matches):
+                start, end = m.span()
+                trigger = m.group(1)
+                char = m.group(2)
+                
+                # Setup format
+                fmt = QTextCharFormat()
+                if trigger == '_':
+                    fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
+                else:
+                    fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
+                
+                # Replace trigger+char with char (formatting applied) of char
+                # Actually, we replace "_3" with "3" and format "3".
+                
+                cursor.setPosition(start)
+                cursor.setPosition(end, cursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+                cursor.insertText(char, fmt)

@@ -105,6 +105,22 @@ def apply_core_patches(main_window):
 
     patch_core(MainWindowUiManager, 'set_mode', patched_set_mode)
 
+    # --- AtomItem Init ---
+    def patched_atom_item_init(self, atom_id, symbol, pos, charge=0, radical=0):
+        _core_originals[(AtomItem, '__init__')](self, atom_id, symbol, pos, charge, radical)
+        self.group_id = None
+        self.is_group_selected = False
+
+    patch_core(AtomItem, '__init__', patched_atom_item_init)
+
+    # --- BondItem Init ---
+    def patched_bond_item_init(self, atom1, atom2, order=1, stereo=0):
+        _core_originals[(BondItem, '__init__')](self, atom1, atom2, order, stereo)
+        self.group_id = None
+        self.is_group_selected = False
+
+    patch_core(BondItem, '__init__', patched_bond_item_init)
+
     # --- MainWindow.closeEvent ---
     def patched_close_event(self, event):
         # Clean up ALL patches on close
@@ -115,8 +131,29 @@ def apply_core_patches(main_window):
             return orig(self, event)
         from PyQt6.QtWidgets import QMainWindow
         return QMainWindow.closeEvent(self, event)
-    
+
     patch_core(MainWindow, 'closeEvent', patched_close_event)
+
+    # --- MoleculeScene.mousePressEvent ---
+    def patched_molecule_scene_mouse_press_event(self, event):
+        # Record initial positions for everything that can be moved and tracked
+        # MoleculeScene's original MousePressEvent only records AtomItem positions.
+        self.initial_positions_in_event = {}
+        for item in self.items():
+            if isinstance(item, AtomItem) or hasattr(item, "create_json_data"):
+                try:
+                    self.initial_positions_in_event[item] = item.pos()
+                except RuntimeError:
+                    continue
+        
+        orig = _core_originals.get((MoleculeScene, 'mousePressEvent'))
+        if orig:
+            orig(self, event)
+        else:
+            from PyQt6.QtWidgets import QGraphicsScene
+            QGraphicsScene.mousePressEvent(self, event)
+
+    patch_core(MoleculeScene, 'mousePressEvent', patched_molecule_scene_mouse_press_event)
 
     # --- Copy Selection ---
     def patched_copy_selection(self):
@@ -323,9 +360,11 @@ def apply_core_patches(main_window):
                 painter.drawEllipse(bg_rect)
 
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(0, 100, 255), 3))
-            painter.drawRect(self.boundingRect())
+            # Suppress individual selection highlight if Stage 1 Group Selection is active
+            if not getattr(self, 'is_group_selected', False):
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(0, 100, 255), 3))
+                painter.drawRect(self.boundingRect())
         elif getattr(self, 'hovered', False):
             painter.setPen(QPen(QColor(144, 238, 144, 200), 3))
             painter.drawRect(self.boundingRect())
@@ -361,6 +400,10 @@ def apply_core_patches(main_window):
 
     # --- Bond Paint ---
     def patched_bond_paint(self, painter, option, widget):
+        # Suppress individual selection highlight if Stage 1 Group Selection is active
+        if getattr(self, 'is_group_selected', False):
+            option.state &= ~QStyle.StateFlag.State_Selected
+
         custom_color = getattr(self, 'pen_color', None)
         if not custom_color:
             return _core_originals[(BondItem, 'paint')](self, painter, option, widget)
@@ -426,7 +469,80 @@ def apply_core_patches(main_window):
         return deleted_reaction or success_core
 
     patch_core(MoleculeScene, 'delete_items', patched_delete_items)
-    
+
+    # --- Rotate Molecule 2D ---
+    def patched_rotate_molecule_2d(self, angle_degrees):
+        try:
+            import math
+            selected_items = self.scene.selectedItems()
+            
+            # Identify targets
+            target_atoms = [i for i in selected_items if isinstance(i, AtomItem)]
+            target_reaction_items = [i for i in selected_items if hasattr(i, "rotate_around")]
+            
+            # If nothing selected, rotate everything
+            if not target_atoms and not target_reaction_items:
+                target_atoms = [data['item'] for data in self.data.atoms.values() if data.get('item')]
+                # Filter out deleted atoms if any
+                target_atoms = [a for a in target_atoms if a.scene() is not None]
+                
+                # Gather reaction items from scene
+                for item in self.scene.items():
+                    if hasattr(item, "rotate_around"):
+                        target_reaction_items.append(item)
+            
+            if not target_atoms and not target_reaction_items:
+                self.statusBar().showMessage("No items to rotate.")
+                return
+
+            # Calculate Center
+            points = []
+            for atom in target_atoms:
+                points.append(atom.pos())
+            
+            for item in target_reaction_items:
+                 # Prefer scene bounding rect center for calculation
+                 points.append(item.sceneBoundingRect().center())
+            
+            if not points: return
+            
+            center_x = sum(p.x() for p in points) / len(points)
+            center_y = sum(p.y() for p in points) / len(points)
+            center = QPointF(center_x, center_y)
+            
+            rad = math.radians(angle_degrees)
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
+            
+            # Rotate Atoms
+            for atom in target_atoms:
+                dx = atom.pos().x() - center_x
+                dy = atom.pos().y() - center_y
+                # Rotation logic: new_x = x*cos - y*sin
+                new_dx = dx * cos_a - dy * sin_a
+                new_dy = dx * sin_a + dy * cos_a
+                atom.setPos(QPointF(center_x + new_dx, center_y + new_dy))
+                
+            # Rotate Reaction Items
+            for item in target_reaction_items:
+                item.rotate_around(center, angle_degrees)
+
+            # Update bonds
+            self.scene.update_connected_bonds(target_atoms)
+            
+            self.push_undo_state()
+            self.statusBar().showMessage(f"Rotated {len(target_atoms) + len(target_reaction_items)} items by {angle_degrees} degrees.")
+            self.scene.update()
+            self.scene.update_all_items()
+            
+        except Exception as e:
+            print(f"Error rotating molecule: {e}")
+            import traceback
+            traceback.print_exc()
+            self.statusBar().showMessage(f"Error rotating: {e}")
+
+    patch_core(MainWindowEditActions, 'rotate_molecule_2d', patched_rotate_molecule_2d)
+
     # --- MoleculeScene.keyPressEvent ---
     def patched_molecule_scene_key_press_event(self, event):
         # If focus is on a ReactionTextItem in edit mode, and it accepted the event,
@@ -480,6 +596,12 @@ def apply_core_patches(main_window):
 
     # --- Clean Up 2D ---
     def patched_clean_up_2d_structure(self):
+        # Even if not in group, treat as rigid in reaction mode
+        if hasattr(self, "reaction_mode_manager") and self.reaction_mode_manager.is_reaction_mode:
+            if hasattr(self, 'statusBar'):
+                self.statusBar().showMessage("Cleanup is disabled in Reaction Mode to preserve manual layout.", 3000)
+            return
+
         try:
             from rdkit.Chem import AllChem, rdmolops
         except ImportError:
@@ -562,11 +684,11 @@ def apply_core_patches(main_window):
     def patched_get_current_state(self):
         state = _core_originals[(MainWindowAppState, 'get_current_state')](self)
         
-        # Atom and Bond colors
-        acols = {str(aid): d['item'].pen_color.name() for aid, d in self.data.atoms.items() if getattr(d['item'], 'pen_color', None)}
-        bcols = {f"{k[0]}-{k[1]}": d['item'].pen_color.name() for k, d in self.data.bonds.items() if getattr(d['item'], 'pen_color', None)}
-        state['rs_atom_colors'] = acols
-        state['rs_bond_colors'] = bcols
+        # Group IDs for atoms and bonds
+        agroups = {str(aid): getattr(d['item'], 'group_id', None) for aid, d in self.data.atoms.items() if hasattr(d['item'], 'group_id')}
+        bgroups = {f"{k[0]}-{k[1]}": getattr(d['item'], 'group_id', None) for k, d in self.data.bonds.items() if hasattr(d['item'], 'group_id')}
+        state['rs_atom_groups'] = agroups
+        state['rs_bond_groups'] = bgroups
         
         # Reaction items
         rs_items_data = []
@@ -584,23 +706,21 @@ def apply_core_patches(main_window):
     def patched_set_state_from_data(self, state_data):
         _core_originals[(MainWindowAppState, 'set_state_from_data')](self, state_data)
         
-        acols = state_data.get('rs_atom_colors', {})
-        for aid_str, col_name in acols.items():
+        agroups = state_data.get('rs_atom_groups', {})
+        for aid_str, gid in agroups.items():
             aid = int(aid_str) if aid_str.isdigit() else aid_str
             if aid in self.data.atoms:
-                self.data.atoms[aid]['item'].pen_color = QColor(col_name)
-                self.data.atoms[aid]['item'].update()
+                self.data.atoms[aid]['item'].group_id = gid
 
-        bcols = state_data.get('rs_bond_colors', {})
-        for k_str, col_name in bcols.items():
+        bgroups = state_data.get('rs_bond_groups', {})
+        for key, gid in bgroups.items():
             try:
-                id1_s, id2_s = k_str.split("-")
-                id1 = int(id1_s) if id1_s.isdigit() else id1_s
-                id2 = int(id2_s) if id2_s.isdigit() else id2_s
+                id1_str, id2_str = key.split('-')
+                id1 = int(id1_str) if id1_str.isdigit() else id1_str
+                id2 = int(id2_str) if id2_str.isdigit() else id2_str
                 k = (id1, id2)
                 if k in self.data.bonds:
-                    self.data.bonds[k]['item'].pen_color = QColor(col_name)
-                    self.data.bonds[k]['item'].update()
+                    self.data.bonds[k]['item'].group_id = gid
             except: continue
 
         for item in list(self.scene.items()):
@@ -626,7 +746,9 @@ def apply_core_patches(main_window):
             '_next_atom_id': self.data._next_atom_id,
             'mol_3d': self.current_mol.ToBinary() if self.current_mol else None,
             'mol_3d_atom_ids': curr_state.get('mol_3d_atom_ids', []),
-            'rs_items': curr_state.get('rs_items', [])
+            'rs_items': curr_state.get('rs_items', []),
+            'rs_atom_groups': curr_state.get('rs_atom_groups', {}),
+            'rs_bond_groups': curr_state.get('rs_bond_groups', {})
         }
         
         last_comp = None
@@ -636,16 +758,20 @@ def apply_core_patches(main_window):
             last_bonds = last_state.get('bonds', {})
             last_acols = last_state.get('rs_atom_colors', {})
             last_bcols = last_state.get('rs_bond_colors', {})
+            last_agroups = last_state.get('rs_atom_groups', {})
+            last_bgroups = last_state.get('rs_bond_groups', {})
             
             last_comp = {
-                'atoms': {k: (v['symbol'], v['pos'][0], v['pos'][1], v.get('charge', 0), v.get('radical', 0),
+                'atoms': {k: (v['symbol'], v['pos'][0], v['pos'][1], v.get('charge', 0), v.get('radical', 0), 
                               last_acols.get(str(k), "")) for k, v in last_atoms.items()},
-                'bonds': {k: (v['order'], v.get('stereo', 0),
+                'bonds': {k: (v['order'], v.get('stereo', 0), 
                               last_bcols.get(f"{k[0]}-{k[1]}", "")) for k, v in last_bonds.items()},
                 '_next_atom_id': last_state.get('_next_atom_id'),
                 'mol_3d': last_state.get('mol_3d', None),
                 'mol_3d_atom_ids': last_state.get('mol_3d_atom_ids', []),
-                'rs_items': last_state.get('rs_items', [])
+                'rs_items': last_state.get('rs_items', []),
+                'rs_atom_groups': last_agroups,
+                'rs_bond_groups': last_bgroups
             }
 
         if not last_comp or current_comp != last_comp:
@@ -709,28 +835,15 @@ def apply_interaction_patches(main_window):
         if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
               scene = mw.scene
               if hasattr(scene, "initial_positions_in_event") and scene.initial_positions_in_event:
-                  from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                                      ReactionMinusItem, ReactionResonanceArrowItem, 
-                                      ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                                      ReactionNoArrowItem, ReactionCurvedArrowItem,
-                                      ReactionBracketItem, ReactionCircleItem,
-                                      ReactionLineItem, ReactionCurvedLineItem,
-                                      ReactionFreehandItem, ReactionDashedArrowItem)
-                  reaction_types = (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                                      ReactionMinusItem, ReactionResonanceArrowItem, 
-                                      ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                                      ReactionNoArrowItem, ReactionCurvedArrowItem,
-                                      ReactionBracketItem, ReactionCircleItem,
-                                      ReactionLineItem, ReactionCurvedLineItem,
-                                      ReactionFreehandItem, ReactionDashedArrowItem)
+                  # Check ALL items that were tracked in mousePressEvent
                   moved = False
-                  for item in scene.selectedItems():
-                      if isinstance(item, reaction_types):
-                          if item in scene.initial_positions_in_event:
-                              old_pos = scene.initial_positions_in_event[item]
-                              if item.pos() != old_pos:
-                                  moved = True
-                                  break
+                  for item, old_pos in scene.initial_positions_in_event.items():
+                      try:
+                          if item.scene() == scene and item.pos() != old_pos:
+                              moved = True
+                              break
+                      except: continue
+                  
                   if moved:
                       if hasattr(mw, "push_undo_state"):
                           mw.push_undo_state()

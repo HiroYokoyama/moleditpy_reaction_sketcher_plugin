@@ -8,7 +8,8 @@ from .items import (ReactionArrowItem, ReactionResonanceArrowItem, ReactionEquil
                     ReactionRetroArrowItem, ReactionCurvedArrowItem, ReactionTextItem, 
                     ReactionPlusItem, ReactionMinusItem, ReactionNoArrowItem, 
                     ReactionDashedArrowItem, ReactionLineItem, ReactionCurvedLineItem,
-                    ReactionFreehandItem, ReactionBracketItem, ReactionCircleItem, ReactionHandle)
+                    ReactionFreehandItem, ReactionBracketItem, ReactionCircleItem, ReactionHandle,
+                    ReactionGroupOverlay, sip_isdeleted_safe)
 from .icons import create_style_icon, create_shape_variant_icon
 
 class InteractionHandler(QObject):
@@ -19,6 +20,7 @@ class InteractionHandler(QObject):
         self.active_tool = None # "arrow", "plus", "text"
         self.preview_item = None
         self.start_pos = None
+        self.group_overlay = None
         
     def set_tool(self, tool_name):
         self.active_tool = tool_name
@@ -172,7 +174,6 @@ class InteractionHandler(QObject):
                     neg_menu.addAction("Slash (/)", lambda: set_neg("slash"))
                     neg_menu.addAction("Double Slash (//)", lambda: set_neg("double_slash"))
 
-                from .items import ReactionCircleItem, ReactionBracketItem
                 if isinstance(target, ReactionCircleItem):
                     # Consolidated 4 Options for Circle/Rectangle
                     shape_style_menu = menu.addMenu("Shape Style")
@@ -281,10 +282,63 @@ class InteractionHandler(QObject):
 
         # If in "select" tool, let it pass to standard Qt selection system
         if self.active_tool == "select" or self.active_tool is None:
-            # But satisfy the scene's expectation for positions
-            self.main_window.scene.initial_positions_in_event = {
-                item: item.pos() for item in self.main_window.scene.items() if hasattr(item, 'pos')
-            }
+            # Check for group selection logic
+            top_item = None
+            for i in items_under:
+                # Include atoms and bonds in group identification
+                if (hasattr(i, "group_id") and i.group_id) or (hasattr(i, "atom_id") and getattr(i, "group_id", None)):
+                    top_item = i
+                    break
+            
+            # Clear existing overlay if clicking away or on different group (will be rebuilt if needed)
+            # Actually, let's keep it simple: clear valid overlay only if we are Changing selection
+            
+            if top_item:
+                 gid = top_item.group_id
+                 # Identify all members
+                 # Assuming scene items are accessible
+                 group_members = [i for i in self.main_window.scene.items() if hasattr(i, "group_id") and i.group_id == gid]
+                 if not group_members: group_members = [top_item]
+
+                 # Check if this group is ALREADY fully selected
+                 current_selected = set(self.main_window.scene.selectedItems())
+                 is_fully_selected = all(m in current_selected for m in group_members)
+                 
+                 # LOGIC:
+                 # 1. If not fully selected: Select Group (Stage 1)
+                 # 2. If fully selected AND is_group_selected (Stage 1): Switch to Detail (Stage 2)
+                 # 3. If fully selected AND NOT is_group_selected (Stage 2): Pass through to standard drag/manipulation
+                 
+                 if not is_fully_selected:
+                     # Stage 1: Select Group
+                     self.main_window.scene.clearSelection()
+                     for m in group_members:
+                         m.setSelected(True)
+                         m.is_group_selected = True # Hide handles
+                         m.update()
+                     
+                     self.update_group_overlay(group_members)
+                     return True # Consume event
+                     
+                 else:
+                     # Already selected. Check stage.
+                     if hasattr(top_item, "is_group_selected") and top_item.is_group_selected:
+                         # Transition to Stage 2: Show handles
+                         for m in group_members:
+                             m.is_group_selected = False
+                             m.update()
+                         # Keep overlay
+                         # We consume event to prevent deselection by standard click
+                         return True
+                     
+                     # Stage 2: Already detailed. Pass through for dragging.
+            
+            # If clicking background (no top_item), allow standard clear.
+            if not items_under:
+                self.clear_group_overlay()
+
+            # For MoleculeScene items, it expects initial_positions_in_event already set by patched press
+            # so we let it fall through.
             return False
             
         # ... (rest of the drawing logic) ...
@@ -372,7 +426,7 @@ class InteractionHandler(QObject):
         elif self.active_tool == "circle":
             self.start_pos = scene_pos
             self.preview_item = ReactionCircleItem(scene_pos, scene_pos)
-            self.preview_item.shape_type = getattr(self.mode_manager, "default_circle_shape_type", "rectangle")
+            self.preview_item.shape_type = getattr(self.mode_manager, "default_circle_shape_type", "circle")
             self.preview_item.line_style = getattr(self.mode_manager, "default_circle_line_style", "solid")
             add_and_select(self.preview_item)
             return True
@@ -460,7 +514,7 @@ class InteractionHandler(QObject):
                     self.preview_item.add_point(scene_pos)
                     return True
             elif isinstance(self.preview_item, (ReactionBracketItem, ReactionCircleItem)):
-                 self.preview_item.set_rect(self.start_pos, scene_pos)
+                 self.preview_item.set_end_pos(scene_pos)
                  return True
 
         return False
@@ -620,3 +674,15 @@ class InteractionHandler(QObject):
             return True
 
         return False
+
+    def update_group_overlay(self, items):
+        self.clear_group_overlay()
+        if not items: return
+        self.group_overlay = ReactionGroupOverlay(items)
+        self.main_window.scene.addItem(self.group_overlay)
+
+    def clear_group_overlay(self):
+        if self.group_overlay:
+            if not sip_isdeleted_safe(self.group_overlay) and self.group_overlay.scene():
+                self.main_window.scene.removeItem(self.group_overlay)
+            self.group_overlay = None

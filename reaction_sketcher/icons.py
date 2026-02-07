@@ -29,7 +29,7 @@ def create_reaction_icon(tool_name, size=32):
     # Draw Symbol
     pen = QPen(QColor("#222222"))
     pen.setWidthF(2.5)
-    if tool_name in ["select", "arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", "curved_double", "curved_fish", "arrow_dashed"]:
+    if tool_name in ["select", "arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", "curved_double", "curved_fish", "arrow_dashed", "circle"]:
         pen.setColor(QColor("#005a9e")) # Premium Blue for primary tools
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -107,6 +107,24 @@ def create_reaction_icon(tool_name, size=32):
         head = 5
         painter.drawPolygon(QPolygonF([end, QPointF(end.x()-head, end.y()-3), QPointF(end.x()-head, end.y()+3)]))
 
+    elif tool_name == "group":
+        painter.setPen(QPen(QColor("#005a9e"), 1.5, Qt.PenStyle.DashLine))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(inner_margin, inner_margin, size - 2*inner_margin, size - 2*inner_margin))
+        
+        painter.setPen(QPen(QColor("#222222"), 1.5))
+        painter.setBrush(QColor("#222222"))
+        s = size / 4
+        painter.drawRect(QRectF(c - s + 2, c - s + 2, s, s))
+        painter.drawRect(QRectF(c + 2, c + 2, s, s))
+
+    elif tool_name == "ungroup":
+        painter.setPen(QPen(QColor("#222222"), 1.5))
+        painter.setBrush(QColor("#222222"))
+        s = size / 4
+        painter.drawRect(QRectF(c - s - 2, c - s - 2, s, s))
+        painter.drawRect(QRectF(c + 2, c + 2, s, s))
+
     elif tool_name == "curved_fish":
         path = QPainterPath()
         start = QPointF(inner_margin, inner_margin + h)
@@ -120,6 +138,12 @@ def create_reaction_icon(tool_name, size=32):
         painter.drawPath(path)
         
         painter.drawLine(end, QPointF(end.x()-5, end.y()+4))
+
+    elif tool_name == "circle":
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        painter.drawEllipse(QRectF(inner_margin, inner_margin, w, h))
+        
 
     elif tool_name == "plus":
         painter.drawLine(QPointF(c-h/2, c), QPointF(c+h/2, c))
@@ -138,9 +162,6 @@ def create_reaction_icon(tool_name, size=32):
         painter.drawLine(QPointF(size-inner_margin, inner_margin), QPointF(size-inner_margin, size-inner_margin))
         painter.drawLine(QPointF(size-inner_margin, size-inner_margin), QPointF(size-inner_margin-bw, size-inner_margin))
 
-    elif tool_name == "circle":
-        painter.setPen(QPen(QColor("#222222"), 2, Qt.PenStyle.SolidLine))
-        painter.drawRect(QRectF(inner_margin, inner_margin, w, h))
 
     elif tool_name == "text":
         painter.setPen(QPen(QColor("#222222"), 1))
@@ -345,5 +366,64 @@ def create_shape_variant_icon(shape_type, line_style, size=32):
     else:
         painter.drawEllipse(r)
         
+    painter.end()
+    return QIcon(pixmap)
+
+def create_alignment_icon(tool_name, size=32):
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    
+    # Background
+    margin = 2
+    r_rect = QRectF(margin, margin, size - 2*margin, size - 2*margin)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(240, 240, 240, 255))
+    painter.drawRoundedRect(r_rect, 4, 4)
+    
+    painter.setPen(QPen(QColor("#222222"), 2))
+    painter.setBrush(QColor("#005a9e"))
+    
+    m = 6
+    w = size
+    h = size
+    
+    if tool_name == "align_top":
+        # Bar at top
+        painter.drawLine(QPointF(m, m), QPointF(w-m, m))
+        # Two boxes below
+        painter.drawRect(m, m+4, 6, 8)
+        painter.drawRect(m+10, m+4, 6, 12)
+        
+    elif tool_name == "align_bottom":
+        # Bar at bottom
+        painter.drawLine(QPointF(m, h-m), QPointF(w-m, h-m))
+        # Two boxes above
+        painter.drawRect(m, h-m-12, 6, 12)
+        painter.drawRect(m+10, h-m-8, 6, 8)
+        
+    elif tool_name == "align_center_v":
+        # Line in middle
+        mid = int(h/2)
+        painter.drawLine(QPointF(m, mid), QPointF(w-m, mid))
+        # Boxes centered
+        painter.drawRect(m, mid-4, 6, 8)
+        painter.drawRect(m+10, mid-6, 6, 12)
+        
+    elif tool_name == "distribute_h":
+        # Three vertical bars equally spaced
+        y1, y2 = m+4, h-m-4
+        painter.drawLine(m+2, y1, m+2, y2)
+        painter.drawLine(int(w/2), y1, int(w/2), y2)
+        painter.drawLine(w-m-2, y1, w-m-2, y2)
+        
+    elif tool_name == "distribute_v":
+        # Three horizontal bars equally spaced
+        x1, x2 = m+4, w-m-4
+        painter.drawLine(x1, m+2, x2, m+2)
+        painter.drawLine(x1, int(h/2), x2, int(h/2))
+        painter.drawLine(x1, h-m-2, x2, h-m-2)
+
     painter.end()
     return QIcon(pixmap)

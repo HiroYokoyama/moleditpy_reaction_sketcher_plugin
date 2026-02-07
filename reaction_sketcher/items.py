@@ -6,6 +6,29 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPaint
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent
 import math
 
+def sip_isdeleted_safe(obj):
+    """Check if a PyQt object has been deleted at the C++ level."""
+    if obj is None: return True
+    try:
+        from PyQt6.QtCore import Qt # Just any property to check validity
+        # hasattr check on something that requires C++ bond can trigger RuntimeError if deleted
+        # But actually, 'sip' is the direct way.
+        import sip
+        return sip.isdeleted(obj)
+    except:
+        return True
+
+def rotate_point(point, center, angle_degrees):
+    """Rotate a QPointF around a center QPointF."""
+    rad = math.radians(angle_degrees)
+    cos_a = math.cos(rad)
+    sin_a = math.sin(rad)
+    dx = point.x() - center.x()
+    dy = point.y() - center.y()
+    new_dx = dx * cos_a - dy * sin_a
+    new_dy = dx * sin_a + dy * cos_a
+    return QPointF(center.x() + new_dx, center.y() + new_dy)
+
 def get_main_window(scene):
     """Helper to get MainWindow from a QGraphicsScene."""
     if not scene: return None
@@ -137,6 +160,9 @@ class ReactionArrowItem(QGraphicsItem):
         self.head_style = "chevron" # "triangle", "barb", "harpoon", "chevron", "chevron_curved"
         self.head_concavity = 0.5 # 0.0 to 1.0 (for chevron)
         
+        self.group_id = None
+        self.is_group_selected = False # Flag to suppress individual handles/highlight when group-selected
+
         self.h_start = ReactionHandle(self, "start")
         self.h_end = ReactionHandle(self, "end")
         self.h_head = ReactionHandle(self, "head_size")
@@ -221,13 +247,15 @@ class ReactionArrowItem(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             selected = bool(value)
-            self.h_start.setVisible(selected)
-            self.h_end.setVisible(selected)
+            self.h_start.setVisible(selected and not self.is_group_selected)
+            self.h_end.setVisible(selected and not self.is_group_selected)
             if hasattr(self, 'h_head') and self.h_head:
-                self.h_head.setVisible(selected)
+                self.h_head.setVisible(selected and not self.is_group_selected)
             if hasattr(self, 'h_concavity') and self.h_concavity:
                 # Only show concavity handle if selected AND style is chevron
-                self.h_concavity.setVisible(selected and self.head_style == "chevron")
+                self.h_concavity.setVisible(selected and self.head_style == "chevron" and not self.is_group_selected)
+            if hasattr(self, 'h_control') and self.h_control:
+                 self.h_control.setVisible(selected and not self.is_group_selected)
         return super().itemChange(change, value)
 
     def boundingRect(self):
@@ -339,8 +367,16 @@ class ReactionArrowItem(QGraphicsItem):
             "width": self.pen_width,
             "head_size": self.head_size,
             "head_angle": self.head_angle,
-            "head_style": self.head_style
+            "head_style": self.head_style,
+            "group_id": self.group_id
         }
+
+    def rotate_around(self, center, angle_degrees):
+        """Rotate start and end points around a center."""
+        self.start_p = rotate_point(self.start_p, center, angle_degrees)
+        self.end_p = rotate_point(self.end_p, center, angle_degrees)
+        self.sync_handles()
+        self.update()
 
 class ReactionPlusItem(QGraphicsItem):
     def __init__(self, pos):
@@ -351,6 +387,8 @@ class ReactionPlusItem(QGraphicsItem):
         self.size = 20
         self.pen_color = QColor("#222222")
         self.pen_width = 2
+        self.group_id = None
+        self.is_group_selected = False
 
     def boundingRect(self):
         s = self.size / 2 + 5
@@ -358,7 +396,7 @@ class ReactionPlusItem(QGraphicsItem):
 
     def paint(self, painter, option, widget):
         s = self.size / 2
-        if option.state & QStyle.StateFlag.State_Selected:
+        if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
             painter.setPen(QPen(QColor(0, 120, 215, 100), 6))
             painter.drawLine(QPointF(-s, 0), QPointF(s, 0))
             painter.drawLine(QPointF(0, -s), QPointF(0, s))
@@ -380,7 +418,22 @@ class ReactionPlusItem(QGraphicsItem):
         except: pass
 
     def create_json_data(self):
-        return {"type": "plus", "x": self.pos().x(), "y": self.pos().y(), "color": self.pen_color.name()}
+        return {
+            "type": "plus",
+            "x": self.pos().x(),
+            "y": self.pos().y(),
+            "rotation": self.rotation(),
+            "size": self.size,
+            "size": self.size,
+            "color": self.pen_color.name(),
+            "width": self.pen_width,
+            "group_id": self.group_id
+        }
+
+    def rotate_around(self, center, angle_degrees):
+        new_pos = rotate_point(self.pos(), center, angle_degrees)
+        self.setPos(new_pos)
+        self.setRotation(self.rotation() + angle_degrees)
 
 class ReactionMinusItem(QGraphicsItem):
     def __init__(self, pos):
@@ -391,6 +444,8 @@ class ReactionMinusItem(QGraphicsItem):
         self.size = 20
         self.pen_color = QColor("#222222")
         self.pen_width = 2
+        self.group_id = None
+        self.is_group_selected = False
 
     def boundingRect(self):
         s = self.size / 2 + 5
@@ -399,6 +454,8 @@ class ReactionMinusItem(QGraphicsItem):
     def paint(self, painter, option, widget):
         s = self.size / 2
         painter.setPen(QPen(self.pen_color, self.pen_width))
+        if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
+            painter.setPen(QPen(QColor(0, 120, 215, 100), 6))
         painter.drawLine(QPointF(-s, 0), QPointF(s, 0))
 
     def set_size(self, size):
@@ -414,7 +471,22 @@ class ReactionMinusItem(QGraphicsItem):
         except: pass
 
     def create_json_data(self):
-        return {"type": "minus", "x": self.pos().x(), "y": self.pos().y(), "color": self.pen_color.name()}
+        return {
+             "type": "minus",
+             "x": self.pos().x(),
+             "y": self.pos().y(),
+             "rotation": self.rotation(),
+             "size": self.size,
+             "size": self.size,
+             "color": self.pen_color.name(),
+             "width": self.pen_width,
+             "group_id": self.group_id
+        }
+
+    def rotate_around(self, center, angle_degrees):
+        new_pos = rotate_point(self.pos(), center, angle_degrees)
+        self.setPos(new_pos)
+        self.setRotation(self.rotation() + angle_degrees)
 
 class ReactionResonanceArrowItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
@@ -526,8 +598,8 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
 
 class ReactionEquilibriumArrowItem(ReactionArrowItem):
     def __init__(self, start_pos, end_pos):
-        super().__init__(start_pos, end_pos)
         self.double_arrow_offset = 4.0
+        super().__init__(start_pos, end_pos)
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -866,6 +938,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         self.control_p = None # Local coordinates
         self.h_control = None
         self.curvature = 0.8 # Detailed curvature to ensure handle is accessible
+        self.group_id = None
         super().__init__(start_pos, end_pos)
         self.h_control = ReactionHandle(self, "control")
         
@@ -945,9 +1018,9 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             selected = bool(value)
             if hasattr(self, 'h_control') and self.h_control:
-                self.h_control.setVisible(selected)
+                self.h_control.setVisible(selected and not self.is_group_selected)
             if hasattr(self, 'h_concavity') and self.h_concavity:
-                self.h_concavity.setVisible(selected and self.head_style == "chevron")
+                self.h_concavity.setVisible(selected and self.head_style == "chevron" and not self.is_group_selected)
         return super().itemChange(change, value)
 
     def boundingRect(self):
@@ -1123,6 +1196,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         # [Fix] Removed mapToScene(cp), saving local coord cp directly
         data["cp_x"] = cp.x()
         data["cp_y"] = cp.y()
+        data["group_id"] = self.group_id
         return data
 
 class ReactionBracketItem(QGraphicsItem):
@@ -1139,6 +1213,8 @@ class ReactionBracketItem(QGraphicsItem):
         
         self.h_br = ReactionHandle(self, "bottom-right")
         self._initializing = True
+        self.group_id = None
+        self.is_group_selected = False
         self.sync_handles()
         self._initializing = False
 
@@ -1167,7 +1243,7 @@ class ReactionBracketItem(QGraphicsItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            self.h_br.setVisible(bool(value))
+            self.h_br.setVisible(bool(value) and not self.is_group_selected)
         return super().itemChange(change, value)
 
     def boundingRect(self):
@@ -1296,11 +1372,17 @@ class ReactionBracketItem(QGraphicsItem):
             "y": self.pos().y(), 
             "w": self.rect.width(),
             "h": self.rect.height(),
+            "rotation": self.rotation(),
             "color": self.pen_color.name(),
             "width": self.pen_width,
             "bracket_type": self.bracket_type,
             "line_style": self.line_style
         }
+
+    def rotate_around(self, center, angle_degrees):
+        new_pos = rotate_point(self.pos(), center, angle_degrees)
+        self.setPos(new_pos)
+        self.setRotation(self.rotation() + angle_degrees)
 
 class ReactionCircleItem(QGraphicsItem):
     def __init__(self, start_pos, end_pos):
@@ -1316,6 +1398,8 @@ class ReactionCircleItem(QGraphicsItem):
         
         self.h_br = ReactionHandle(self, "bottom-right")
         self._initializing = True
+        self.group_id = None
+        self.is_group_selected = False
         self.sync_handles()
         self._initializing = False
 
@@ -1344,7 +1428,7 @@ class ReactionCircleItem(QGraphicsItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            self.h_br.setVisible(bool(value))
+            self.h_br.setVisible(bool(value) and not self.is_group_selected)
         return super().itemChange(change, value)
 
     def boundingRect(self):
@@ -1357,7 +1441,7 @@ class ReactionCircleItem(QGraphicsItem):
         pen_style = Qt.PenStyle.DashLine if self.line_style == "dashed" else Qt.PenStyle.SolidLine
         painter.setPen(QPen(self.pen_color, self.pen_width, pen_style))
         
-        if option.state & QStyle.StateFlag.State_Selected:
+        if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
             painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 2, pen_style))
         
         if self.shape_type == "rectangle":
@@ -1372,11 +1456,17 @@ class ReactionCircleItem(QGraphicsItem):
             "y": self.pos().y(), 
             "w": self.rect.width(),
             "h": self.rect.height(),
+            "rotation": self.rotation(),
             "color": self.pen_color.name(),
             "width": self.pen_width,
             "shape_type": getattr(self, "shape_type", "circle"),
-            "line_style": getattr(self, "line_style", "dashed")
+            "line_style": self.line_style
         }
+
+    def rotate_around(self, center, angle_degrees):
+        new_pos = rotate_point(self.pos(), center, angle_degrees)
+        self.setPos(new_pos)
+        self.setRotation(self.rotation() + angle_degrees)
 
 class ReactionLineItem(ReactionArrowItem):
     """Straight line without arrowheads."""
@@ -1438,7 +1528,20 @@ class ReactionCurvedLineItem(ReactionCurvedArrowItem):
         data["line_style"] = self.line_style
         # Override head_style to None or remove it? JSON loader will need "type"
         if "head_style" in data: del data["head_style"]
+        if "head_angle" in data: del data["head_angle"]
         return data
+
+    def rotate_around(self, center, angle_degrees):
+        """Rotate start and end points around a center."""
+        self.start_p = rotate_point(self.start_p, center, angle_degrees)
+        self.end_p = rotate_point(self.end_p, center, angle_degrees)
+        
+        # Rotate control point if it exists
+        if self.control_p is not None:
+             self.control_p = rotate_point(self.control_p, center, angle_degrees)
+             
+        self.sync_handles()
+        self.update()
 
 class ReactionFreehandItem(QGraphicsItem):
     """Freehand drawing item."""
@@ -1453,7 +1556,10 @@ class ReactionFreehandItem(QGraphicsItem):
         self.pen_width = 2
         self.path = QPainterPath()
         self.path.moveTo(0, 0)
+        self.path.moveTo(0, 0)
         self.boundingRect_ = QRectF(0, 0, 1, 1)
+        self.group_id = None
+        self.is_group_selected = False
 
     def add_point(self, pos):
         # pos is scene pos. Convert to local.
@@ -1487,7 +1593,7 @@ class ReactionFreehandItem(QGraphicsItem):
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if option.state & QStyle.StateFlag.State_Selected:
+        if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
             painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 4))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self.path)
@@ -1510,10 +1616,18 @@ class ReactionFreehandItem(QGraphicsItem):
              "type": "freehand",
              "x": self.pos().x(),
              "y": self.pos().y(),
+             "rotation": self.rotation(),
              "points": pts,
              "color": self.pen_color.name(),
-             "width": self.pen_width
+             "color": self.pen_color.name(),
+             "width": self.pen_width,
+             "group_id": self.group_id
         }
+
+    def rotate_around(self, center, angle_degrees):
+        new_pos = rotate_point(self.pos(), center, angle_degrees)
+        self.setPos(new_pos)
+        self.setRotation(self.rotation() + angle_degrees)
 
 class ReactionTextItem(QGraphicsTextItem):
     def __init__(self, text, pos):
@@ -1525,6 +1639,8 @@ class ReactionTextItem(QGraphicsTextItem):
         self.setZValue(5)
         self.setFont(QFont("Arial", 25))
         self.setDefaultTextColor(QColor("#222222"))
+        self.group_id = None
+        self.is_group_selected = False
 
     def shape(self):
         path = QPainterPath()
@@ -1603,7 +1719,7 @@ class ReactionTextItem(QGraphicsTextItem):
         except: pass
 
     def paint(self, painter, option, widget):
-        if option.state & QStyle.StateFlag.State_Selected:
+        if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
             painter.setPen(QPen(QColor(0, 120, 215, 100), 2, Qt.PenStyle.DashLine))
             painter.drawRect(self.boundingRect())
         super().paint(painter, option, widget)
@@ -1613,10 +1729,101 @@ class ReactionTextItem(QGraphicsTextItem):
             "type": "text",
             "x": self.pos().x(),
             "y": self.pos().y(),
+            "rotation": self.rotation(),
+            "rotation": self.rotation(),
             "text": self.toPlainText(),
+            "group_id": self.group_id,
             "font_family": self.font().family(),
             "font_size": self.font().pointSize(),
             "bold": self.font().bold(),
             "italic": self.font().italic(),
             "color": self.defaultTextColor().name()
         }
+
+    def rotate_around(self, center, angle_degrees):
+        new_pos = rotate_point(self.pos(), center, angle_degrees)
+        self.setPos(new_pos)
+        self.setRotation(self.rotation() + angle_degrees)
+
+class ReactionGroupOverlay(QGraphicsItem):
+    """
+    A visual overlay that draws a bounding box around a group of items.
+    It is NOT selectable or movable itself; it just provides visual feedback
+    for the 'Group Selection' state.
+    """
+    def __init__(self, group_items):
+        super().__init__()
+        self.group_items = group_items
+        # self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemOpensExternalReference) # Removed invalid flag
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.setZValue(100) # On top of everything
+        self._rect = QRectF()
+        self._updating = False
+        self.update_rect()
+        
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSceneChange:
+            old_scene = self.scene()
+            new_scene = value
+            self._disconnect_scene(old_scene)
+            self._connect_scene(new_scene)
+        return super().itemChange(change, value)
+    
+    def _connect_scene(self, scene):
+        try:
+             scene.changed.connect(self.on_scene_changed)
+        except: pass
+        
+    def _disconnect_scene(self, scene):
+        try:
+             scene.changed.disconnect(self.on_scene_changed)
+        except: pass
+
+    def on_scene_changed(self, region):
+        if self._updating: return
+        self._updating = True
+        try:
+            self.update_rect()
+        finally:
+            self._updating = False
+
+    def update_rect(self):
+        r = QRectF()
+        for item in self.group_items:
+            try:
+                if item.scene() == self.scene() and not sip_isdeleted_safe(item):
+                    if r.isNull(): r = item.sceneBoundingRect()
+                    else: r = r.united(item.sceneBoundingRect())
+            except: continue
+        
+        # Add padding
+        new_rect = r.adjusted(-5, -5, 5, 5)
+        
+        if new_rect != self._rect:
+            self.prepareGeometryChange()
+            self._rect = new_rect
+            # We don't call update() manually, prepareGeometryChange triggers it? 
+            # Yes. But since we are inside scene.changed, it might need force?
+            # No, allow standard cycle.
+        
+    def boundingRect(self):
+        return self._rect
+        
+    def paint(self, painter, option, widget):
+        # Do NOT call update_rect here.
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Bounding Box
+        painter.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        painter.setBrush(QColor(0, 120, 215, 10)) # Very light blue fill
+        painter.drawRect(self._rect)
+        
+        # Bottom-Right Corner Handle Visual
+        handle_size = 8
+        handle_rect = QRectF(self._rect.right() - handle_size, self._rect.bottom() - handle_size, handle_size, handle_size)
+        painter.setPen(QPen(QColor(0, 120, 215), 1))
+        painter.setBrush(QColor(0, 120, 215)) # Solid blue
+        painter.drawRect(handle_rect)
+        
+        painter.restore()
