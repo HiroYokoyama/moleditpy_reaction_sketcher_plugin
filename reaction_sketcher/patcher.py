@@ -14,6 +14,9 @@ except ImportError:
 _core_originals = {}
 _interaction_originals = {}
 
+# Mime type for clipboard - fallback if not importable
+CLIPBOARD_MIME_TYPE = "application/x-moleditpy-fragment"
+
 def _patch(target_dict, cls, name, new_func):
     """Helper to apply a patch and save original."""
     key = (cls, name)
@@ -97,7 +100,6 @@ def apply_core_patches(main_window):
             from modules.atom_item import AtomItem
             from modules.bond_item import BondItem
             from modules.main_window_ui_manager import MainWindowUiManager
-            from modules.constants import CLIPBOARD_MIME_TYPE
             
             if MainWindowEditActions is None:
                 from modules.main_window_edit_actions import MainWindowEditActions
@@ -112,7 +114,6 @@ def apply_core_patches(main_window):
                 from moleditpy.modules.atom_item import AtomItem
                 from moleditpy.modules.bond_item import BondItem
                 from moleditpy.modules.main_window_ui_manager import MainWindowUiManager
-                from moleditpy.modules.constants import CLIPBOARD_MIME_TYPE
                 
                 if MainWindowEditActions is None:
                     from moleditpy.modules.main_window_edit_actions import MainWindowEditActions
@@ -145,22 +146,20 @@ def apply_core_patches(main_window):
     def patched_bond_bounding_rect(self):
         line = self.get_line_in_local_coords()
         bond_offset = 3.5
+        settings = None
         try:
             if self.scene() and self.scene().views():
                 win = self.scene().views()[0].window()
                 if win and hasattr(win, 'settings'):
-                    if getattr(self, 'order', 1) == 3:
-                        bond_offset = win.settings.get('bond_spacing_triple_2d', 3.5)
-                    else:
-                        bond_offset = win.settings.get('bond_spacing_double_2d', 3.5)
+                     settings = win.settings
         except: pass
-        wedge_width = 6.0
-        try:
-            if self.scene() and self.scene().views():
-                win = self.scene().views()[0].window()
-                if win and hasattr(win, 'settings'):
-                    wedge_width = win.settings.get('bond_wedge_width_2d', 6.0)
-        except: pass
+        
+        if settings:
+             if getattr(self, 'order', 1) == 3:
+                 bond_offset = settings.get('bond_spacing_triple_2d', 3.5)
+             else:
+                 bond_offset = settings.get('bond_spacing_double_2d', 3.5)
+             wedge_width = settings.get('bond_wedge_width_2d', 6.0)
         extra = (getattr(self, 'order', 1) - 1) * bond_offset + 2 + wedge_width
         return QRectF(line.p1(), line.p2()).normalized().adjusted(-extra, -extra, extra, extra)
 
@@ -177,9 +176,37 @@ def apply_core_patches(main_window):
 
     # --- MainWindow.closeEvent ---
     def patched_close_event(self, event):
+        """Override close to check for unsaved reaction items."""
+        # Check if there are reaction items in the scene
+        reaction_items = [i for i in self.scene.items() if hasattr(i, "create_json_data")]
+        
+        # Use the existing has_unsaved_changes flag from the undo system
+        if reaction_items and getattr(self, 'has_unsaved_changes', False):
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Reaction Items",
+                "There are unsaved reaction items. Do you want to save before closing?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            elif reply == QMessageBox.StandardButton.Yes:
+                # Attempt to save
+                if hasattr(self, "save_project"):
+                     self.save_project()
+                
+                event.accept()
+                return
+            # No - just close without saving
+        
         # Clean up ALL patches on close
         revert_all_patches()
         
+        # Call original close event
+        event.accept()
         orig = _core_originals.get((MainWindow, 'closeEvent'))
         if orig:
             return orig(self, event)
@@ -274,11 +301,11 @@ def apply_core_patches(main_window):
             for item in selected_rs_items_raw:
                 if hasattr(item, "create_json_data"):
                     d = item.create_json_data()
-                    if d['type'] in ["arrow", "arrow_res", "arrow_eq", "arrow_retro", "arrow_no", "curved_fish", "curved_double", "arrow_dashed"]:
+                    if d['type'] in ["arrow", "arrow_res", "arrow_eq", "arrow_retro", "arrow_no", "curved_fish", "curved_double", "arrow_dashed", "line", "line_curved", "line_dashed"]:
                         d['start_x'] -= center.x(); d['start_y'] -= center.y()
                         d['end_x'] -= center.x(); d['end_y'] -= center.y()
                         if "cp_x" in d: d["cp_x"] -= center.x(); d["cp_y"] -= center.y()
-                    elif d['type'] in ["plus", "minus", "text", "bracket", "circle", "line", "line_curved", "line_dashed", "freehand"]:
+                    elif d['type'] in ["plus", "minus", "text", "bracket", "circle", "freehand"]:
                         d['x'] -= center.x(); d['y'] -= center.y()
                         if "points" in d: # Freehand
                              d["points"] = [[p[0]-center.x(), p[1]-center.y()] for p in d["points"]]
@@ -365,13 +392,51 @@ def apply_core_patches(main_window):
         from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
                             ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
         for item in self.scene.items():
-            if isinstance(item, (AtomItem, BondItem, ReactionArrowItem, ReactionPlusItem, 
-                                 ReactionMinusItem, ReactionTextItem, ReactionBracketItem, ReactionCircleItem)):
+            if hasattr(item, "create_json_data") or isinstance(item, (AtomItem, BondItem)):
                 item.setSelected(True)
 
     patch_core(MainWindowEditActions, 'select_all', patched_select_all)
 
-    # --- Atom Paint ---
+    # --- Scene Delete Items ---
+    def patched_scene_delete_items(self, items_to_delete):
+        """Patched delete_items to filter and delete reaction items manually before calling original."""
+        if not items_to_delete:
+            return False
+
+        # 1. Identify Reaction Items (generic QGraphicsItems that are NOT Atom/Bond)
+        #    Reaction items usually have 'create_json_data' or are just standard items added by us.
+        #    To be safe, we look for items that are NOT AtomItem or BondItem.
+        reaction_items_to_delete = []
+        core_items_to_delete = []
+
+        for item in items_to_delete:
+            if isinstance(item, (AtomItem, BondItem)):
+                core_items_to_delete.append(item)
+            else:
+                reaction_items_to_delete.append(item)
+        
+        # 2. Delete Reaction Items manually
+        #    Since the main app's delete_items might ignore or not handle them well if they aren't atoms/bonds.
+        if reaction_items_to_delete:
+            scene = self
+            for item in reaction_items_to_delete:
+                try:
+                    if item.scene() == scene:
+                        scene.removeItem(item)
+                except Exception:
+                    pass
+            
+            # If we only had reaction items, we are done
+            if not core_items_to_delete:
+                return True
+
+        # 3. Call original delete_items for Atoms/Bonds
+        if (MoleculeScene, 'delete_items') in _core_originals:
+             return _core_originals[(MoleculeScene, 'delete_items')](self, set(core_items_to_delete))
+        
+        return False
+
+    patch_core(MoleculeScene, 'delete_items', patched_scene_delete_items)
     def patched_atom_paint(self, painter, option, widget):
         # ALWAYS use patched paint logic to ensure visibility and background handling
         
@@ -973,56 +1038,63 @@ def apply_core_patches(main_window):
             all_visible_items = [i for i in self.scene.items() if i.isVisible()]
             molecule_bounds = QRectF()
             for item in all_visible_items:
-                # Skip handles, overlays, etc.
                 if item.__class__.__name__ in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
                     continue
-                # Skip items that are children handles
                 if hasattr(item, "handle_type"):
                     continue
                 
-                # Use mapToScene(boundingRect) to exclude children handles from the union
-                item_bounds = item.mapToScene(item.boundingRect()).boundingRect()
+                item_bounds = item.sceneBoundingRect()
                 molecule_bounds = molecule_bounds.united(item_bounds)
 
             if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
                 return None, None
 
-            padding = 20
+            padding = 5
             rect_to_render = molecule_bounds.adjusted(-padding, -padding, padding, padding)
             
             w = max(1, int(math.ceil(rect_to_render.width())))
             h = max(1, int(math.ceil(rect_to_render.height())))
             
-            # Use ARGB32_Premultiplied for consistency and reliability
-            image = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+            # Use ARGB32 for proper alpha channel support
+            image = QImage(w, h, QImage.Format.Format_ARGB32)
             if image.isNull():
                 return None, None
                 
-            # Explicitly fill with white if not transparent, otherwise transparent.
+            # Fill with truly transparent using qRgba
             if is_transparent:
-                image.fill(Qt.GlobalColor.transparent)
+                from PyQt6.QtGui import qRgba
+                image.fill(qRgba(0, 0, 0, 0))  # Fully transparent
             else:
                 image.fill(Qt.GlobalColor.white)
             
             original_background = self.scene.backgroundBrush()
             if is_transparent:
-                # Force strictly transparent background
-                self.scene.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
-            # Else: leave original background to be painted by render()
+                # Clear scene background completely
+                self.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+            
+            # Clear selection to avoid highlights in export
+            selected_items = self.scene.selectedItems()
+            self.scene.clearSelection()
             
             painter = QPainter()
             if painter.begin(image):
                 try:
                     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    # Map scene region to whole image
+                    if is_transparent:
+                        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
                     self.scene.render(painter, QRectF(0, 0, w, h), rect_to_render)
                 finally:
                     painter.end()
             else:
                 self.scene.setBackgroundBrush(original_background)
+                for item in selected_items:
+                    item.setSelected(True)
                 return None, None
 
             self.scene.setBackgroundBrush(original_background)
+            # Restore selection
+            for item in selected_items:
+                item.setSelected(True)
             return image, rect_to_render
 
         # Patch export_2d_png to INCLUDE reaction items
@@ -1080,24 +1152,33 @@ def apply_core_patches(main_window):
                                          QMessageBox.StandardButton.Yes)
             if reply == QMessageBox.StandardButton.Cancel: return
 
-            # Get tight bounds excluding children handles
-            all_visible_items = [i for i in self.scene.items() if i.isVisible()]
+            # Get items to export: selected items if any, otherwise all visible
+            selected_items = [i for i in self.scene.selectedItems() if i.isVisible()]
+            items_to_export = selected_items if selected_items else list(self.scene.items())
+            
+            # Get tight bounds excluding invisible and helper items
             molecule_bounds = QRectF()
-            for item in all_visible_items:
+            for item in items_to_export:
+                # Skip if not visible
+                if not item.isVisible():
+                    continue
+                # Skip helper items
                 if item.__class__.__name__ in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
                     continue
                 if hasattr(item, "handle_type"):
                     continue
-                # Exclude children
-                item_bounds = item.mapToScene(item.boundingRect()).boundingRect()
-                molecule_bounds = molecule_bounds.united(item_bounds)
+                
+                # Use sceneBoundingRect for tighter fit
+                item_bounds = item.sceneBoundingRect()
+                if item_bounds.isValid() and not item_bounds.isEmpty():
+                    molecule_bounds = molecule_bounds.united(item_bounds)
             
             if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
                 self.statusBar().showMessage("Error: Could not determine molecule bounds for export.")
                 return
 
-            # Map content with main app standard (20px)
-            rect_to_render = molecule_bounds.adjusted(-20, -20, 20, 20)
+            # Minimal padding (2px)
+            rect_to_render = molecule_bounds.adjusted(-2, -2, 2, 2)
             
             original_background = self.scene.backgroundBrush()
             if reply == QMessageBox.StandardButton.Yes:
@@ -1114,9 +1195,15 @@ def apply_core_patches(main_window):
             generator.setViewBox(rect_to_render)
             generator.setTitle("MoleditPy Molecule")
             
+            # Clear selection to avoid highlights in export
+            selected_items = self.scene.selectedItems()
+            self.scene.clearSelection()
+            
             painter = QPainter()
             if not painter.begin(generator):
                 self.scene.setBackgroundBrush(original_background)
+                for item in selected_items:
+                    item.setSelected(True)
                 self.statusBar().showMessage("Failed to start SVG painter. Check file access.")
                 return
 
@@ -1127,6 +1214,9 @@ def apply_core_patches(main_window):
             finally:
                 painter.end()
                 self.scene.setBackgroundBrush(original_background)
+                # Restore selection
+                for item in selected_items:
+                    item.setSelected(True)
             self.statusBar().showMessage(f"2D view exported to {filePath}")
 
         patch_core(MainWindowExport, 'export_2d_svg', patched_export_2d_svg)

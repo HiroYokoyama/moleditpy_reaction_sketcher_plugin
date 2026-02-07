@@ -20,8 +20,6 @@ def create_reaction_icon(tool_name, size=32):
     painter.setPen(Qt.PenStyle.NoPen)
     if tool_name == "exit":
         painter.setBrush(QColor(211, 47, 47, 40)) # Light red for exit
-    elif tool_name == "select":
-        painter.setBrush(QColor(0, 120, 215, 60)) # Light blue for active select
     else:
         painter.setBrush(QColor(240, 240, 240, 255)) # Light neutral
     painter.drawRoundedRect(r_rect, 6, 6)
@@ -348,9 +346,12 @@ def create_style_icon(item_type, style_name, selected=False):
              painter.drawPolygon(QPolygonF([end, p1, mid, p2]))
              
         elif style_name == "harpoon":
-             # Half head (top side relative to angle?)
-             p1 = QLineF.fromPolar(head_len, angle + 180 + 30).p2() + end
-             painter.drawPolygon(QPolygonF([end, p1, QLineF.fromPolar(head_len*0.8, angle+180).p2() + end]))
+             # Half head (top side relative to angle) - Draw as filled
+             painter.setBrush(QColor("#005a9e"))
+             painter.setPen(Qt.PenStyle.NoPen)
+             p1 = QLineF.fromPolar(head_len, angle + 180 + 35).p2() + end
+             mid = QLineF.fromPolar(head_len * 0.8, angle + 180).p2() + end
+             painter.drawPolygon(QPolygonF([end, p1, mid]))
              
         elif style_name == "barb":
              painter.setBrush(Qt.BrushStyle.NoBrush)

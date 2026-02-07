@@ -8,6 +8,15 @@ from .items import (ReactionArrowItem, ReactionResonanceArrowItem,
                     ReactionPlusItem, ReactionMinusItem, 
                     ReactionBracketItem, ReactionCircleItem, ReactionTextItem)
 
+def get_main_window(scene):
+    """Helper to get the main window from a scene."""
+    if not scene: return None
+    views = scene.views()
+    if views:
+        # The view's window() method returns the top-level window
+        return views[0].window()
+    return None
+
 def load_handler_core(main_window, reaction_items):
     """
     Core function to load reaction items from a list of dictionaries.
@@ -137,10 +146,10 @@ def load_handler_core(main_window, reaction_items):
             if "html" in item_data:
                 item.setHtml(item_data["html"])
             if "color" in item_data: item.setDefaultTextColor(QColor(item_data["color"]))
-            if "font_family" in item_data and not "html" in item_data: # Only set if No HTML
+            if "font_family" in item_data: # Apply font regardless of HTML to ensure defaults
                 f = item.font()
                 f.setFamily(item_data["font_family"])
-                f.setPointSize(item_data.get("font_size", 14))
+                f.setPointSize(int(item_data.get("font_size", 14)))
                 f.setBold(item_data.get("bold", False))
                 f.setItalic(item_data.get("italic", False))
                 f.setUnderline(item_data.get("underline", False))

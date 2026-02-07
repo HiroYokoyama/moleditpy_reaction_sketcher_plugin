@@ -22,6 +22,13 @@ class InteractionHandler(QObject):
         self.start_pos = None
         self.group_overlay = None
         
+        # Drag State
+        self._is_dragging = False
+        self._drag_start_pos = None
+        self._drag_items = []
+        self._drag_initial_positions = {}
+        self._did_move = False
+
     def set_tool(self, tool_name):
         self.active_tool = tool_name
         if tool_name and tool_name != "select":
@@ -66,283 +73,131 @@ class InteractionHandler(QObject):
             return self.handle_mouse_release(event)
         elif event.type() == QEvent.Type.KeyPress:
             return self.handle_key_press(event)
-            
+        elif event.type() == QEvent.Type.MouseButtonDblClick:
+             return self.handle_mouse_double_click(event)
+             
         return False
 
     def handle_mouse_press(self, event):
-        # scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+        scene_pos = self.main_window.view_2d.mapToScene(event.pos())
         
         if event.button() == Qt.MouseButton.RightButton:
             # Context Menu (Shift+Right) or Delete (Right)
-            scene_pos = self.main_window.view_2d.mapToScene(event.pos())
             item = self.main_window.scene.itemAt(scene_pos, self.main_window.view_2d.transform())
-            
-            # If clicking on a handle, ignore (pass to default) or show parent's menu?
-            # If item is None, maybe show global menu?
             
             if item:
                 # Check for Shift
                 modifiers = QApplication.keyboardModifiers()
-                if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
+                if not (modifiers.value & Qt.KeyboardModifier.ShiftModifier.value):
                     # Just Delete
-                    # But first ensure it's a reaction item
                     if hasattr(item, "create_json_data") or hasattr(item, "handle_type"):
-                         # If handle, maybe delete parent?
                          target = item
                          if hasattr(item, "handle_type") and item.parentItem():
                              target = item.parentItem()
                          
-                         self.main_window.scene.removeItem(target)
-                         self.main_window.push_undo_state()
+                         # Use patched delete if available
+                         if hasattr(self.main_window.scene, 'delete_items'):
+                             self.main_window.scene.delete_items([target])
+                         else:
+                             self.main_window.scene.removeItem(target)
+                             self.main_window.push_undo_state()
                          return True
                     return False
 
                 # Proceed with Context Menu (Shift held)
-                # Check if this is a Reaction Item
-                # Duck Typing
-                if not hasattr(item, "create_json_data"):
+                if not hasattr(item, "create_json_data") and not (hasattr(item, 'handle_type') and item.parentItem()):
                     return False
-
-                # Select the item if not already selected (and not in a multi-selection)
-                selected = self.main_window.scene.selectedItems()
-                if item not in selected:
-                    self.main_window.scene.clearSelection()
-                    item.setSelected(True)
-                    selected = [item]
                 
-                from PyQt6.QtWidgets import QMenu
-                from .icons import create_style_icon
-                
-                menu = QMenu(self.main_window)
-                
-                # Check what kind of item(s) we have. 
-                # If multiple, maybe just show "Delete".
-                # If single, show specific options.
-                
-                target = item
-                # Determine main target (if handle, get parent)
-                if hasattr(item, "handle_type") and item.parentItem():
-                     target = item.parentItem()
-                     
-                # Add Style Options
-                if hasattr(target, "head_style"):
-                    # Arrow Styles
-                    # Check if it allows head changes (not simple lines)
-                    # ReactionArrowItem has head_style. ReactionLineItem (subclass) has it but maybe shouldn't?
-                    # We can check class or type property.
-                    json_data = target.create_json_data() if hasattr(target, "create_json_data") else {}
-                    t_type = json_data.get("type", "")
-                    
-                    if t_type in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_dashed", "curved_arrow", "curved_double", "curved_fish"]:
-                        # Arrow styling
-                        style_menu = menu.addMenu("Arrow Head")
-                        
-                        def set_head(s):
-                            target.head_style = s
-                            target.update()
-                            self.main_window.push_undo_state()
+                # Make sure item is selected
+                if not item.isSelected():
+                     self.main_window.scene.clearSelection()
+                     item.setSelected(True)
 
-                        a_tri = style_menu.addAction(create_style_icon("curved", "triangle"), "Triangle")
-                        a_tri.setCheckable(True)
-                        a_tri.setChecked(target.head_style == "triangle")
-                        a_tri.triggered.connect(lambda: set_head("triangle"))
-                        
-                        a_chev = style_menu.addAction(create_style_icon("curved", "chevron"), "Chevron (Sharp)")
-                        a_chev.setCheckable(True)
-                        a_chev.setChecked(target.head_style == "chevron")
-                        a_chev.triggered.connect(lambda: set_head("chevron"))
-
-                        a_chev_c = style_menu.addAction(create_style_icon("curved", "chevron_curved"), "Chevron (Curved)")
-                        a_chev_c.setCheckable(True)
-                        a_chev_c.setChecked(target.head_style == "chevron_curved")
-                        a_chev_c.triggered.connect(lambda: set_head("chevron_curved"))
-                        
-                        a_harp = style_menu.addAction(create_style_icon("curved", "harpoon"), "Harpoon")
-                        a_harp.setCheckable(True)
-                        a_harp.setChecked(target.head_style == "harpoon")
-                        a_harp.triggered.connect(lambda: set_head("harpoon"))
-
-                if hasattr(target, "negation_style"):
-                    # No-Reaction Arrow
-                    neg_menu = menu.addMenu("Negation Style")
-                    def set_neg(s):
-                        target.negation_style = s
-                        target.update()
-                        self.main_window.push_undo_state()
-
-                    neg_menu.addAction("Cross (X)", lambda: set_neg("cross"))
-                    neg_menu.addAction("Slash (/)", lambda: set_neg("slash"))
-                    neg_menu.addAction("Double Slash (//)", lambda: set_neg("double_slash"))
-
-                if isinstance(target, ReactionCircleItem):
-                    # Consolidated 4 Options for Circle/Rectangle
-                    shape_style_menu = menu.addMenu("Shape Style")
-                    def set_variant(s, l):
-                        target.shape_type = s
-                        target.line_style = l
-                        target.update()
-                        self.main_window.push_undo_state()
-                    
-                    variants = [
-                        ("Solid Rectangle", "rectangle", "solid"),
-                        ("Dashed Rectangle", "rectangle", "dashed"),
-                        ("Solid Circle", "circle", "solid"),
-                        ("Dashed Circle", "circle", "dashed")
-                    ]
-                    for label, stype, lstyle in variants:
-                        act = shape_style_menu.addAction(create_shape_variant_icon(stype, lstyle), label)
-                        act.setCheckable(True)
-                        act.setChecked(target.shape_type == stype and target.line_style == lstyle)
-                        def make_cb(s, l): return (lambda: set_variant(s, l))
-                        act.triggered.connect(make_cb(stype, lstyle))
-
-                elif isinstance(target, ReactionBracketItem):
-                    # Bracket Type
-                    br_menu = menu.addMenu("Bracket Type")
-                    def set_br(s):
-                        target.bracket_type = s
-                        target.update()
-                        self.main_window.push_undo_state()
-                    
-                    for label, btype in [("Square [ ]", "square"), ("Round ( )", "round"), ("Curly { }", "curly")]:
-                        act = br_menu.addAction(label)
-                        act.setCheckable(True)
-                        act.setChecked(target.bracket_type == btype)
-                        def make_cb(bt): return (lambda: set_br(bt))
-                        act.triggered.connect(make_cb(btype))
-
-                    # Line Style for Bracket
-                    line_menu = menu.addMenu("Line Style")
-                    def set_bl(s):
-                        target.line_style = s
-                        target.update()
-                        self.main_window.push_undo_state()
-                    
-                    for s in ["solid", "dashed"]:
-                        act = line_menu.addAction(s.capitalize())
-                        act.setCheckable(True)
-                        act.setChecked(target.line_style == s)
-                        def make_cb(ls): return (lambda: set_bl(ls))
-                        act.triggered.connect(make_cb(s))
-
-                elif hasattr(target, "line_style"):
-                     # Solid / Dashed for Lines
-                     line_menu = menu.addMenu("Line Style")
-                     def set_ll(s):
-                         target.line_style = s
-                         target.update()
-                         self.main_window.push_undo_state()
-                     
-                     for s in ["solid", "dashed"]:
-                         act = line_menu.addAction(s.capitalize())
-                         act.setCheckable(True)
-                         act.setChecked(target.line_style == s)
-                         def make_cb(ls): return (lambda: set_ll(ls))
-                         act.triggered.connect(make_cb(s))
-                
-                menu.addSeparator()
-                
-                adv_action = menu.addAction("Advanced Settings")
-                def open_adv_settings():
-                    from .settings_dialog import AdvancedSettingsDialog
-                    dlg = AdvancedSettingsDialog(self.main_window, target)
-                    if dlg.exec():
-                        # Reload defaults in case they were updated
-                        if self.mode_manager:
-                            self.mode_manager.load_defaults()
-                        target.update()
-                        self.main_window.push_undo_state()
-                adv_action.triggered.connect(open_adv_settings)
-
-                menu.addSeparator()
-                del_action = menu.addAction("Delete")
-                del_action.triggered.connect(lambda: self.delete_selection())
-                
-                menu.exec(event.globalPos())
+                self.mode_manager.show_tool_context_menu(None, "active_item", event.globalPos())
                 return True
             return False
 
         if event.button() != Qt.MouseButton.LeftButton:
             return False
             
-        scene_pos = self.main_window.view_2d.mapToScene(event.pos())
-        
-        # PRIORITIZE HANDLES: If clicking on a Handle or selected movable item, let standard scene event processing handle it.
         items_under = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.view_2d.transform())
+        
+        # Check for Handles first (Resize/Reshape)
         for item in items_under:
-            # Check if it is a Handle. ReactionHandle usually has a 'handle_type' or we can check class name?
-            # Or just check if it is selected/selectable and we are clicking it?
-            # If it's a handle, we should probably return False to let Scene handle it (resizing/moving).
-            if hasattr(item, "handle_type") or (isinstance(item, QGraphicsItem) and (item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable) and item.isSelected()):
-                 # If we clicked a handle, or a SELECTED movable item, prioritize selection/manipulation.
-                 # Automatically switch to Select Mode if not already active to prevent accidental drawing.
-                 if self.active_tool != "select":
-                     self.mode_manager.activate_tool_by_name("select")
-                 return False
+            if hasattr(item, "handle_type"):
+                # Pass to standard handler for handles, but ensure we are in select tool
+                if self.active_tool != "select":
+                    self.mode_manager.activate_tool_by_name("select")
+                return False 
 
-        # If in "select" tool, let it pass to standard Qt selection system
+        # If in "select" tool, implement Custom Drag (Clone / Constrain)
         if self.active_tool == "select" or self.active_tool is None:
-            # Check for group selection logic
+            # Check for clickable items
             top_item = None
+            
+            # Filter for our items or Atoms/Bonds
             for i in items_under:
-                # Include atoms and bonds in group identification
-                if (hasattr(i, "group_id") and i.group_id) or (hasattr(i, "atom_id") and getattr(i, "group_id", None)):
+                if hasattr(i, "create_json_data") or hasattr(i, "atom_id") or hasattr(i, "atom1"):
                     top_item = i
                     break
             
-            # Clear existing overlay if clicking away or on different group (will be rebuilt if needed)
-            # Actually, let's keep it simple: clear valid overlay only if we are Changing selection
-            
             if top_item:
-                 gid = top_item.group_id
-                 # Identify all members
-                 # Assuming scene items are accessible
-                 group_members = [i for i in self.main_window.scene.items() if hasattr(i, "group_id") and i.group_id == gid]
-                 if not group_members: group_members = [top_item]
+                import copy
+                
+                # Manual Drag Initiation
+                self._is_dragging = True
+                self._drag_start_pos = scene_pos
+                self._did_move = False
+                
+                # Identify Target Group
+                # If selection is empty or top_item not in selection, select it (and its group)
+                if not top_item.isSelected():
+                     modifiers = QApplication.keyboardModifiers()
+                     if not (modifiers.value & Qt.KeyboardModifier.ControlModifier.value): # If Ctrl, we will handle separately
+                        self.main_window.scene.clearSelection()
+                     
+                     # Group Selection Logic (Simplified)
+                     group_items = [top_item]
+                     if hasattr(top_item, "group_id") and top_item.group_id:
+                         gid = top_item.group_id
+                         group_items = [x for x in self.main_window.scene.items() if hasattr(x, "group_id") and x.group_id == gid]
+                     
+                     for g in group_items:
+                         g.setSelected(True)
+                
+                # Get all movable selected items
+                selected_items = self.main_window.scene.selectedItems()
+                movable_items = [i for i in selected_items if (i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable) or hasattr(i, "atom_id") or hasattr(i, "atom1")]
+                
+                # Check Modifier for Clone (Ctrl)
+                modifiers = QApplication.keyboardModifiers()
+                if modifiers.value & Qt.KeyboardModifier.ControlModifier.value:
+                    # Clone Mode: Duplicate items and drag the COPIES
+                    if self.mode_manager:
+                        clones = self.mode_manager.duplicate_items_immediate(movable_items)
+                        if clones:
+                            self.main_window.scene.clearSelection()
+                            for c in clones:
+                                c.setSelected(True)
+                            movable_items = clones
+                
+                self._drag_items = movable_items
+                self._drag_initial_positions = {i: i.pos() for i in movable_items}
+                
+                return True # We handle the drag
 
-                 # Check if this group is ALREADY fully selected
-                 current_selected = set(self.main_window.scene.selectedItems())
-                 is_fully_selected = all(m in current_selected for m in group_members)
-                 
-                 # LOGIC:
-                 # 1. If not fully selected: Select Group (Stage 1)
-                 # 2. If fully selected AND is_group_selected (Stage 1): Switch to Detail (Stage 2)
-                 # 3. If fully selected AND NOT is_group_selected (Stage 2): Pass through to standard drag/manipulation
-                 
-                 if not is_fully_selected:
-                     # Stage 1: Select Group
-                     self.main_window.scene.clearSelection()
-                     for m in group_members:
-                         m.setSelected(True)
-                         m.is_group_selected = True # Hide handles
-                         m.update()
-                     
-                     self.update_group_overlay(group_members)
-                     return True # Consume event
-                     
-                 else:
-                     # Already selected. Check stage.
-                     if hasattr(top_item, "is_group_selected") and top_item.is_group_selected:
-                         # Transition to Stage 2: Show handles
-                         for m in group_members:
-                             m.is_group_selected = False
-                             m.update()
-                         # Keep overlay
-                         # We consume event to prevent deselection by standard click
-                         return True
-                     
-                     # Stage 2: Already detailed. Pass through for dragging.
-            
-            # If clicking background (no top_item), allow standard clear.
+            # If clicking background
             if not items_under:
                 self.clear_group_overlay()
+                self.main_window.scene.clearSelection()
+                # self._is_dragging = False # No items to drag
+                # Pass through for rubberband?
+                return False
 
-            # For MoleculeScene items, it expects initial_positions_in_event already set by patched press
-            # so we let it fall through.
             return False
             
-        # ... (rest of the drawing logic) ...
-        
+        # DRAWING TOOLS (Arrow, etc.)
+        # ... (Same as before) ...
         # Helper to select and add
         def add_and_select(new_item):
             # Apply defaults if available (generic arrow props for now)
@@ -441,10 +296,11 @@ class InteractionHandler(QObject):
         elif self.active_tool == "text":
             item = ReactionTextItem("Text", scene_pos)
             add_and_select(item)
-            item.setFocus()
             
-            # Select default text so user can overwrite immediately
+            # Enable interaction FIRST, then focus, then select
             item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+            item.setFocus(Qt.FocusReason.OtherFocusReason)
+            
             cursor = item.textCursor()
             cursor.select(cursor.SelectionType.Document)
             item.setTextCursor(cursor)
@@ -487,9 +343,30 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_move(self, event):
-        if self.preview_item:
-            scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+        scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+        
+        # 1. Handle Dragging (Select Tool)
+        if self._is_dragging and self._drag_items:
+            delta = scene_pos - self._drag_start_pos
             
+            # Constrain Movement (Shift)
+            modifiers = QApplication.keyboardModifiers()
+            if modifiers.value & Qt.KeyboardModifier.ShiftModifier.value:
+                if abs(delta.x()) > abs(delta.y()):
+                    delta.setY(0)
+                else:
+                    delta.setX(0)
+            
+            # Apply to all items
+            for item in self._drag_items:
+                if item in self._drag_initial_positions:
+                    new_pos = self._drag_initial_positions[item] + delta
+                    item.setPos(new_pos)
+                    self._did_move = True
+            return True
+        
+        # 2. Handle drawing Preview (Drawing Tools)
+        if self.preview_item:
             # Angle Snapping (15 degrees) if not Alt, ONLY for Straight Lines/Arrows
             modifiers = QApplication.keyboardModifiers()
             should_snap = self.active_tool in [
@@ -497,7 +374,7 @@ class InteractionHandler(QObject):
                 "arrow_no", "arrow_dashed", "line", "line_dashed"
             ]
             
-            if should_snap and not (modifiers & Qt.KeyboardModifier.AltModifier):
+            if should_snap and not (modifiers.value & Qt.KeyboardModifier.AltModifier.value):
                 if hasattr(self, "start_pos") and self.start_pos:
                     line = QLineF(self.start_pos, scene_pos)
                     if line.length() > 5:
@@ -520,6 +397,27 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_release(self, event):
+        # 1. End Dragging
+        if self._is_dragging:
+            # Update bonds if atoms were moved
+            if self._did_move and self._drag_items:
+                 try:
+                     atoms = [i for i in self._drag_items if hasattr(i, 'atom_id')]
+                     if atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
+                         self.main_window.scene.update_connected_bonds(atoms)
+                 except: pass
+
+            self._is_dragging = False
+            self._drag_start_pos = None
+            self._drag_items = []
+            self._drag_initial_positions = {}
+            
+            if self._did_move:
+                self.main_window.push_undo_state()
+                self._did_move = False
+            
+            return True
+
         if self.active_tool == "select" or self.active_tool is None:
             return False
 

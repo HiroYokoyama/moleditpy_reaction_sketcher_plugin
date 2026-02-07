@@ -4,6 +4,7 @@
 import time
 import json
 import os
+import uuid
 from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy, 
                              QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QGridLayout, QWidget, QLabel, 
                              QColorDialog, QFileDialog, QMessageBox, QMenu, QFrame)
@@ -86,6 +87,9 @@ class ModeManager(QObject):
         """Setup keyboard shortcuts for grouping etc."""
         self.group_shortcut = QShortcut(QKeySequence("Ctrl+G"), self.main_window)
         self.group_shortcut.activated.connect(self.group_selected_items)
+        
+        # Store clipboard for reaction items
+        self.reaction_clipboard = []
         
         self.ungroup_shortcut = QShortcut(QKeySequence("Ctrl+U"), self.main_window)
         self.ungroup_shortcut.activated.connect(self.ungroup_selected_items)
@@ -265,10 +269,11 @@ class ModeManager(QObject):
                 action.setChecked(True)
                 break
         
-        # Exit Button
-        exit_action = self.reaction_toolbar.addAction(create_reaction_icon("exit"), "Exit Reaction Mode")
-        exit_action.setProperty("tool_name", "exit")
-        exit_action.triggered.connect(self.toggle_reaction_mode)
+        # Exit        
+        # Exit button commented out per user request
+        # exit_action = self.reaction_toolbar.addAction(create_reaction_icon("exit"), "Exit Reaction Mode")
+        # exit_action.setProperty("tool_name", "exit")
+        # exit_action.triggered.connect(self.toggle_reaction_mode)
         
         self.main_window.addToolBar(Qt.ToolBarArea.LeftToolBarArea, self.reaction_toolbar)
         self.reaction_toolbar.hide()
@@ -339,23 +344,23 @@ class ModeManager(QObject):
         self.font_combo.currentTextChanged.connect(self.apply_properties)
         self.property_toolbar.addWidget(self.font_combo)
 
-        # Font settings
+        # Font settings - connect to functions that only format selected text
         self.bold_action = self.property_toolbar.addAction("B")
         self.bold_action.setCheckable(True)
         self.bold_action.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        self.bold_action.triggered.connect(self.apply_properties)
+        self.bold_action.triggered.connect(lambda: self.apply_text_style('bold'))
         
         self.italic_action = self.property_toolbar.addAction("I")
         self.italic_action.setCheckable(True)
         self.italic_action.setFont(QFont("Arial", 10, QFont.Weight.Normal, True))
-        self.italic_action.triggered.connect(self.apply_properties)
+        self.italic_action.triggered.connect(lambda: self.apply_text_style('italic'))
 
         self.underline_action = self.property_toolbar.addAction("U")
         self.underline_action.setCheckable(True)
         f_under = QFont("Arial", 10)
         f_under.setUnderline(True)
         self.underline_action.setFont(f_under)
-        self.underline_action.triggered.connect(self.apply_properties)
+        self.underline_action.triggered.connect(lambda: self.apply_text_style('underline'))
         
         self.property_toolbar.addSeparator()
         
@@ -417,6 +422,11 @@ class ModeManager(QObject):
         settings_btn = self.property_toolbar.addAction("More...")
         settings_btn.triggered.connect(lambda: self.open_advanced_settings())
         
+        # Add space between More and Export
+        spacer = QWidget()
+        spacer.setFixedWidth(40)
+        self.property_toolbar.addWidget(spacer)
+        
         self.property_toolbar.addSeparator()
 
         # Export/Copy Actions at the end
@@ -431,72 +441,58 @@ class ModeManager(QObject):
 
 
 
-    def export_svg(self):
+    def export_svg(self, items, filename):
         # Helper to decide if an item is a "Content" item (Reaction or Molecule)
-        def is_content_item(item):
-            # Check for Reaction Items
-            if hasattr(item, "create_json_data"): return True
-            # Check for Molecule Items (Atom/Bond)
+        def is_content_item(itm):
+            name = itm.__class__.__name__
+            if any(x in name for x in ["ReactionArrow", "ReactionBracket", "ReactionText", "ReactionFreehand"]):
+                return True
             # They might not have a specific tag, but they are definitely NOT Handles or Overlays
-            name = item.__class__.__name__
-            if name in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
-                return False
-            return True
-
+            return name not in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]
+        
         # Use all content items since export usually exports the whole scene (or bounds of it)
-        items = [i for i in self.main_window.scene.items() if is_content_item(i)]
-        if not items:
-            self.main_window.statusBar().showMessage("No content items to export.")
+        content_items = [i for i in items if is_content_item(i)]
+        if not content_items:
+            self.main_window.statusBar().showMessage("No reaction items to export.")
             return
-
-        file_path, _ = QFileDialog.getSaveFileName(self.main_window, "Export SVG", "", "SVG Files (*.svg)")
-        if not file_path: return
-        if not file_path.lower().endswith(".svg"): file_path += ".svg"
-
-        bounds = self.get_reaction_bounds(items)
-        if bounds.isEmpty(): return
-
+        
+        bounds = self.get_reaction_bounds(content_items)
+        if bounds.isEmpty() or not bounds.isValid():
+            self.main_window.statusBar().showMessage("Could not calculate reaction bounds.")
+            return
+        
+        from PyQt6.QtSvg import QSvgGenerator
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtGui import QPainter, QBrush
+        from PyQt6.QtCore import Qt
+        
         generator = QSvgGenerator()
-        generator.setFileName(file_path)
-        generator.setSize(QSize(int(bounds.width()), int(bounds.height())))
+        generator.setFileName(filename)
+        w = int(bounds.width())
+        h = int(bounds.height())
+        generator.setSize(QSize(w, h))
         generator.setViewBox(bounds)
         generator.setTitle("Reaction Sketch")
         
-        # Temporarily clear selection to avoid highlights in SVG
-        selected_items = self.main_window.scene.selectedItems()
-        self.main_window.scene.clearSelection()
-
-        # Prepare items to hide (Non-content items)
-        to_hide = []
-        all_items = self.main_window.scene.items()
-        
-        # Hide only "Helper" items (Handles, Overlays)
-        for i in all_items:
-            if i.isVisible() and not is_content_item(i):
-                to_hide.append(i)
-
-        for i in to_hide: i.hide()
-
-        painter = QPainter()
-        painter.begin(generator)
-        
-        # Transparency Fix
         old_bg = self.main_window.scene.backgroundBrush()
         self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
         
-        self.main_window.scene.render(painter, bounds, bounds)
+        # Clear selection to avoid highlights
+        selected_items = self.main_window.scene.selectedItems()
+        self.main_window.scene.clearSelection()
+
+        painter = QPainter()
+        painter.begin(generator)
+        try:
+            self.main_window.scene.render(painter, bounds, bounds)
+        finally:
+            painter.end()
+            self.main_window.scene.setBackgroundBrush(old_bg)
+            # Restore selection
+            for item in selected_items:
+                item.setSelected(True)
         
-        self.main_window.scene.setBackgroundBrush(old_bg)
-        painter.end()
-        
-        # Restore visibility
-        for i in to_hide: i.show()
-        
-        # Restore selection
-        for item in selected_items:
-            item.setSelected(True)
-            
-        self.main_window.statusBar().showMessage(f"Reaction exported to {file_path}", 3000)
+        self.main_window.statusBar().showMessage(f"Reaction exported to {filename}")
 
     def copy_svg_to_clipboard(self):
         selected = self.main_window.scene.selectedItems()
@@ -590,18 +586,18 @@ class ModeManager(QObject):
         
         molecule_bounds = QRectF()
         for item in items:
-            # [FIX] Skip handles, overlays, etc. to ensure tight bounding box
             if item.__class__.__name__ in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
                 continue
-            # Also skip children that are handles
             if hasattr(item, "handle_type"):
                 continue
             
-            # [FIX] Use mapToScene(boundingRect) to exclude children handles
-            item_bounds = item.mapToScene(item.boundingRect()).boundingRect()
-            molecule_bounds = molecule_bounds.united(item_bounds)
+            # Use sceneBoundingRect() for tighter bounds
+            item_bounds = item.sceneBoundingRect()
+            if item_bounds.isValid() and not item_bounds.isEmpty():
+                molecule_bounds = molecule_bounds.united(item_bounds)
             
-        return molecule_bounds.adjusted(-5, -5, 5, 5)
+        # No padding for tightest fit
+        return molecule_bounds
 
     def set_auto_start(self, enabled):
         self.auto_start_pref = enabled
@@ -725,6 +721,91 @@ class ModeManager(QObject):
             
         self._updating_props = False
 
+    def toggle_subscript(self):
+        if not self.is_reaction_mode: return
+        self._apply_text_format_property("sub")
+
+    def toggle_superscript(self):
+        if not self.is_reaction_mode: return
+        self._apply_text_format_property("sup")
+
+    def apply_chem_style(self):
+        if not self.is_reaction_mode: return
+        try:
+             # Apply chemical formatting to ReactionTextItems
+             items = self.main_window.scene.selectedItems()
+             from .items import ReactionTextItem
+             modified = False
+             
+             for item in items:
+                 if isinstance(item, ReactionTextItem):
+                     item.format_as_chemical()
+                     modified = True
+             
+             if modified:
+                 self.main_window.push_undo_state()
+        except: pass
+
+    def apply_text_style(self, style_type):
+        if not self.is_reaction_mode: return
+        self._apply_text_format_property(style_type)
+
+    def _apply_text_format_property(self, property_name):
+        """Helper to apply a specific text property safely."""
+        try:
+            if not self.main_window or not self.main_window.scene: return
+            
+            # Check for focus item first (Edit Mode)
+            focus_item = self.main_window.scene.focusItem()
+            from .items import ReactionTextItem
+            
+            target_items = []
+            is_edit_mode = False
+            
+            if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+                target_items = [focus_item]
+                is_edit_mode = True
+            else:
+                # Object Mode
+                target_items = [i for i in self.main_window.scene.selectedItems() if isinstance(i, ReactionTextItem)]
+            
+            if not target_items: return
+
+            modified = False
+            for item in target_items:
+                cursor = item.textCursor()
+                if not is_edit_mode:
+                    cursor.select(QTextCursor.SelectionType.Document)
+                
+                fmt = cursor.charFormat()
+                
+                if property_name == "bold":
+                    w = QFont.Weight.Bold if fmt.fontWeight() != QFont.Weight.Bold else QFont.Weight.Normal
+                    fmt.setFontWeight(w)
+                elif property_name == "italic":
+                    fmt.setFontItalic(not fmt.fontItalic())
+                elif property_name == "underline":
+                    fmt.setFontUnderline(not fmt.fontUnderline())
+                elif property_name == "sub":
+                    align = QTextCharFormat.VerticalAlignment.AlignSubScript if fmt.verticalAlignment() != QTextCharFormat.VerticalAlignment.AlignSubScript else QTextCharFormat.VerticalAlignment.AlignNormal
+                    fmt.setVerticalAlignment(align)
+                elif property_name == "sup":
+                    align = QTextCharFormat.VerticalAlignment.AlignSuperScript if fmt.verticalAlignment() != QTextCharFormat.VerticalAlignment.AlignSuperScript else QTextCharFormat.VerticalAlignment.AlignNormal
+                    fmt.setVerticalAlignment(align)
+                
+                cursor.mergeCharFormat(fmt)
+                if is_edit_mode:
+                    item.setTextCursor(cursor)
+                modified = True
+            
+            if modified:
+                self.main_window.push_undo_state()
+                # Sync toolbar UI
+                self.sync_property_toolbar()
+                
+        except Exception as e:
+            pass
+
     def apply_properties(self):
         if self._updating_props: return
         if not self.is_reaction_mode: return
@@ -737,61 +818,87 @@ class ModeManager(QObject):
             return
         from .items import ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem
         
-        color = self.color_btn.property("current_color")
-        family = self.font_combo.currentText()
-        bold = self.bold_action.isChecked()
-        italic = self.italic_action.isChecked()
-        underline = self.underline_action.isChecked()
-        item_size = self.size_spin.value()
-        font_size = self.font_size_spin.value()
-        width = self.width_spin.value()
-        
-        for item in items:
-            if isinstance(item, ReactionTextItem):
-                item.setDefaultTextColor(QColor(color))
-                
-                # Apply to Rich Text Content
-                fmt = QTextCharFormat()
-                fmt.setFontFamily(family)
-                fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
-                fmt.setFontItalic(italic)
-                fmt.setFontUnderline(underline)
-                fmt.setFontPointSize(font_size)
-                fmt.setForeground(QBrush(QColor(color)))
+        sender = self.sender()
+        if not sender: return
 
-                cursor = item.textCursor()
-                if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction and cursor.hasSelection():
-                     # Apply to selection only
-                     cursor.mergeCharFormat(fmt)
-                     item.setTextCursor(cursor)
-                else:
-                     # Apply to ALL text if not actively editing a selection
-                     doc_cursor = QTextCursor(item.document())
-                     doc_cursor.select(QTextCursor.SelectionType.Document)
-                     doc_cursor.mergeCharFormat(fmt)
-                
-                # Also update default font for new typing
-                f = item.font()
-                f.setFamily(family); f.setBold(bold); f.setItalic(italic); f.setUnderline(underline); f.setPointSize(font_size)
-                item.setFont(f)
-            elif isinstance(item, (ReactionArrowItem, ReactionBracketItem, ReactionCircleItem)):
-                 if hasattr(item, "pen_color"): item.pen_color = color
-                 if hasattr(item, "pen_width"): item.pen_width = width
-            elif hasattr(item, "set_size"):
-                 # Plus, Minus
-                 item.set_size(item_size)
-                 if hasattr(item, "pen_color"): item.pen_color = color
-                 if hasattr(item, "pen_width"): item.pen_width = width
-            elif hasattr(item, "pen_color"):
-                 # AtomItem, BondItem
-                 item.pen_color = color
-            item.update()
+        modified = False
         
-        # If we modified chemical items, push to undo stack
-        chemical_modified = any(not hasattr(i, "create_json_data") for i in items)
-        if chemical_modified:
-            if hasattr(self.main_window, 'push_undo_state'):
-                self.main_window.push_undo_state()
+        # Color Change
+        if sender == self.color_btn:
+            color = self.color_btn.property("current_color")
+            for item in items:
+                if isinstance(item, ReactionTextItem):
+                    item.setDefaultTextColor(QColor(color))
+                    # Apply to selection/document
+                    cursor = item.textCursor()
+                    if not (item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+                        cursor.select(QTextCursor.SelectionType.Document)
+                    fmt = QTextCharFormat()
+                    fmt.setForeground(QBrush(QColor(color)))
+                    cursor.mergeCharFormat(fmt)
+                    if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                        item.setTextCursor(cursor)
+                elif hasattr(item, "pen_color"):
+                    item.pen_color = color
+                    item.update()
+                modified = True
+
+        # Font Family Change
+        elif sender == self.font_combo:
+            family = self.font_combo.currentText()
+            for item in items:
+                if isinstance(item, ReactionTextItem):
+                    cursor = item.textCursor()
+                    if not (item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+                        cursor.select(QTextCursor.SelectionType.Document)
+                    fmt = QTextCharFormat()
+                    fmt.setFontFamily(family)
+                    cursor.mergeCharFormat(fmt)
+                    if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                        item.setTextCursor(cursor)
+                    # Update default font
+                    f = item.font()
+                    f.setFamily(family)
+                    item.setFont(f)
+                    modified = True
+
+        # Font Size Change
+        elif sender == self.font_size_spin:
+            size = self.font_size_spin.value()
+            for item in items:
+                if isinstance(item, ReactionTextItem):
+                    cursor = item.textCursor()
+                    if not (item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+                        cursor.select(QTextCursor.SelectionType.Document)
+                    fmt = QTextCharFormat()
+                    fmt.setFontPointSize(size)
+                    cursor.mergeCharFormat(fmt)
+                    if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                        item.setTextCursor(cursor)
+                    f = item.font()
+                    f.setPointSize(size)
+                    item.setFont(f)
+                    modified = True
+
+        # Item Size Change (Plus/Minus)
+        elif sender == self.size_spin:
+            size = self.size_spin.value()
+            for item in items:
+                if hasattr(item, "set_size"):
+                    item.set_size(size)
+                    modified = True
+
+        # Line Width Change
+        elif sender == self.width_spin:
+            width = self.width_spin.value()
+            for item in items:
+                if hasattr(item, "pen_width"):
+                    item.pen_width = width
+                    item.update()
+                    modified = True
+        
+        if modified and hasattr(self.main_window, 'push_undo_state'):
+            self.main_window.push_undo_state()
 
     def add_tool(self, name, icon_name, tooltip):
         # Create action for the group to manage exclusivity
@@ -865,12 +972,20 @@ class ModeManager(QObject):
                 return
 
             tool_name = action.property("tool_name")
-            self.show_tool_context_menu(button, tool_name, button.rect().bottomLeft())
+            if button:
+                self.show_tool_context_menu(button, tool_name, button.rect().bottomLeft())
+            else:
+                from PyQt6.QtCore import QPoint
+                self.show_tool_context_menu(None, tool_name, QPoint(0, 0))
 
     def show_tool_context_menu(self, button, tool_name, pos):
         menu = self.create_tool_style_menu(tool_name)
         if menu:
-            menu.exec(button.mapToGlobal(pos))
+            if button:
+                menu.exec(button.mapToGlobal(pos))
+            else:
+                from PyQt6.QtGui import QCursor
+                menu.exec(QCursor.pos())
             self._last_menu_close_time = time.time()
 
     def create_tool_style_menu(self, tool_name):
@@ -924,6 +1039,8 @@ class ModeManager(QObject):
             act_barb.setCheckable(True)
             act_barb.setChecked(current_style == "barb")
             act_barb.triggered.connect(lambda: self.set_head_style(tool_name, "barb"))
+            
+
 
         elif tool_name == "arrow_no":
             menu.addSeparator()
@@ -1038,6 +1155,61 @@ class ModeManager(QObject):
                 except: pass
             act_chem.triggered.connect(format_chem)
             menu.addSeparator()
+
+            # Grouping options
+            act_group = menu.addAction("Group Selected Items")
+            def group_items():
+                try:
+                    if self.main_window and self.main_window.scene:
+                        items = self.main_window.scene.selectedItems()
+                        if not items:
+                            return
+                        
+                        # Find the highest existing group_id and add 1
+                        max_group_id = 0
+                        for item in self.main_window.scene.items():
+                            if hasattr(item, "group_id") and item.group_id is not None:
+                                max_group_id = max(max_group_id, item.group_id)
+                        new_group = max_group_id + 1
+                        
+                        for item in items:
+                            if hasattr(item, "group_id"):
+                                item.group_id = new_group
+                        
+                        # Show status message
+                        if hasattr(self.main_window, 'statusBar'):
+                            self.main_window.statusBar().showMessage(f"Grouped {len(items)} items", 3000)
+                        
+                        self.main_window.push_undo_state()
+                except Exception as e:
+                    pass # For debugging, can be removed
+            act_group.triggered.connect(group_items)
+
+            act_ungroup = menu.addAction("Ungroup Selected Items")
+            def ungroup_items():
+                try:
+                    if self.main_window and self.main_window.scene:
+                        items = self.main_window.scene.selectedItems()
+                        if not items:
+                            return
+                        
+                        ungrouped_count = 0
+                        for item in items:
+                            if hasattr(item, "group_id") and item.group_id is not None:
+                                item.group_id = None
+                                ungrouped_count += 1
+                        
+                        # Show status message
+                        if hasattr(self.main_window, 'statusBar'):
+                            self.main_window.statusBar().showMessage(f"Ungrouped {ungrouped_count} items", 3000)
+                        
+                        if ungrouped_count > 0:
+                            self.main_window.push_undo_state()
+                except Exception as e:
+                    pass # For debugging, can be removed
+            act_ungroup.triggered.connect(ungroup_items)
+            menu.addSeparator()
+
 
         # "Switch Tool" section for common grouping
         if tool_name in ["circle", "line", "line_dashed", "line_curved", "freehand"]:
@@ -1533,6 +1705,7 @@ class ModeManager(QObject):
         # Apply patches (Core and Interaction) dynamically
         apply_core_patches(self.main_window)
         apply_interaction_patches(self.main_window)
+        self.main_window.scene.update()
         self.is_reaction_mode = True
             
         self.set_3d_action_state(False)
@@ -1546,12 +1719,6 @@ class ModeManager(QObject):
             # Fallback to 50/50
             total = sum(self.main_window.splitter.sizes())
             self.main_window.splitter.setSizes([total//2, total//2])
-            
-        # Hide reaction toolbar
-        if self.reaction_toolbar:
-            self.reaction_toolbar.hide()
-        if self.property_toolbar:
-            self.property_toolbar.hide()
             
         self.set_3d_action_state(True)
         self.main_window.statusBar().showMessage("Returned to Molecular Mode", 3000)
@@ -1623,6 +1790,10 @@ class ModeManager(QObject):
             item.is_group_selected = True
             item.update()
         
+        # Show status message
+        if hasattr(self.main_window, 'statusBar'):
+            self.main_window.statusBar().showMessage(f"Grouped {len(groupable)} items", 3000)
+        
         if self.interaction_handler:
             self.interaction_handler.update_group_overlay(groupable)
             
@@ -1633,147 +1804,119 @@ class ModeManager(QObject):
         if not items: return
         
         groupable = [i for i in items if hasattr(i, "group_id") or hasattr(i, "atom_id") or hasattr(i, "atom1")]
-        if not groupable: return
-
+        
+        if not groupable:
+            return
+        
         self.main_window.push_undo_state()
+        ungrouped_count = 0
         for item in groupable:
-            item.group_id = None
+            if hasattr(item, "group_id") and item.group_id is not None:
+                item.group_id = None
+                ungrouped_count += 1
             item.is_group_selected = False
             item.update()
-            
+        
+        # Show status message
+        if hasattr(self.main_window, 'statusBar') and ungrouped_count > 0:
+            self.main_window.statusBar().showMessage(f"Ungrouped {ungrouped_count} items", 3000)
+        
         if self.interaction_handler:
-            self.interaction_handler.clear_group_overlay()
+            self.interaction_handler.update_group_overlay([])
 
     def get_logical_units(self, items):
         """
         Group selected items into logical "moveable units".
         Rules:
         1. Explicit Groups (all scene items with same group_id)
-        2. Molecules: If ANY part of a molecule is selected, the ENTIRE molecule is the unit.
+        2. Molecules: Each connected fragment = one unit (separate molecules can align independently)
         3. Single Reaction Items
         """
         scene = self.main_window.scene if self.main_window else None
         if not scene: return []
         
-        # 1. Build a robust mapping from core atom/bond objects/IDs to graphics items
-        atom_to_item = {}
-        bond_to_item = {}
-        mol_data = getattr(self.main_window, "data", None)
-        
-        if mol_data:
-            if hasattr(mol_data, "atoms"):
-                for aid, info in mol_data.atoms.items():
-                    a_item = info.get("item")
-                    if a_item:
-                        atom_to_item[aid] = a_item
-                        core_atom = info.get("atom")
-                        if core_atom: atom_to_item[core_atom] = a_item
-            if hasattr(mol_data, "bonds"):
-                for bid, info in mol_data.bonds.items():
-                    b_item = info.get("item")
-                    if b_item:
-                        bond_to_item[bid] = b_item
-                        core_bond = info.get("bond")
-                        if core_bond: bond_to_item[core_bond] = b_item
-        
         visited = set()
         units = []
         
-        # Helper: Get all items in a connected molecule component using DATA connectivity
-        def get_molecule_items(start_aid=None, start_bid=None):
-            fragment_items = set()
+        # Helper: Get connected fragment by traversing bonds visually
+        def get_connected_molecule_fragment(start_item):
+            """Traverse molecule connectivity via scene items (not mol_data)"""
+            fragment = set()
+            stack = [start_item]
+            visited_in_fragment = {start_item}
             
-            # We need a set of visited atom IDs for graph traversal
-            visited_aids = set()
-            stack = []
-            
-            if start_aid is not None: stack.append(start_aid)
-            elif start_bid is not None:
-                # If starting from a bond, add its atoms
-                if start_bid in mol_data.bonds:
-                    b_info = mol_data.bonds[start_bid]
-                    if isinstance(start_bid, tuple):
-                         stack.append(start_bid[0])
-                         stack.append(start_bid[1])
-
             while stack:
-                curr_aid = stack.pop()
-                if curr_aid in visited_aids: continue
-                visited_aids.add(curr_aid)
+                current = stack.pop()
+                fragment.add(current)
                 
-                # Add Atom Item
-                if curr_aid in atom_to_item:
-                    fragment_items.add(atom_to_item[curr_aid])
+                # If this is an atom, find connected bonds
+                if hasattr(current, 'bonds'):
+                    for bond_item in current.bonds:
+                        if bond_item not in visited_in_fragment and bond_item.scene():
+                            visited_in_fragment.add(bond_item)
+                            stack.append(bond_item)
+                            fragment.add(bond_item)
+                            
+                            # From bond, find other atom (BondItem has atom1/atom2, NOT atom1_item/atom2_item)
+                            if hasattr(bond_item, 'atom1') and bond_item.atom1:
+                                if bond_item.atom1 != current and bond_item.atom1 not in visited_in_fragment:
+                                    visited_in_fragment.add(bond_item.atom1)
+                                    stack.append(bond_item.atom1)
+                            if hasattr(bond_item, 'atom2') and bond_item.atom2:
+                                if bond_item.atom2 != current and bond_item.atom2 not in visited_in_fragment:
+                                    visited_in_fragment.add(bond_item.atom2)
+                                    stack.append(bond_item.atom2)
                 
-                # Check neighbors via bonds
-                if curr_aid in mol_data.atoms:
-                    atom_info = mol_data.atoms[curr_aid]
-                    for bid in atom_info.get('bonds', []):
-                         # Add Bond Item
-                         if bid in bond_to_item:
-                             fragment_items.add(bond_to_item[bid])
-                         
-                         # Find neighbor atom
-                         if isinstance(bid, tuple):
-                             neighbor = bid[1] if bid[0] == curr_aid else bid[0]
-                             if neighbor not in visited_aids:
-                                 stack.append(neighbor)
+                # If this is a bond, get both atoms
+                elif hasattr(current, 'atom1') or hasattr(current, 'atom2'):
+                    for atom_item in [getattr(current, 'atom1', None), getattr(current, 'atom2', None)]:
+                        if atom_item and atom_item not in visited_in_fragment:
+                            visited_in_fragment.add(atom_item)
+                            stack.append(atom_item)
             
-            return fragment_items
-
+            return fragment
+        
         for item in items:
-            if item in visited: continue
+            if item in visited:
+                continue
             
             unit_members = []
             
             # 1. Explicit Group
             if hasattr(item, "group_id") and item.group_id:
                 gid = item.group_id
-                # Treat the WHOLE group in the scene as one unit
                 unit_members = [i for i in scene.items() if hasattr(i, "group_id") and i.group_id == gid]
                 
-            # 2. Molecule (Rigid Body Selection)
-            # Check if item corresponds to an atom or bond in mol_data
-            elif hasattr(item, "atom_id"): # AtomItem
-                unit_members = list(get_molecule_items(start_aid=item.atom_id))
-            elif hasattr(item, "atom1") and hasattr(item, "atom2"): # BondItem
-                a1 = item.atom1
-                a2 = item.atom2
-                aid1 = a1 if isinstance(a1, int) else getattr(a1, 'atom_id', None)
-                aid2 = a2 if isinstance(a2, int) else getattr(a2, 'atom_id', None)
+            # 2. Molecule atom/bond - get connected fragment
+            elif hasattr(item, "atom_id") or hasattr(item, "bonds"):
+                fragment = get_connected_molecule_fragment(item)
+                unit_members = list(fragment) if fragment else [item]
                 
-                if aid1 is not None:
-                     unit_members = list(get_molecule_items(start_aid=aid1))
-                elif aid2 is not None:
-                     unit_members = list(get_molecule_items(start_aid=aid2))
-                else:
-                     unit_members = [item] # Fallback
-                
-            # 3. Single Reaction Item / Other
+            # 3. Reaction Items
             else:
                 unit_members = [item]
-                
-            # Mark all as visited
+            
+            # Mark as visited
             for m in unit_members:
                 visited.add(m)
             
-            if not unit_members: continue
+            if not unit_members:
+                continue
 
-            # Calculate total bounding box matches VISUAL bounds
+            # Calculate bounds
             rect = QRectF()
             for m in unit_members:
-                if rect.isNull(): rect = m.sceneBoundingRect()
-                else: rect = rect.united(m.sceneBoundingRect())
+                if rect.isNull():
+                    rect = m.sceneBoundingRect()
+                else:
+                    rect = rect.united(m.sceneBoundingRect())
             
-            # Use geometric center of the bounding box
-            center = rect.center()
-                
             units.append({
                 "members": unit_members,
                 "rect": rect,
-                "center": center
+                "center": rect.center()
             })
-            
+        
         return units
 
     def align_items(self, mode):
@@ -1788,76 +1931,69 @@ class ModeManager(QObject):
         if len(units) < 2: return
         
         rects = [u["rect"] for u in units]
-        self.main_window.push_undo_state()
         
         moved_atoms = []
         
-        if mode == "top":
-            # Align to the topmost edge of the selection
-            ref = min(r.top() for r in rects)
-            for u in units:
+        # Calculate and apply movement for each unit
+        for u in units:
+            dx = 0
+            dy = 0
+            
+            if mode == "top":
+                ref = min(r.top() for r in rects)
                 dy = ref - u["rect"].top()
-                if abs(dy) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(0, dy)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-                
-        elif mode == "bottom":
-             # Align to the bottommost edge
-            ref = max(r.bottom() for r in rects)
-            for u in units:
+            elif mode == "bottom":
+                ref = max(r.bottom() for r in rects)
                 dy = ref - u["rect"].bottom()
-                if abs(dy) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(0, dy)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-                
-        elif mode == "center_v":
-            # Align Y-centers to the average Y-center
-            avg_y = sum(u["center"].y() for u in units) / len(units)
-            for u in units:
+            elif mode == "center_v":
+                avg_y = sum(u2["center"].y() for u2 in units) / len(units)
                 dy = avg_y - u["center"].y()
-                if abs(dy) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(0, dy)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-                    
-        elif mode == "left":
-            ref = min(r.left() for r in rects)
-            for u in units:
+            elif mode == "left":
+                ref = min(r.left() for r in rects)
                 dx = ref - u["rect"].left()
-                if abs(dx) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(dx, 0)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-                
-        elif mode == "right":
-            ref = max(r.right() for r in rects)
-            for u in units:
+            elif mode == "right":
+                ref = max(r.right() for r in rects)
                 dx = ref - u["rect"].right()
-                if abs(dx) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(dx, 0)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-                
-        elif mode == "center_h":
-            # Align X-centers to the average X-center
-            avg_x = sum(u["center"].x() for u in units) / len(units)
-            for u in units:
+            elif mode == "center_h":
+                avg_x = sum(u2["center"].x() for u2 in units) / len(units)
                 dx = avg_x - u["center"].x()
-                if abs(dx) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(dx, 0)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-
-        # Update connections
-        if moved_atoms and hasattr(self.main_window.scene, "update_connected_bonds"):
-             self.main_window.scene.update_connected_bonds(moved_atoms)
+            
+            # Apply delta
+            if abs(dx) > 0.1 or abs(dy) > 0.1:
+                for item in u["members"]:
+                    # Only move atoms, bonds update automatically
+                    if hasattr(item, 'atom_id'):
+                        # Update core data
+                        if hasattr(self.main_window, 'data'):
+                            mol_data = self.main_window.data
+                            if hasattr(mol_data, 'atoms'):
+                                aid = item.atom_id
+                                if aid in mol_data.atoms:
+                                    atom_obj = mol_data.atoms[aid].get('atom')
+                                    if atom_obj and hasattr(atom_obj, 'x'):
+                                        atom_obj.x += dx
+                                        atom_obj.y += dy
+                        
+                        # Move visual item (bonds update via itemChange)
+                        item.moveBy(dx, dy)
+                        moved_atoms.append(item)
+                    
+                    # Move reaction items normally
+                    elif not hasattr(item, 'atom1'):
+                        item.moveBy(dx, dy)
+        
+        # Update bond positions
+        if moved_atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
+            self.main_window.scene.update_connected_bonds(moved_atoms)
+        
         self.main_window.update_2d_measurement_labels()
         self.main_window.scene.update()
+        
+        # Push undo AFTER change completes
+        self.main_window.push_undo_state()
 
     def distribute_items(self, axis):
-        """Distribute selected items evenly (Equal Gaps between Edges)."""
+        """Distribute selected items evenly (Groups/Molecules Rigidly)."""
         if not self.main_window or not self.main_window.scene: return
         
         items = self.main_window.scene.selectedItems()
@@ -1866,63 +2002,104 @@ class ModeManager(QObject):
         units = self.get_logical_units(items)
         if len(units) < 3: return
         
-        self.main_window.push_undo_state()
-        
         moved_atoms = []
         
         if axis == "horizontal":
-            # Sort by X position (left edge)
-            units.sort(key=lambda u: u["rect"].left())
+            # Sort by X position (center)
+            units.sort(key=lambda u: u["center"].x())
             
-            # Calculate total width spanned by edges
-            start_x = units[0]["rect"].left()
-            end_x = units[-1]["rect"].right()
-            total_span = end_x - start_x
+            # Keep first and last fixed, distribute middle objects by center
+            start_center_x = units[0]["center"].x()
+            end_center_x = units[-1]["center"].x()
+            total_span = end_center_x - start_center_x
             
-            # Sum of widths of objects
-            sum_width = sum(u["rect"].width() for u in units)
-            
-            # Total gap space
-            total_gap = total_span - sum_width
-            gap = total_gap / (len(units) - 1) if (len(units) > 1) else 0
-            
-            current_left = start_x
-            for u in units:
-                dx = current_left - u["rect"].left()
-                if abs(dx) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(dx, 0)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+            # Distribute middle objects evenly between edges
+            if len(units) > 2:
+                gap = total_span / (len(units) - 1)
                 
-                current_left += u["rect"].width() + gap
+                # Only move middle items (skip first and last)
+                for i, u in enumerate(units):
+                    if i == 0 or i == len(units) - 1:
+                        # Skip edge objects
+                        continue
+                    
+                    target_center_x = start_center_x + (i * gap)
+                    dx = target_center_x - u["center"].x()
+                    
+                    if abs(dx) > 0.1:
+                        for item in u["members"]:
+                            # Only move atoms
+                            if hasattr(item, 'atom_id'):
+                                # Update core data
+                                if hasattr(self.main_window, 'data'):
+                                    mol_data = self.main_window.data
+                                    if hasattr(mol_data, 'atoms'):
+                                        aid = item.atom_id
+                                        if aid in mol_data.atoms:
+                                            atom_obj = mol_data.atoms[aid].get('atom')
+                                            if atom_obj and hasattr(atom_obj, 'x'):
+                                                atom_obj.x += dx
+                                
+                                # Move visual item
+                                item.moveBy(dx, 0)
+                                moved_atoms.append(item)
+                            
+                            # Move reaction items
+                            elif not hasattr(item, 'atom1'):
+                                item.moveBy(dx, 0)
                     
         elif axis == "vertical":
-            # Sort by Y position (top edge)
-            units.sort(key=lambda u: u["rect"].top())
+            # Sort by Y position (center)
+            units.sort(key=lambda u: u["center"].y())
             
-            start_y = units[0]["rect"].top()
-            end_y = units[-1]["rect"].bottom()
-            total_span = end_y - start_y
+            # Keep first and last fixed, distribute middle objects by center
+            start_center_y = units[0]["center"].y()
+            end_center_y = units[-1]["center"].y()
+            total_span = end_center_y - start_center_y
             
-            sum_height = sum(u["rect"].height() for u in units)
-            
-            total_gap = total_span - sum_height
-            gap = total_gap / (len(units) - 1) if (len(units) > 1) else 0
-            
-            current_top = start_y
-            for u in units:
-                dy = current_top - u["rect"].top()
-                if abs(dy) > 0.1:
-                    for item in u["members"]: 
-                        item.moveBy(0, dy)
-                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+            # Distribute middle objects evenly between edges
+            if len(units) > 2:
+                gap = total_span / (len(units) - 1)
                 
-                current_top += u["rect"].height() + gap
+                # Only move middle items (skip first and last)
+                for i, u in enumerate(units):
+                    if i == 0 or i == len(units) - 1:
+                        # Skip edge objects
+                        continue
                     
-        if moved_atoms and hasattr(self.main_window.scene, "update_connected_bonds"):
-             self.main_window.scene.update_connected_bonds(moved_atoms)
+                    target_center_y = start_center_y + (i * gap)
+                    dy = target_center_y - u["center"].y()
+                    
+                    if abs(dy) > 0.1:
+                        for item in u["members"]:
+                            # Only move atoms
+                            if hasattr(item, 'atom_id'):
+                                # Update core data
+                                if hasattr(self.main_window, 'data'):
+                                    mol_data = self.main_window.data
+                                    if hasattr(mol_data, 'atoms'):
+                                        aid = item.atom_id
+                                        if aid in mol_data.atoms:
+                                            atom_obj = mol_data.atoms[aid].get('atom')
+                                            if atom_obj and hasattr(atom_obj, 'y'):
+                                                atom_obj.y += dy
+                                
+                                # Move visual item
+                                item.moveBy(0, dy)
+                                moved_atoms.append(item)
+                            
+                            # Move reaction items
+                            elif not hasattr(item, 'atom1'):
+                                item.moveBy(0, dy)
+        
+        # Update bond positions
+        if moved_atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
+            self.main_window.scene.update_connected_bonds(moved_atoms)
+                    
         self.main_window.update_2d_measurement_labels()
         self.main_window.scene.update()
+        
+        self.main_window.push_undo_state()
 
 
             
@@ -1970,16 +2147,52 @@ class ModeManager(QObject):
             # If valid cursor selection or editing
             if cursor.hasSelection():
                 cursor.mergeCharFormat(fmt)
-            else:
-                # If just clicked (no selection), applying format changes style for FUTURE typing at cursor
-                # But if we are manipulating "selected items" (not editing), we should apply to WHOLE text.
-                if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-                    cursor.mergeCharFormat(fmt)
-                    item.setTextCursor(cursor) # Ensure update
-                else:
-                    # Apply to whole document
-                    cursor.select(cursor.SelectionType.Document)
-                    cursor.mergeCharFormat(fmt)
+            elif item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                # In edit mode but no selection - set format for future typing
+                cursor.mergeCharFormat(fmt)
+                item.setTextCursor(cursor)
+            # If not in edit mode and no selection, do nothing (don't apply to whole document)
+    
+    def apply_text_style(self, style):
+        """Apply bold/italic/underline to selected text only."""
+        if not self.main_window or not self.main_window.scene:
+            return
+        
+        from .items import ReactionTextItem
+        
+        # Get focused or selected text items
+        item = self.main_window.scene.focusItem()
+        targets = []
+        
+        if isinstance(item, ReactionTextItem) and (item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+            targets.append(item)
+        else:
+            sel = self.main_window.scene.selectedItems()
+            targets = [i for i in sel if isinstance(i, ReactionTextItem)]
+        
+        if not targets:
+            return
+        
+        self.main_window.push_undo_state()
+        
+        for item in targets:
+            cursor = item.textCursor()
+            
+            # Only apply if there's a selection
+            if cursor.hasSelection():
+                fmt = cursor.charFormat()
+                
+                if style == 'bold':
+                    current_weight = fmt.fontWeight()
+                    new_weight = QFont.Weight.Bold if current_weight != QFont.Weight.Bold else QFont.Weight.Normal
+                    fmt.setFontWeight(new_weight)
+                elif style == 'italic':
+                    fmt.setFontItalic(not fmt.fontItalic())
+                elif style == 'underline':
+                    fmt.setFontUnderline(not fmt.fontUnderline())
+                
+                cursor.mergeCharFormat(fmt)
+                item.setTextCursor(cursor)
 
     def apply_chem_style(self):
         """Robust chemical formatting (Sub/Sup) for targets."""
@@ -2066,3 +2279,223 @@ class ModeManager(QObject):
             
             cursor.endEditBlock()
             item.update()
+    
+    def duplicate_items_immediate(self, items):
+        """
+        Duplicate a list of items immediately (for Ctrl+Drag).
+        Returns the list of new items.
+        """
+        if not items: return []
+        
+        # 1. Serialize
+        snapshot = []
+        for item in items:
+            if hasattr(item, "create_json_data"):
+                snapshot.append(item.create_json_data())
+            # Note: We are currently only handling Reaction Items for Ctrl+Drag cloning
+            # Native Atoms/Bonds need complex cloning (splitting molecules etc) which is handled by
+            # the main application's copy/paste usually. We skip them here for safety.
+            
+        if not snapshot: return []
+        
+        # 2. Remap Group IDs
+        import uuid
+        old_to_new_group = {}
+        for data in snapshot:
+            if "group_id" in data and data["group_id"]:
+                gid = data["group_id"]
+                if gid not in old_to_new_group:
+                    old_to_new_group[gid] = str(uuid.uuid4())
+                data["group_id"] = old_to_new_group[gid]
+        
+        # 3. Create New Items
+        new_items = []
+        scene = self.main_window.scene
+        
+        # Import Item Classes locally to avoid circular dependency issues
+        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                            ReactionMinusItem, ReactionResonanceArrowItem, 
+                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                            ReactionNoArrowItem, ReactionDashedArrowItem,
+                            ReactionCurvedArrowItem, ReactionBracketItem, ReactionCircleItem,
+                            ReactionLineItem, ReactionCurvedLineItem, ReactionFreehandItem)
+
+        for data in snapshot:
+            item_type = data.get("type")
+            new_item = None
+            
+            try:
+                if item_type == "arrow":
+                    new_item = ReactionArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "arrow_res":
+                    new_item = ReactionResonanceArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "arrow_eq":
+                    new_item = ReactionEquilibriumArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "arrow_retro":
+                    new_item = ReactionRetroArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "arrow_dashed":
+                    new_item = ReactionDashedArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "arrow_no":
+                    new_item = ReactionNoArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "curved_double":
+                    new_item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "curved_fish":
+                    new_item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(0,0), is_fish_hook=True)
+                elif item_type == "plus":
+                    new_item = ReactionPlusItem(QPointF(0,0))
+                elif item_type == "minus":
+                    new_item = ReactionMinusItem(QPointF(0,0))
+                elif item_type == "text":
+                    new_item = ReactionTextItem("", QPointF(0,0))
+                elif item_type == "bracket":
+                    new_item = ReactionBracketItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "circle":
+                    new_item = ReactionCircleItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "line":
+                    new_item = ReactionLineItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "line_dashed":
+                    new_item = ReactionLineItem(QPointF(0,0), QPointF(0,0))
+                    new_item.line_style = "dashed"
+                elif item_type == "line_curved":
+                    new_item = ReactionCurvedLineItem(QPointF(0,0), QPointF(0,0))
+                elif item_type == "freehand":
+                    new_item = ReactionFreehandItem(QPointF(0,0))
+                
+                if new_item:
+                    # Generic Properties
+                    if hasattr(new_item, "pen_color") and "color" in data:
+                        new_item.pen_color = QColor(data["color"])
+                    if hasattr(new_item, "pen_width") and "width" in data:
+                        new_item.pen_width = data["width"]
+                    if "rotation" in data:
+                        new_item.setRotation(data["rotation"])
+                    if "z" in data:
+                        new_item.setZValue(data["z"])
+                    if "group_id" in data:
+                        new_item.group_id = data["group_id"]
+
+                    # Specific Properties
+                    if item_type in ["arrow", "arrow_res", "arrow_retro", "arrow_dashed", "arrow_no", "curved_double", "curved_fish", "line", "line_dashed", "line_curved"]:
+                         sx = data.get("start_x", 0)
+                         sy = data.get("start_y", 0)
+                         ex = data.get("end_x", 0)
+                         ey = data.get("end_y", 0)
+                         
+                         new_item.setPos(0, 0) # Item pos is 0,0; start/end are absolute in scene
+                         new_item.start_p = QPointF(sx, sy)
+                         new_item.end_p = QPointF(ex, ey)
+                         
+                         if "head_style" in data and hasattr(new_item, "head_style"):
+                             new_item.head_style = data["head_style"]
+                         if "head_size" in data and hasattr(new_item, "head_size"):
+                             new_item.head_size = data["head_size"]
+                         if "head_angle" in data and hasattr(new_item, "head_angle"):
+                             new_item.head_angle = data["head_angle"]
+                         if "head_concavity" in data and hasattr(new_item, "head_concavity"):
+                             new_item.head_concavity = data["head_concavity"]
+                         
+                         if "control_x" in data and "control_y" in data and hasattr(new_item, "control_p"):
+                             new_item.control_p = QPointF(data["control_x"], data["control_y"])
+                             
+                    elif item_type == "text":
+                         new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
+                         if "text" in data: new_item.setPlainText(data["text"])
+                         if "html" in data: new_item.setHtml(data["html"])
+                         
+                         f = new_item.font()
+                         if "font_family" in data: f.setFamily(data["font_family"])
+                         if "font_size" in data: f.setPointSize(data["font_size"])
+                         if "bold" in data: f.setBold(data["bold"])
+                         if "italic" in data: f.setItalic(data["italic"])
+                         if "underline" in data: f.setUnderline(data["underline"])
+                         new_item.setFont(f)
+                         
+                         if "color" in data: new_item.setDefaultTextColor(QColor(data["color"]))
+
+                    elif item_type in ["bracket", "circle"]:
+                         new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
+                         w = data.get("width", 50)
+                         h = data.get("height", 50)
+                         new_item.rect = QRectF(0, 0, w, h)
+                         if "bracket_type" in data: new_item.bracket_type = data["bracket_type"]
+                         if "line_style" in data: new_item.line_style = data["line_style"]
+                         if "shape_type" in data: new_item.shape_type = data["shape_type"]
+                         new_item.sync_handles()
+
+                    elif item_type == "freehand":
+                         new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
+                         if "points" in data:
+                             pts = [QPointF(p[0], p[1]) for p in data["points"]]
+                             new_item.set_points(pts)
+                    
+                    elif item_type in ["plus", "minus"]:
+                        new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
+                        if "size" in data: new_item.size = data["size"]
+
+                    scene.addItem(new_item)
+                    new_item.update()
+                    new_items.append(new_item)
+                    
+            except Exception as e:
+                # print(f"Error duplicating item {item_type}: {e}")
+                pass
+        
+        return new_items
+        """Copy selected items to system clipboard."""
+        if not self.main_window:
+            return
+            
+        # Check if we're editing text - if so, let default copy work
+        focus_item = self.main_window.scene.focusItem()
+        from .items import ReactionTextItem
+        if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+            return
+            
+        # Call the patched copy method of the main window
+        if hasattr(self.main_window, 'main_window_edit_actions'):
+            self.main_window.main_window_edit_actions.copy_selection()
+        else:
+            # Fallback (should not happen if patched)
+            self.main_window.statusBar().showMessage("Copy failed: Edit actions not found", 3000)
+
+    def cut_reaction_items(self):
+        """Cut selected items to system clipboard."""
+        if not self.main_window:
+            return
+            
+        # Check if we're editing text - if so, let default cut work
+        focus_item = self.main_window.scene.focusItem()
+        from .items import ReactionTextItem
+        if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+            return
+
+        # Copy first
+        self.copy_reaction_items()
+        
+        # Then delete
+        if hasattr(self.main_window, 'main_window_edit_actions'):
+            self.main_window.main_window_edit_actions.delete_selection()
+        else:
+            # Fallback to direct scene delete
+            items = self.main_window.scene.selectedItems()
+            if items and hasattr(self.main_window.scene, 'delete_items'):
+                self.main_window.scene.delete_items(items)
+    
+    def paste_reaction_items(self):
+        """Paste items from system clipboard."""
+        if not self.main_window:
+            return
+            
+        # Check if we're editing text - if so, let default paste work
+        focus_item = self.main_window.scene.focusItem()
+        from .items import ReactionTextItem
+        if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+            return
+
+        # Call the patched paste method of the main window
+        # The patcher should have applied 'paste_from_clipboard' to MainWindowEditActions
+        if hasattr(self.main_window, 'main_window_edit_actions'):
+            self.main_window.main_window_edit_actions.paste_from_clipboard()
+        else:
+            # Fallback (should not happen if patched)
+            self.main_window.statusBar().showMessage("Paste failed: Edit actions not found", 3000)

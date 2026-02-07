@@ -46,6 +46,7 @@ def get_main_window(scene):
         if hasattr(curr, "push_undo_state"): return curr
         curr = curr.parent()
         
+    #Sprint("DEBUG: get_main_window failed to find push_undo_state on", win)
     return None
 
 class ReactionHandle(QGraphicsItem):
@@ -112,17 +113,18 @@ class ReactionHandle(QGraphicsItem):
                 p.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         
         # Trigger undo push through main window
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+        mw = get_main_window(self.scene())
+        if mw: 
+            mw.push_undo_state()
+            pass
+            #print(f"DEBUG: ReactionHandle mouseReleaseEvent - mw is None for scene {self.scene()}")
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             # Angle Snapping (30 degrees)
             from PyQt6.QtWidgets import QApplication
             modifiers = QApplication.keyboardModifiers()
-            if not (modifiers & Qt.KeyboardModifier.AltModifier):
+            if not (modifiers.value & Qt.KeyboardModifier.AltModifier.value):
                 p = self.parentItem()
                 if p and self.handle_type in ("start", "end"):
                     # Disable snapping for curved arrows
@@ -131,6 +133,15 @@ class ReactionHandle(QGraphicsItem):
                         
                     pivot = p.end_p if self.handle_type == "start" else p.start_p
                     proposed_pos = value
+                    
+                    # Axis Constraint (Shift)
+                    if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                        delta = proposed_pos - pivot
+                        if abs(delta.x()) > abs(delta.y()):
+                            proposed_pos = QPointF(proposed_pos.x(), pivot.y())
+                        else:
+                            proposed_pos = QPointF(pivot.x(), proposed_pos.y())
+                    
                     line = QLineF(pivot, proposed_pos)
                     if line.length() > 5:
                         angle = line.angle()
@@ -187,7 +198,7 @@ class ReactionArrowItem(QGraphicsItem):
         # MidBase = Tip + polar(head_size * concavity, angle + 180)
         c_pos = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
         self.h_concavity.setPos(self.end_p + c_pos)
-        self.h_concavity.setVisible(self.isSelected() and self.head_style == "chevron")
+        self.h_concavity.setVisible(self.isSelected() and self.head_style in ["chevron", "arrow_eq", "resonance"])
 
     def on_handle_moved(self, handle):
         if self._initializing: return
@@ -329,7 +340,7 @@ class ReactionArrowItem(QGraphicsItem):
         h1 = QLineF.fromPolar(head_len, angle + 180 + head_angle).p2()
         h2 = QLineF.fromPolar(head_len, angle + 180 - head_angle).p2()
         
-        painter.setBrush(self.pen_color)
+        painter.setBrush(QBrush(self.pen_color))
         painter.setPen(QPen(self.pen_color, 1))
         
         if self.head_style == "triangle":
@@ -514,7 +525,7 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
         angle = line.angle()
         head_len = self.head_size
         head_angle = self.head_angle
-        painter.setBrush(self.pen_color)
+        painter.setBrush(QBrush(self.pen_color))
         painter.setPen(QPen(self.pen_color, 1))
         
         if self.head_style == "triangle":
@@ -576,6 +587,8 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
                 # For Harpoon at start, use h_pos3 to maintain rotational symmetry logic if desired.
                 
                 if self.head_style == "harpoon":
+                    # Use negative head_angle for start head to match 'top' side
+                    h_pos3 = QLineF.fromPolar(head_len, angle - head_angle).p2()
                     mid_start = QLineF.fromPolar(head_len * math.cos(math.radians(head_angle)), angle).p2()
                     painter.drawPolygon(QPolygonF([self.start_p, self.start_p + h_pos3, self.start_p + mid_start]))
                 else:
@@ -597,8 +610,9 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
 
 class ReactionEquilibriumArrowItem(ReactionArrowItem):
     def __init__(self, start_pos, end_pos):
-        self.double_arrow_offset = 4.0
+        self.double_arrow_offset = 10.0
         super().__init__(start_pos, end_pos)
+        self.head_size = 30.0 # Twice the default (15.0)
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -617,14 +631,17 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
             painter.drawLine(self.start_p, self.end_p)
             
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        # [Fix] Shorten shafts for Equilibrium Arrow
-        # l1 (top/right) has head at End. Shorten End.
-        # l2 (bottom/left) has head at Start. Shorten Start.
         
+        # Vertical Shift for head tips: 2px towards center line
+        v_inset = 1.0
+        v_vec = QLineF.fromPolar(v_inset, angle + 90).p2()
+        
+        # Tip positions for drawing heads
+        head_tip1 = l1_end - v_vec   # Shift down towards center
+        head_tip2 = l2_start + v_vec # Shift up towards center
+
         shorten_len = 0
         if self.head_style in ["triangle", "chevron", "chevron_curved", "harpoon"]:
-             # For Equilibrium, lines use FlatCap so we might strictly need less shortening,
-             # but to be safe against protrusion/antialiasing:
              shorten_len = min(self.head_size * 0.8, self.pen_width * 3.5)
 
         draw_l1_end = l1_end
@@ -649,61 +666,66 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
         painter.setPen(QPen(self.pen_color, 1))
         
         if self.head_style == "triangle":
-            # Full Triangle (New)
-            # End head (Right line)
             h_pos1 = QLineF.fromPolar(self.head_size, angle + 180 - head_angle).p2()
             h_pos1b = QLineF.fromPolar(self.head_size, angle + 180 + head_angle).p2()
-            painter.drawPolygon(QPolygonF([l1_end, l1_end + h_pos1, l1_end + h_pos1b]))
+            painter.drawPolygon(QPolygonF([head_tip1, head_tip1 + h_pos1, head_tip1 + h_pos1b]))
             
-            # Start head (Left Line)
             h_pos2 = QLineF.fromPolar(self.head_size, angle - head_angle).p2()
             h_pos2b = QLineF.fromPolar(self.head_size, angle + head_angle).p2()
-            painter.drawPolygon(QPolygonF([l2_start, l2_start + h_pos2, l2_start + h_pos2b]))
+            painter.drawPolygon(QPolygonF([head_tip2, head_tip2 + h_pos2, head_tip2 + h_pos2b]))
 
         elif self.head_style == "chevron":
-            # Chevron (Concave base) - Full head
-            # End head (Right line)
             h_pos1 = QLineF.fromPolar(self.head_size, angle + 180 - head_angle).p2()
             h_pos1b = QLineF.fromPolar(self.head_size, angle + 180 + head_angle).p2()
-            mid_end = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
-            painter.drawPolygon(QPolygonF([l1_end, l1_end + h_pos1, l1_end + mid_end, l1_end + h_pos1b]))
+            mid_end = QLineF.fromPolar(self.head_size * (self.head_concavity if hasattr(self, 'head_concavity') else 0.8), angle + 180).p2()
+            painter.drawPolygon(QPolygonF([head_tip1, head_tip1 + h_pos1, head_tip1 + mid_end, head_tip1 + h_pos1b]))
 
-            # Start head (Left Line)
             h_pos2 = QLineF.fromPolar(self.head_size, angle - head_angle).p2()
             h_pos2b = QLineF.fromPolar(self.head_size, angle + head_angle).p2()
-            mid_start = QLineF.fromPolar(self.head_size * self.head_concavity, angle).p2()
-            painter.drawPolygon(QPolygonF([l2_start, l2_start + h_pos2, l2_start + mid_start, l2_start + h_pos2b]))
+            mid_start = QLineF.fromPolar(self.head_size * (self.head_concavity if hasattr(self, 'head_concavity') else 0.8), angle).p2()
+            painter.drawPolygon(QPolygonF([head_tip2, head_tip2 + h_pos2, head_tip2 + mid_start, head_tip2 + h_pos2b]))
 
         elif self.head_style == "harpoon":
-            # Harpoon (Old "triangle" style)
-            # End head (top part, external barb - points UP/OUT)
+            # Harpoon (Outward points - Old logic restored)
             h_pos1 = QLineF.fromPolar(self.head_size, angle + 180 - head_angle).p2()
-            painter.drawPolygon(QPolygonF([l1_end, l1_end + h_pos1, l1_end + QLineF.fromPolar(self.head_size * 0.6, angle + 180).p2()]))
+            painter.drawPolygon(QPolygonF([head_tip1, head_tip1 + h_pos1, head_tip1 + QLineF.fromPolar(self.head_size * 0.6, angle + 180).p2()]))
             
-            # Start head (bottom part, external barb - points DOWN/OUT)
             h_pos2 = QLineF.fromPolar(self.head_size, angle - head_angle).p2()
-            painter.drawPolygon(QPolygonF([l2_start, l2_start + h_pos2, l2_start + QLineF.fromPolar(self.head_size * 0.6, angle).p2()]))
+            painter.drawPolygon(QPolygonF([head_tip2, head_tip2 + h_pos2, head_tip2 + QLineF.fromPolar(self.head_size * 0.6, angle).p2()]))
+        elif self.head_style == "equilibrium":
+            # Map head heads (half harpoons - points Inward as per old equilibrium style)
+            v_head = QLineF.fromPolar(self.head_size, angle + 180 + 30).p2()
+            painter.drawLine(head_tip1, head_tip1 + v_head)
+            
+            v_head_back = QLineF.fromPolar(self.head_size, angle + 30).p2()
+            painter.drawLine(head_tip2, head_tip2 + v_head_back)
         else:
             painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             h_pos1 = QLineF.fromPolar(self.head_size, angle + 180 - head_angle).p2()
-            painter.drawLine(l1_end, l1_end + h_pos1)
+            painter.drawLine(head_tip1, head_tip1 + h_pos1)
             h_pos2 = QLineF.fromPolar(self.head_size, angle - head_angle).p2()
-            painter.drawLine(l2_start, l2_start + h_pos2)
+            painter.drawLine(head_tip2, head_tip2 + h_pos2)
 
     def sync_handles(self):
         line = QLineF(self.start_p, self.end_p)
         angle = line.angle()
         offset = self.double_arrow_offset
         p_offset = QLineF.fromPolar(offset, angle + 90).p2()
-        l1_end = self.end_p + p_offset
+        
+        # Internal vertical shift for tips
+        v_inset = 1.0
+        v_vec = QLineF.fromPolar(v_inset, angle + 90).p2()
+        head_tip1 = self.end_p + p_offset - v_vec
+        
+        # Position head handle (use outward point for compatibility with old style)
         h_pos = QLineF.fromPolar(self.head_size, angle + 180 - self.head_angle).p2()
-        self.h_head.setPos(l1_end + h_pos)
+        self.h_head.setPos(head_tip1 + h_pos)
         self.h_start.setPos(self.start_p)
         self.h_end.setPos(self.end_p)
 
         if hasattr(self, 'h_concavity') and self.h_concavity:
-             c_pos = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
-             self.h_concavity.setPos(l1_end + c_pos)
+             c_pos = QLineF.fromPolar(self.head_size * (self.head_concavity if hasattr(self, 'head_concavity') else 0.8), angle + 180).p2()
+             self.h_concavity.setPos(head_tip1 + c_pos)
              self.h_concavity.setVisible(self.isSelected() and self.head_style == "chevron")
 
     def on_handle_moved(self, handle):
@@ -716,11 +738,14 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
         elif handle.handle_type == "head_size":
             line = QLineF(self.start_p, self.end_p)
             angle = line.angle()
-            offset = 4
+            offset = self.double_arrow_offset
             p_offset = QLineF.fromPolar(offset, angle + 90).p2()
-            l1_end = self.end_p + p_offset
             
-            handle_line = QLineF(l1_end, handle.pos())
+            v_inset = 1.0
+            v_vec = QLineF.fromPolar(v_inset, angle + 90).p2()
+            head_tip1 = self.end_p + p_offset - v_vec
+            
+            handle_line = QLineF(head_tip1, handle.pos())
             self.head_size = max(5, handle_line.length())
             
             # Calculate angle difference
@@ -728,6 +753,22 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
             diff = (handle_angle - (angle + 180)) % 360
             if diff > 180: diff -= 360
             self.head_angle = max(5, min(80, abs(diff)))
+            
+        elif handle.handle_type == "concavity":
+            line = QLineF(self.start_p, self.end_p)
+            angle = line.angle()
+            offset = self.double_arrow_offset
+            p_offset = QLineF.fromPolar(offset, angle + 90).p2()
+            
+            v_inset = 1.0
+            v_vec = QLineF.fromPolar(v_inset, angle + 90).p2()
+            head_tip1 = self.end_p + p_offset - v_vec
+            
+            vec = handle.pos() - head_tip1
+            back_vec = QLineF.fromPolar(1.0, angle + 180).p2()
+            dp = vec.x() * back_vec.x() + vec.y() * back_vec.y()
+            if self.head_size > 0:
+                self.head_concavity = max(0.1, min(1.0, dp / self.head_size))
         self.sync_handles()
         self.update()
 
@@ -765,7 +806,7 @@ class ReactionRetroArrowItem(ReactionArrowItem):
         painter.drawLine(l1_start, l1_end + back_vec)
         painter.drawLine(l2_start, l2_end + back_vec)
  
-        painter.setBrush(self.pen_color)
+        painter.setBrush(QBrush(self.pen_color))
         painter.setPen(QPen(self.pen_color, 1))
         h_pos1 = QLineF.fromPolar(head_len, angle + 180 + head_angle).p2()
         h_pos2 = QLineF.fromPolar(head_len, angle + 180 - head_angle).p2()
@@ -828,33 +869,11 @@ class ReactionNoArrowItem(ReactionArrowItem):
         self.negation_style = "slash" # "slash", "cross"
 
     def paint(self, painter, option, widget):
-        # We handle selection ourselves to match style
-        # But QGraphicsTextItem handles selection natively with a dashed box usually.
-        # We can disable the native selection indicator by option.state &= ~State_Selected
-        # and draw our own.
-        
         is_selected = (option.state & QStyle.StateFlag.State_Selected)
         if is_selected and not self.is_group_selected:
-             # Draw custom selection rect
              painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
              painter.setBrush(Qt.BrushStyle.NoBrush)
              painter.drawRect(self.boundingRect())
-             
-        is_selected = (option.state & QStyle.StateFlag.State_Selected)
-        if is_selected and not self.is_group_selected:
-             # Draw custom selection rect
-             painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
-             painter.setBrush(Qt.BrushStyle.NoBrush)
-             painter.drawRect(self.boundingRect())
-             
-        is_selected = (option.state & QStyle.StateFlag.State_Selected)
-        if is_selected and not self.is_group_selected:
-             # Draw custom selection rect
-             painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
-             painter.setBrush(Qt.BrushStyle.NoBrush)
-             painter.drawRect(self.boundingRect())
-             
-             # Remove state so base class doesn't draw its own
              option.state &= ~QStyle.StateFlag.State_Selected
 
         super().paint(painter, option, widget)
@@ -1120,7 +1139,6 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         path = QPainterPath()
         path.moveTo(self.start_p)
         path.quadTo(cp, self.end_p)
-        path.quadTo(cp, self.end_p)
         if option.state & QStyle.StateFlag.State_Selected:
             painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1191,7 +1209,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
             h2 = QLineF.fromPolar(head_len, angle + 180 - self.head_angle).p2()
             
             # Use Brush for filled shapes
-            painter.setBrush(QBrush(self.pen_color, Qt.BrushStyle.SolidPattern))
+            painter.setBrush(Qt.BrushStyle.SolidPattern)
             
             if self.head_style == "triangle":
                 painter.drawPolygon(QPolygonF([self.end_p, self.end_p + h1, self.end_p + h2]))
@@ -1538,6 +1556,22 @@ class ReactionCurvedLineItem(ReactionCurvedArrowItem):
     def __init__(self, start_pos, end_pos):
         super().__init__(start_pos, end_pos)
         self.line_style = "solid"
+    
+    def sync_handles(self):
+        """Override to remove arrow head handle for lines."""
+        self.h_start.setPos(self.start_p)
+        self.h_end.setPos(self.end_p)
+        
+        # Only show control point handle, NO head handle
+        if hasattr(self, 'h_control') and self.h_control:
+            cp = self.get_control_point()
+            self.h_control.setPos(cp)
+        
+        # Hide head and concavity handles since this is a line, not arrow
+        if hasattr(self, 'h_head') and self.h_head:
+            self.h_head.setVisible(False)
+        if hasattr(self, 'h_concavity') and self.h_concavity:
+            self.h_concavity.setVisible(False)
         
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1581,15 +1615,13 @@ class ReactionFreehandItem(QGraphicsItem):
     """Freehand drawing item."""
     def __init__(self, start_pos):
         super().__init__()
-        self.setPos(start_pos) # start_pos is origin (0,0) usually, path is relative?
-                               # Actually simpler: pos is (0,0) of scene? No, let's make pos the first point.
+        self.setPos(start_pos)
         self.points = [QPointF(0, 0)] 
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable | QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setZValue(5)
         self.pen_color = QColor("#222222")
         self.pen_width = 2
         self.path = QPainterPath()
-        self.path.moveTo(0, 0)
         self.path.moveTo(0, 0)
         self.boundingRect_ = QRectF(0, 0, 1, 1)
         self.group_id = None
@@ -1655,7 +1687,6 @@ class ReactionFreehandItem(QGraphicsItem):
              "rotation": self.rotation(),
              "points": pts,
              "color": self.pen_color.name(),
-             "color": self.pen_color.name(),
              "width": self.pen_width,
              "group_id": self.group_id
         }
@@ -1672,6 +1703,7 @@ class ReactionTextItem(QGraphicsTextItem):
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable | 
                       QGraphicsItem.GraphicsItemFlag.ItemIsMovable | 
                       QGraphicsItem.GraphicsItemFlag.ItemIsFocusable)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction) # Start as object
         self.setZValue(5)
         self.setFont(QFont("Arial", 25))
         self.setDefaultTextColor(QColor("#222222"))
@@ -1699,7 +1731,20 @@ class ReactionTextItem(QGraphicsTextItem):
         if self.textInteractionFlags() == Qt.TextInteractionFlag.NoTextInteraction:
             self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
             self.setFocus()
+            
+            # Set cursor to click position
+            # QGraphicsTextItem doesn't have cursorForPosition. Use document layout.
+            cursor_pos = self.document().documentLayout().hitTest(event.pos(), Qt.HitTestAccuracy.FuzzyHit)
+            cursor = self.textCursor()
+            cursor.setPosition(cursor_pos)
+            self.setTextCursor(cursor)
+            
         super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event):
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        # Verify selection state
+        super().focusOutEvent(event)
 
     def keyPressEvent(self, event):
         # Handle shortcuts explicitly when in edit mode
@@ -1726,6 +1771,21 @@ class ReactionTextItem(QGraphicsTextItem):
 
             if event.key() == Qt.Key.Key_Escape:
                 self.clearFocus()
+                try:
+                    mw = get_main_window(self.scene())
+                    if mw and hasattr(mw, '_reaction_mode_manager'):
+                        # Trigger select tool action
+                        for action in mw._reaction_mode_manager.action_group.actions():
+                            if action.property("tool_name") == "select":
+                                action.trigger()
+                                break
+                    elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                         for action in mw.ui_manager._reaction_mode_manager.action_group.actions():
+                            if action.property("tool_name") == "select":
+                                action.trigger()
+                                break
+                except: pass
+                
                 event.accept()
                 return
 
@@ -1739,119 +1799,59 @@ class ReactionTextItem(QGraphicsTextItem):
     def format_as_chemical(self):
         """Format the text as a chemical formula."""
         import re
-        text = self.toPlainText()
+        from PyQt6.QtGui import QTextCursor, QTextCharFormat
         
-        # 1. Subscript numbers (not preceded by charge symbols + or -)
-        # We process charges first to avoid H2O -> H2 O issue? No, numbers are sub. Charges are sup.
-        
-        # Charges: (+ or - or 2+, 3-) at the end of groups or line?
-        # Simple heuristic: Letter followed by + or - or number then +/-
-        # e.g. Cl-, Na+, Ca2+, SO4 2-
-        
-        # Let's do a robust multi-pass or single pass with callback.
-        
-        # Use span with vertical-align for better control, especially for SVG export where sub/sup might have large gaps.
-        # But QGraphicsTextItem HTML support is limited. 
-        # 'vertical-align: sub' is supported.
-        # Let's try standard sub/sup first, but if user complained about distance, maybe they mean the vertical offset is too large?
-        # Or lateral spacing?
-        # A common trick is to use font-size smaller (75%)?
-        # Actually, let's stick to <sub> but maybe the font handling in SVG is the culprit.
-        # If I use `<sub>` it uses Qt's default sub offset.
-        # Let's try using `vertical-align: sub` explicitly on a span?
-        # Or maybe the user meant horizontal distance?
-        # "sub or sup text get distance" -> "H 2 O".
-        # This often happens if the font metrics are weird in SVG.
-        
-        # I will replace <sub> with <span style='vertical-align:sub;'> which might behave differently?
-        # Actually, let's just try to be standard but cleaner.
-        
-        def replace_sub(match):
-            # Using span with vertical-align
-            return f"<span style='vertical-align:sub;'>{match.group(1)}</span>"
+        # Helper to apply sub/sup
+        def apply_format(regex, format_type):
+            # We iterate through matches in the plain text
+            text_content = self.toPlainText()
+            for match in re.finditer(regex, text_content):
+                # Try to handle multiple groups if present, otherwise group 1, or whole match
+                if match.lastindex:
+                    start, end = match.span(match.lastindex)
+                else:
+                    start, end = match.span()
+                
+                cursor = self.textCursor()
+                cursor.setPosition(start)
+                cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+                
+                fmt = cursor.charFormat()
+                if format_type == 'sub':
+                    fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
+                elif format_type == 'sup':
+                    fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
+                
+                cursor.setCharFormat(fmt)
 
-        def replace_sup(match):
-            return f"<span style='vertical-align:super;'>{match.group(1)}</span>"
-        #    Hard to distinguish 43- without chemical knowledge. 
-        #    BUT user specifically asked "minus cannnot be sup when chem is applied".
-        #    Actually user said: "minus cannnot be sup when chem is applied" -> Wait, "minus CANNOT be sup"? 
-        #    "also minus cannnot be sup when chem is applied" <- This sounds like a complaint that it IS sup but shouldn't be?
-        #    OR "minus cannot be sup" meaning it fails to become sup?
-        #    Context: "also the font size is not adjustable. maybe once it sub or sup. also minus cannnot be sup when chem is applied. fix all"
-        #    Interpretation: "Minus sign is failing to represent as superscript when chemical formatting is applied" OR "Minus sign IS becoming superscript but shouldn't".
-        #    Given "Cl-", it SHOULD be superscript. So likely it is FAILING to be sup.
-        #    "minus cannnot be sup" -> "I cannot make minus sup".
+        # 1. Clear existing formatting (reset to Normal)
+        cursor = self.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        fmt = cursor.charFormat()
+        fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+        cursor.setCharFormat(fmt)
+        cursor.clearSelection()
+
+        # 2. Subscript Numbers (e.g. H2, C6)
+        # Regex: Number immediately following a letter or closing parenthesis
+        apply_format(r'(?<=[a-zA-Z\)])(\d+)', 'sub')
         
-        new_html = ""
-        # Split by potential ions to handle them?
-        # Simplest widely accepted regex approach:
+        # 3. Superscript Charges (e.g. 2+, 3-, +, -)
+        # Logic: A number followed by +/- OR just +/-
+        # We need to be careful not to double-process.
+        # This regex looks for:
+        #  - A number (optional) followed by + or -
+        #  - Ensuring it follows a letter, number, or closing paren
+        #  - Ensuring it's at end of word/token
         
-        # 1. Global number subscripting: ([A-Za-z\)])(\d+) -> $1<sub>$2</sub>
-        # 2. Charge Superscripting: ([A-Za-z0-9\)])([+-][1-9]?|[1-9][+-]) -> $1<sup>$2</sup> ??
-        #    This is risky.
+        # Handle "2+", "3-" where the number was previously subscripted in step 2.
+        # We need to overwrite that range with Superscript.
         
-        # Let's try iterating.
-        # Common convention for simple sketchers:
-        # Numbers after letters -> Sub
-        # +/- after letters -> Sup
+        # Regex A: Number + Sign (e.g. Ca2+)
+        apply_format(r'(?<=[a-zA-Z\)])(\d+[+-])', 'sup')
         
-        # Handle "Cl-" -> Cl + sup(-)
-        # Handle "Na+" -> Na + sup(+)
-        # Handle "Ca2+" -> Ca + sup(2+)
-        # Handle "SO42-" -> SO4(sub) + 2-(sup).
-        # "SO4" -> S O sub(4).
-        
-        # Step 1: Subscript all numbers
-        # But we need to protect charge numbers.
-        # Charge numbers are followed by + or -.
-        
-        # Regex for Charge: (\d*[+-]) 
-        # If we find a number followed by +/- it is a charge -> Sup.
-        # If we find a number NOT followed by +/-, it is a count -> Sub.
-        
-        segments = []
-        i = 0
-        n = len(text)
-        while i < n:
-            # Check for Charge Pattern: Single Digit Number + +/- OR just +/-
-            # Look ahead
-            # Limit charge number to 0 or 1 digit to distinguishing from counts (e.g. SO42-)
-            match_charge = re.match(r"^(\d?[+-])", text[i:])
-            if match_charge and i > 0: # Charge must follow something
-                 # It's a charge (e.g. "+" or "2+" or "3-" or "-")
-                 # We assume charges > 9 are very rare in this context.
-                 
-                 charge_txt = match_charge.group(1)
-                 # Ensure it's not part of a hyphenated word like "Co-op" (if text has letters)
-                 # But "Co" is Cobalt. "Co-"?
-                 # Heuristic: If followed by space, end of string, or punctuation.
-                 is_end_of_token = (i + len(charge_txt) == n) or (text[i + len(charge_txt)] in " \t\n,.)]")
-                 
-                 if is_end_of_token:
-                      segments.append(f"<sup>{charge_txt}</sup>")
-                      i += len(charge_txt)
-                      continue
-            
-            # Check for Subscript Number: \d+
-            match_sub = re.match(r"^(\d+)", text[i:])
-            if match_sub and i > 0 and text[i-1].isalpha():
-                 # Digits following letter -> Sub
-                 # BUT wait, what if it was part of "Ca2+"?
-                 # If we missed the charge check above (e.g. 2 is separate from +?),
-                 # The charge check `(\d*[+-])` would catch "2+".
-                 # If we have "SO4", the "4" is not followed by +/-.
-                 # So it matches here.
-                 
-                 num_txt = match_sub.group(1)
-                 segments.append(f"<sub>{num_txt}</sub>")
-                 i += len(num_txt)
-                 continue
-                 
-            segments.append(text[i])
-            i += 1
-            
-        new_html = "".join(segments)
-        self.setHtml(new_html)
+        # Regex B: Just Sign (e.g. Na+, Cl-)
+        apply_format(r'(?<=[a-zA-Z0-9\)])([+-])(?=\s|$|[^a-zA-Z0-9])', 'sup')
 
     def focusInEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
@@ -1874,6 +1874,12 @@ class ReactionTextItem(QGraphicsTextItem):
 
     def focusOutEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        
+        # Auto-delete if empty
+        if not self.toPlainText().strip():
+             self.scene().removeItem(self)
+             return
+
         # Clear selection to avoid confusion
         cursor = self.textCursor()
         cursor.clearSelection()
