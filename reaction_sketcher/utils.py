@@ -14,10 +14,8 @@ def load_handler_core(main_window, reaction_items):
     Moved here to avoid circular imports between __init__.py and patcher.py.
     """
     if not reaction_items:
-        # print("ReactionSketcher load_handler_core: No items to load.")
         return
 
-    # print(f"ReactionSketcher load_handler_core: Loading {len(reaction_items)} items.")
     for item_data in reaction_items:
         item_type = item_data.get("type")
         item = None

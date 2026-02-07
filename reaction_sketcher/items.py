@@ -2,22 +2,22 @@
 # -*- coding: utf-8 -*-
 
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QStyleOptionGraphicsItem, QWidget, QStyle
-from PyQt6.QtGui import QPen, QColor, QPainter, QPolygonF, QFont, QPainterPath
+from PyQt6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPainterPath
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent
 import math
 
 def get_main_window(scene):
     """Helper to get MainWindow from a QGraphicsScene."""
     if not scene: return None
-    # ビューが存在しない場合は即座に None を返す（終了時など）
+    # Return immediately if view doesn't exist (e.g. during shutdown)
     views = scene.views()
     if not views: return None
     
-    # 最初のビューからウィンドウを取得
+    # Get window from the first view
     view = views[0]
     win = view.window()
     
-    # 親を遡って MainWindow (push_undo_stateを持つもの) を探す
+    # Traverse up to find MainWindow (the one with push_undo_state)
     curr = win
     while curr:
         if hasattr(curr, "push_undo_state"): return curr
@@ -156,15 +156,8 @@ class ReactionArrowItem(QGraphicsItem):
         self.h_head.setPos(self.end_p + h_pos)
         
         # Position concavity handle
-        # It sits on the centerline, at depth * head_len from the tip (backwards)
-        # Actually, if concavity is 0.7, it means the base center is at 0.7 * len from the BACK of the head?
-        # Typically "concavity" or "inset".
-        # Let's say: Tip is at end_p. Base is at end_p - head_len.
-        # Concave point is at end_p - head_len * concavity? 
-        # If concavity is 1.0, it's flat (Base). If 0.0, it's at tip (Pointer).
-        # Let's define self.head_concavity as the fraction of head_len distance from Tip to Base.
-        # So 0.7 means point is at 0.7 * head_len from Tip? No usually 0.7 means it REMAINS 0.7 of the length.
-        # i.e. Recess is 30% deep.
+        # Concavity handle position: projected onto centerline
+        # self.head_concavity is the fraction of head_len from Tip to Base (1.0 = Flat base)
         # MidBase = Tip + polar(head_size * concavity, angle + 180)
         c_pos = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
         self.h_concavity.setPos(self.end_p + c_pos)
@@ -284,6 +277,21 @@ class ReactionArrowItem(QGraphicsItem):
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         line = QLineF(self.start_p, self.end_p)
         if line.length() < 1: return
+        
+        # [Fix] Shorten the shaft to prevent it from protruding through the arrowhead tip
+        # especially for sharp angles or 'chevron' style where the tip is narrow.
+        shorten_len = 0
+        if self.head_style in ["triangle", "chevron", "chevron_curved", "harpoon"]:
+             # Heuristic: Shorten by roughly 3x pen width to ensure it's hidden inside the head
+             # but check against head size to not disappear.
+             shorten_len = min(self.head_size * 0.8, self.pen_width * 3.5)
+        
+        # Only shorten if line is long enough
+        if line.length() > shorten_len + 2:
+             # Move end point back
+             new_end = line.pointAt(1.0 - shorten_len / line.length())
+             line.setP2(new_end)
+        
         painter.drawLine(line)
         
         angle = line.angle()
@@ -418,6 +426,18 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         line = QLineF(self.start_p, self.end_p)
         if line.length() < 1: return
+        
+        # [Fix] Shorten Both Ends for Resonance Arrow
+        shorten_len = 0
+        if self.head_style in ["triangle", "chevron", "chevron_curved", "harpoon"]:
+             shorten_len = min(self.head_size * 0.8, self.pen_width * 3.5)
+        
+        if line.length() > shorten_len * 2 + 2:
+             new_start = line.pointAt(shorten_len / line.length())
+             new_end = line.pointAt(1.0 - shorten_len / line.length())
+             line.setP1(new_start)
+             line.setP2(new_end)
+        
         painter.drawLine(line)
         
         angle = line.angle()
@@ -480,27 +500,9 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
                 painter.drawPolygon(poly_end)
                 
                 # Start Head (Base angle is angle)
-                # Note: h_pos3 is angle+head_angle (Bottom relative to start direction?)
-                # Wait: angle is start->end. 
-                # Start head points BACK. Base vector for start head is 'angle'. 
-                # h_pos3 = angle + head_angle. This is "Top" relative to vector (start->end) but points forward?
-                # No, h_pos3 is fromPolar(len, angle + head_angle). 
-                # Line is start_p -> start_p + h_pos3.
-                # If we want a back-pointing arrow at start:
-                # The tip is self.start_p.
-                # The barbs go towards end. So angles should be angle + head_angle and angle - head_angle.
-                # Yes, h_pos3/4 are correct vectors from start_p.
+                # h_pos3/4 are vectors from start_p for the start head.
                 
-                # For Harpoon at start:
-                # If we use "Top" relative to line (angle), that is angle - 90 side.
-                # angle + head_angle is "Right" side? (Y down)
-                # Keep consistency: "Top" usually means smaller Y or +Angle? standard math +Angle is CCW (down in Qt if Y down? No y down is +).
-                # Let's simple mirror the End head logic. 
-                # End head h_pos1 is +head_angle relative to (angle+180).
-                # Start head h_pos3 is +head_angle relative to (angle).
-                # If End Head Harpoon uses h_pos1 (Top/Left?), Start Head should use h_pos3 (Bottom/Right?) to look rotationally symmetric?
-                # Or Reflection symmetric? Standard resonance arrow usually looks reflection symmetric.
-                # Let's use h_pos3 (angle + head_angle) for start harpoon.
+                # For Harpoon at start, use h_pos3 to maintain rotational symmetry logic if desired.
                 
                 if self.head_style == "harpoon":
                     mid_start = QLineF.fromPolar(head_len * math.cos(math.radians(head_angle)), angle).p2()
@@ -523,12 +525,16 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
         return data
 
 class ReactionEquilibriumArrowItem(ReactionArrowItem):
+    def __init__(self, start_pos, end_pos):
+        super().__init__(start_pos, end_pos)
+        self.double_arrow_offset = 4.0
+
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         line = QLineF(self.start_p, self.end_p)
         if line.length() < 1: return
         angle = line.angle()
-        offset = 4
+        offset = self.double_arrow_offset
         p_offset = QLineF.fromPolar(offset, angle + 90).p2()
         l1_start = self.start_p + p_offset
         l1_end = self.end_p + p_offset
@@ -540,8 +546,31 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
             painter.drawLine(self.start_p, self.end_p)
             
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        painter.drawLine(l1_start, l1_end)
-        painter.drawLine(l2_start, l2_end)
+        # [Fix] Shorten shafts for Equilibrium Arrow
+        # l1 (top/right) has head at End. Shorten End.
+        # l2 (bottom/left) has head at Start. Shorten Start.
+        
+        shorten_len = 0
+        if self.head_style in ["triangle", "chevron", "chevron_curved", "harpoon"]:
+             # For Equilibrium, lines use FlatCap so we might strictly need less shortening,
+             # but to be safe against protrusion/antialiasing:
+             shorten_len = min(self.head_size * 0.8, self.pen_width * 3.5)
+
+        draw_l1_end = l1_end
+        draw_l2_start = l2_start
+        
+        len_l1 = QLineF(l1_start, l1_end).length()
+        if len_l1 > shorten_len + 2:
+             vec_l1 = QLineF(l1_start, l1_end)
+             draw_l1_end = vec_l1.pointAt(1.0 - shorten_len / len_l1)
+             
+        len_l2 = QLineF(l2_start, l2_end).length()
+        if len_l2 > shorten_len + 2:
+             vec_l2 = QLineF(l2_start, l2_end)
+             draw_l2_start = vec_l2.pointAt(shorten_len / len_l2)
+
+        painter.drawLine(l1_start, draw_l1_end)
+        painter.drawLine(draw_l2_start, l2_end)
         
         # heads
         head_len = self.head_size; head_angle = self.head_angle
@@ -593,7 +622,7 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
     def sync_handles(self):
         line = QLineF(self.start_p, self.end_p)
         angle = line.angle()
-        offset = 4
+        offset = self.double_arrow_offset
         p_offset = QLineF.fromPolar(offset, angle + 90).p2()
         l1_end = self.end_p + p_offset
         h_pos = QLineF.fromPolar(self.head_size, angle + 180 - self.head_angle).p2()
@@ -634,6 +663,7 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
     def create_json_data(self):
         data = super().create_json_data()
         data["type"] = "arrow_eq"
+        data["double_arrow_offset"] = getattr(self, "double_arrow_offset", 4.0)
         return data
 
 class ReactionRetroArrowItem(ReactionArrowItem):
@@ -780,6 +810,16 @@ class ReactionDashedArrowItem(ReactionArrowItem):
         
         line = QLineF(self.start_p, self.end_p)
         if line.length() < 1: return
+        
+        # [Fix] Shorten shaft for Dashed Arrow
+        shorten_len = 0
+        if self.head_style in ["triangle", "chevron", "chevron_curved", "harpoon"]:
+             shorten_len = min(self.head_size * 0.8, self.pen_width * 3.5)
+        
+        if line.length() > shorten_len + 2:
+             new_end = line.pointAt(1.0 - shorten_len / line.length())
+             line.setP2(new_end)
+             
         painter.drawLine(line)
         
         angle = line.angle()
@@ -825,7 +865,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         self.head_style = "chevron" # Default to chevron
         self.control_p = None # Local coordinates
         self.h_control = None
-        self.curvature = 0.2 # Shallower default curvature
+        self.curvature = 0.8 # Detailed curvature to ensure handle is accessible
         super().__init__(start_pos, end_pos)
         self.h_control = ReactionHandle(self, "control")
         
@@ -923,7 +963,54 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         from PyQt6.QtGui import QPainterPathStroker
         s = QPainterPathStroker()
         s.setWidth(12)
-        return s.createStroke(path)
+        stroked = s.createStroke(path)
+        
+        # Add arrowhead for hit detection
+        if self.__class__.__name__ != "ReactionCurvedLineItem":
+             arrow_path = QPainterPath()
+             angle = QLineF(cp, self.end_p).angle()
+             head_len = self.head_size
+             
+             if self.is_fish_hook:
+                 h1 = QLineF.fromPolar(head_len, angle + 180 + self.head_angle).p2()
+                 # Fish hook is a line, but for shape we can make it a polygon or stroke
+                 arrow_path.moveTo(self.end_p)
+                 arrow_path.lineTo(self.end_p + h1)
+                 # Stroke it to make it clickable
+                 stroked_arrow = s.createStroke(arrow_path)
+                 stroked.addPath(stroked_arrow)
+             else:
+                 h1 = QLineF.fromPolar(head_len, angle + 180 + self.head_angle).p2()
+                 h2 = QLineF.fromPolar(head_len, angle + 180 - self.head_angle).p2()
+                 
+                 if self.head_style == "triangle":
+                     arrow_path.addPolygon(QPolygonF([self.end_p, self.end_p + h1, self.end_p + h2]))
+                 elif self.head_style == "chevron":
+                     mid_base = QLineF.fromPolar(head_len * self.head_concavity, angle + 180).p2()
+                     arrow_path.addPolygon(QPolygonF([self.end_p, self.end_p + h1, self.end_p + mid_base, self.end_p + h2]))
+                 elif self.head_style == "chevron_curved":
+                     mid_base = QLineF.fromPolar(head_len * self.head_concavity, angle + 180).p2()
+                     arrow_path.moveTo(self.end_p)
+                     arrow_path.lineTo(self.end_p + h1)
+                     arrow_path.quadTo(self.end_p + mid_base, self.end_p + h2)
+                     arrow_path.lineTo(self.end_p)
+                 elif self.head_style == "harpoon":
+                     # Use self.head_angle for consistency
+                     mid_back = QLineF.fromPolar(head_len * math.cos(math.radians(self.head_angle)), angle + 180).p2()
+                     arrow_path.addPolygon(QPolygonF([self.end_p, self.end_p + h1, self.end_p + mid_back]))
+                 else:
+                     # Open/Barb
+                     arrow_path.moveTo(self.end_p)
+                     arrow_path.lineTo(self.end_p + h1)
+                     arrow_path.moveTo(self.end_p)
+                     arrow_path.lineTo(self.end_p + h2)
+                     stroked_arrow = s.createStroke(arrow_path)
+                     stroked.addPath(stroked_arrow)
+                 
+                 if not arrow_path.isEmpty():
+                    stroked.addPath(arrow_path)
+
+        return stroked
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -938,7 +1025,49 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
             
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.setBrush(Qt.BrushStyle.NoBrush) # Ensure curve isn't filled
-        painter.drawPath(path)
+        # [Fix] Shorten curve to prevent shaft protrusion
+        # Calculate approximate length to shorten
+        shorten_len = 0
+        if self.head_style in ["triangle", "chevron", "chevron_curved", "harpoon"] and not self.is_fish_hook:
+             shorten_len = min(self.head_size * 0.8, self.pen_width * 3.5)
+        
+        draw_path = path
+        if shorten_len > 0:
+            # Approximate shortening for Quadratic Bezier
+            # We want to find t < 1 such that distance(P(t), End) ~ shorten_len
+            # Simple approx: linearize the end segment. 
+            # chord len ~ |End - Cp|.
+            d_cp_end = QLineF(cp, self.end_p).length()
+            if d_cp_end > shorten_len:
+                 # t_cut implies how much of the LAST LEG we cut? 
+                 # Approximation: t_new = 1.0 - (shorten_len / total_arc_estimate)
+                 # Better: t_new = 1.0 - (shorten_len / (d_start_cp + d_cp_end))
+                 total_est = QLineF(self.start_p, cp).length() + d_cp_end
+                 if total_est > shorten_len * 1.5:
+                     t_cut = 1.0 - (shorten_len / total_est)
+                     
+                     # Split Bezier at t_cut
+                     # P0 = Start, P1 = Cp, P2 = End
+                     # New P1' = (1-t)P0 + tP1 ?? No.
+                     # Left subcurve (0..t) control points:
+                     # Q0 = P0
+                     # Q1 = (1-t)P0 + tP1
+                     # Q2 = P(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
+                     
+                     t = t_cut
+                     p0 = self.start_p
+                     p1 = cp
+                     p2 = self.end_p
+                     
+                     q1 = p0 * (1-t) + p1 * t
+                     q2 = (p0 * ((1-t)**2)) + (p1 * (2*(1-t)*t)) + (p2 * (t**2))
+                     
+                     short_path = QPainterPath()
+                     short_path.moveTo(p0)
+                     short_path.quadTo(q1, q2)
+                     draw_path = short_path
+
+        painter.drawPath(draw_path)
         
         # Arrowhead logic
         # Calculate angle at the end point (tangent to the curve)
@@ -946,7 +1075,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         angle = QLineF(cp, self.end_p).angle()
         head_len = self.head_size
         head_angle = 25
-        painter.setBrush(self.pen_color)
+        painter.setBrush(QBrush(self.pen_color))
         painter.setPen(QPen(self.pen_color, 1))
         
         if self.is_fish_hook:
@@ -957,6 +1086,10 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
             # Full arrowhead
             h1 = QLineF.fromPolar(head_len, angle + 180 + self.head_angle).p2()
             h2 = QLineF.fromPolar(head_len, angle + 180 - self.head_angle).p2()
+            
+            # Use Brush for filled shapes
+            painter.setBrush(QBrush(self.pen_color, Qt.BrushStyle.SolidPattern))
+            
             if self.head_style == "triangle":
                 painter.drawPolygon(QPolygonF([self.end_p, self.end_p + h1, self.end_p + h2]))
             elif self.head_style == "chevron":
@@ -971,9 +1104,13 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
                 path.lineTo(self.end_p)
                 painter.drawPath(path)
             elif self.head_style == "harpoon":
+                # Harpoon is usually just half an arrow, but if mapped to 'harpoon' style it might be filled?
+                # If it's asymmetric filled:
                 mid_back = QLineF.fromPolar(head_len * math.cos(math.radians(head_angle)), angle + 180).p2()
                 painter.drawPolygon(QPolygonF([self.end_p, self.end_p + h1, self.end_p + mid_back]))
             else:
+                # Open / Barb (no fill)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawLine(self.end_p, self.end_p + h1)
                 painter.drawLine(self.end_p, self.end_p + h2)
 
@@ -983,7 +1120,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         data["head_style"] = self.head_style
         cp = self.get_control_point()
         
-        # 【修正】mapToScene(cp) を削除し、ローカル座標 cp をそのまま保存する
+        # [Fix] Removed mapToScene(cp), saving local coord cp directly
         data["cp_x"] = cp.x()
         data["cp_y"] = cp.y()
         return data
@@ -1042,8 +1179,12 @@ class ReactionBracketItem(QGraphicsItem):
         
         if self.bracket_type == "round":
              bw = min(r.width()/2, 20)
-             path.addArc(QRectF(r.left(), r.top(), bw, r.height()), 90, 180) # Left
-             path.addArc(QRectF(r.right()-bw, r.top(), bw, r.height()), -90, 180) # Right
+             # Use arcMoveTo + arcTo for disjoint arcs in shape path
+             path.arcMoveTo(QRectF(r.left(), r.top(), bw, r.height()), 90)
+             path.arcTo(QRectF(r.left(), r.top(), bw, r.height()), 90, 180) # Left
+             
+             path.arcMoveTo(QRectF(r.right()-bw, r.top(), bw, r.height()), -90)
+             path.arcTo(QRectF(r.right()-bw, r.top(), bw, r.height()), -90, 180) # Right
              
         elif self.bracket_type == "curly":
              bw = 15
@@ -1382,7 +1523,7 @@ class ReactionTextItem(QGraphicsTextItem):
                       QGraphicsItem.GraphicsItemFlag.ItemIsMovable | 
                       QGraphicsItem.GraphicsItemFlag.ItemIsFocusable)
         self.setZValue(5)
-        self.setFont(QFont("Arial", 14))
+        self.setFont(QFont("Arial", 25))
         self.setDefaultTextColor(QColor("#222222"))
 
     def shape(self):
@@ -1392,37 +1533,49 @@ class ReactionTextItem(QGraphicsTextItem):
         
     def sceneEvent(self, event):
         """
-        Intercept ShortcutOverride to claim keys like 'Space', 'B' (boron), or 'Ctrl+Z' 
+        Intercept ShortcutOverride to claim ALL keys when editing
         before they are processed by the main window shortcuts.
         """
         if event.type() == QEvent.Type.ShortcutOverride:
-            # If in edit mode, we want to override shortcuts that conflict with typing
+            # If in edit mode, accept ALL shortcuts to prevent them from triggering
             if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-                key = event.key()
-                # Accept all alphanumeric keys and common text editing shortcuts
-                # Alphanumeric keys: 0-9, A-Z (covers symbol shortcuts like 'B', 'C', 'N', etc.)
-                is_alphanumeric = (key >= Qt.Key.Key_0 and key <= Qt.Key.Key_9) or \
-                                  (key >= Qt.Key.Key_A and key <= Qt.Key.Key_Z)
-                
-                # Printable keys: from Space upwards
-                is_printable = (key >= Qt.Key.Key_Space and key <= Qt.Key.Key_AsciiTilde)
-                
-                # Modifiers for Ctrl+C, Ctrl+V, Ctrl+Z, etc.
-                is_shortcut = event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
-                
-                # Navigation and Editing keys
-                is_editing_special = key in [Qt.Key.Key_Delete, Qt.Key.Key_Backspace, Qt.Key.Key_Left, 
-                                            Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down, 
-                                            Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_Enter, Qt.Key.Key_Return]
-
-                if is_alphanumeric or is_printable or is_shortcut or is_editing_special:
-                    event.accept()
-                    return True
+                event.accept()
+                return True
         return super().sceneEvent(event)
         
+    def mouseDoubleClickEvent(self, event):
+        if self.textInteractionFlags() == Qt.TextInteractionFlag.NoTextInteraction:
+            self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+            self.setFocus()
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        # When in edit mode, handle Esc to finish editing, and accept ALL other
+        # key events to prevent shortcuts from triggering.
+        if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+            if event.key() == Qt.Key.Key_Escape:
+                self.clearFocus()
+                event.accept()
+                return
+
+            # Handle standard editing keys (Enter, etc.) but accept the event
+            # so it doesn't leak to MoleculeScene.keyPressEvent
+            super().keyPressEvent(event)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def focusInEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         super().focusInEvent(event)
+        # Disable main window shortcuts to prevent conflicts
+        try:
+             mw = get_main_window(self.scene())
+             if mw and hasattr(mw, '_reaction_mode_manager'):
+                 mw._reaction_mode_manager.disable_main_window_shortcuts()
+             elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                 mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
+        except: pass
         
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
@@ -1433,10 +1586,20 @@ class ReactionTextItem(QGraphicsTextItem):
 
     def focusOutEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        # Clear selection to avoid confusion
+        cursor = self.textCursor()
+        cursor.clearSelection()
+        self.setTextCursor(cursor)
+        
         super().focusOutEvent(event)
         try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
+             mw = get_main_window(self.scene())
+             if mw: 
+                 mw.push_undo_state()
+                 if hasattr(mw, '_reaction_mode_manager'):
+                     mw._reaction_mode_manager.enable_main_window_shortcuts()
+                 elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                     mw.ui_manager._reaction_mode_manager.enable_main_window_shortcuts()
         except: pass
 
     def paint(self, painter, option, widget):

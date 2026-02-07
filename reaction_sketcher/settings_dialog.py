@@ -91,6 +91,14 @@ class AdvancedSettingsDialog(QDialog):
             self.head_style_combo.currentTextChanged.connect(self.update_ui_state)
             props_layout.addRow("Head Style:", self.head_style_combo)
 
+        # Double Arrow Spacing
+        if hasattr(self.item, "double_arrow_offset"):
+            self.spacing_spin = QDoubleSpinBox()
+            self.spacing_spin.setRange(1.0, 20.0)
+            self.spacing_spin.setSingleStep(0.5)
+            self.spacing_spin.setValue(float(self.item.double_arrow_offset))
+            props_layout.addRow("Double Arrow Spacing:", self.spacing_spin)
+
         # Bracket Type
         if hasattr(self.item, "bracket_type"):
             self.bracket_combo = QComboBox()
@@ -173,6 +181,7 @@ class AdvancedSettingsDialog(QDialog):
         if hasattr(self, "head_angle_spin"): vals["head_angle"] = self.head_angle_spin.value()
         if hasattr(self, "concavity_spin"): vals["head_concavity"] = self.concavity_spin.value()
         if hasattr(self, "curvature_spin"): vals["curvature"] = self.curvature_spin.value()
+        if hasattr(self, "spacing_spin"): vals["double_arrow_offset"] = self.spacing_spin.value()
         if hasattr(self, "bracket_combo"): vals["bracket_type"] = self.bracket_combo.currentText()
         if hasattr(self, "head_style_combo"): vals["head_style"] = self.head_style_combo.currentText()
         return vals
@@ -188,10 +197,14 @@ class AdvancedSettingsDialog(QDialog):
             self.head_size_spin.setValue(float(vals["head_size"]))
         if "head_angle" in vals and hasattr(self, "head_angle_spin"):
             self.head_angle_spin.setValue(float(vals["head_angle"]))
-        if "head_concavity" in vals and hasattr(self, "concavity_spin"):
-            self.concavity_spin.setValue(float(vals["head_concavity"]))
-        if "curvature" in vals and hasattr(self, "curvature_spin"):
-             self.curvature_spin.setValue(float(vals["curvature"]))
+        if "head_concavity" in vals and hasattr(self.item, "head_concavity"):
+            self.item.head_concavity = float(vals["head_concavity"])
+        if "curvature" in vals and hasattr(self.item, "curvature"):
+            self.item.curvature = float(vals["curvature"])
+        if "double_arrow_offset" in vals and hasattr(self.item, "double_arrow_offset"):
+            self.item.double_arrow_offset = float(vals["double_arrow_offset"])
+        if "bracket_type" in vals and hasattr(self.item, "bracket_type"):
+            self.item.bracket_type = vals["bracket_type"](float(vals["double_arrow_offset"]))
         if "bracket_type" in vals and hasattr(self, "bracket_combo"):
              self.bracket_combo.setCurrentText(vals["bracket_type"])
         if "head_style" in vals and hasattr(self, "head_style_combo"):
@@ -207,27 +220,9 @@ class AdvancedSettingsDialog(QDialog):
              try:
                  with open(SETTINGS_FILE, "r") as f:
                      data = json.load(f)
-                     # Load templates for this kind, or global?
-                     # Let's support kind-specific storage in the JSON structure
-                     # Structure: { "templates": { "General": {...}, "Arrow": {"Default": ...} } }
-                     # Or flat? For now flat is easier but with prefix? 
-                     # Previous implementation was flat. Let's stick to flat but maybe filter?
-                     # Ideally we want "Default" to be unique per kind.
-                     # Let's try to look for keys that match our kind?
-                     # Or just use a simple dictionary and let user manage names.
-                     # BUT for "Default", we handle it specially.
                      all_templates = data.get("templates", {})
                      self.templates = all_templates
              except: pass
-        
-        # Ensure "Default" exists in our local list for the UI
-        # We construct a unique key for default for this kind, e.g. "Default (Arrow)"
-        # OR we just use "Default" and it saves as "Default_arrow" in JSON?
-        # User wants "Default".
-        # Let's use "Default" in the UI. When saving, if it is "Default", mapping to "Default_{kind}" in JSON?
-        # Or just "Default" if we assume kind separation. 
-        # But settings.json is shared. 
-        # Let's prefix in the file, show as "Default" in UI.
         
         self.default_key = f"Default_{self.item_kind}"
         
@@ -368,7 +363,7 @@ class AdvancedSettingsDialog(QDialog):
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"Error saving settings: {e}")
+            pass
 
     def get_settings(self):
         vals = self.get_current_values()

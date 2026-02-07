@@ -19,8 +19,9 @@ Reaction Sketcher Plugin
 Adds 2D reaction drawing tools to MoleditPy.
 """
 
+from functools import partial
 from PyQt6.QtWidgets import QMenu
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QColor, QFont
 from PyQt6.QtCore import QPointF
 
 from .mode_manager import ModeManager
@@ -29,21 +30,31 @@ from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem,
                     ReactionMinusItem, ReactionResonanceArrowItem, 
                     ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
                     ReactionNoArrowItem, ReactionCurvedArrowItem,
-                    ReactionBracketItem, ReactionCircleItem)
-from PyQt6.QtGui import QColor, QFont
-
-from functools import partial
+                    ReactionBracketItem, ReactionCircleItem,
+                    ReactionLineItem, ReactionCurvedLineItem,
+                    ReactionFreehandItem, ReactionDashedArrowItem)
+from .utils import load_handler_core
+from .patcher import apply_patches
 
 PLUGIN_NAME = "Reaction Sketcher"
 PLUGIN_VERSION = "0.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
-from .utils import load_handler_core
+REACTION_ITEM_TYPES = (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                       ReactionMinusItem, ReactionResonanceArrowItem, 
+                       ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                       ReactionNoArrowItem, ReactionCurvedArrowItem,
+                       ReactionBracketItem, ReactionCircleItem,
+                       ReactionLineItem, ReactionCurvedLineItem,
+                       ReactionFreehandItem, ReactionDashedArrowItem)
 
 def initialize(context):
     """Plugin initialization."""
     main_window = context.get_main_window()
+    
+    # Apply ALL patches globally. Interaction patches have internal guards.
+    apply_patches(main_window)
     
     # Initialize components
     mode_manager = ModeManager(main_window)
@@ -58,7 +69,7 @@ def initialize(context):
     for action in mode_manager.reaction_toolbar.actions():
         tool_name = action.property("tool_name")
         if tool_name and tool_name != "exit":
-            # lambda ではなく partial を使用
+            # Use partial instead of lambda
             action.triggered.connect(partial(interaction_handler.set_tool, tool_name))
 
     # Install event filter on the 2D view
@@ -82,7 +93,6 @@ def initialize(context):
     auto_start_action.setCheckable(True)
     auto_start_action.triggered.connect(mode_manager.set_auto_start)
     
-    from PyQt6.QtWidgets import QMenu
     extensions_menu = main_window.menuBar().findChild(QMenu, "Extensions")
     if extensions_menu:
         extensions_menu.addAction(auto_start_action)
@@ -155,23 +165,10 @@ def initialize(context):
         if mode_manager.is_reaction_mode:
             mode_manager.exit_reaction_mode()
         
-        # 【追加】File->New (リセット) 時は、パッチによる保護を無視して強制的にアイテムを消去する
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                            ReactionMinusItem, ReactionResonanceArrowItem, 
-                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                            ReactionNoArrowItem, ReactionCurvedArrowItem,
-                            ReactionBracketItem, ReactionCircleItem)
-        
+        # Force removal of items during File->New (Reset)
         if main_window and main_window.scene:
-            items_to_remove = []
-            for item in main_window.scene.items():
-                if isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                                     ReactionMinusItem, ReactionResonanceArrowItem, 
-                                     ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                                     ReactionNoArrowItem, ReactionCurvedArrowItem,
-                                     ReactionBracketItem, ReactionCircleItem)):
-                    items_to_remove.append(item)
-            
+            items_to_remove = [item for item in main_window.scene.items() 
+                               if isinstance(item, REACTION_ITEM_TYPES)]
             for item in items_to_remove:
                 main_window.scene.removeItem(item)
 
@@ -179,4 +176,4 @@ def initialize(context):
     context.register_load_handler(load_handler)
     context.register_document_reset_handler(reset_handler)
 
-    #print(f"Plugin '{PLUGIN_NAME}' initialized successfully.")
+

@@ -4,11 +4,11 @@
 from PyQt6.QtCore import QObject, QEvent, Qt, QPointF, QLineF
 from PyQt6.QtGui import QMouseEvent, QKeyEvent, QIcon, QAction, QColor, QFont
 from PyQt6.QtWidgets import QGraphicsItem, QApplication
-from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                    ReactionMinusItem, ReactionResonanceArrowItem, 
-                    ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                    ReactionNoArrowItem, ReactionCurvedArrowItem,
-                    ReactionBracketItem, ReactionCircleItem)
+from .items import (ReactionArrowItem, ReactionResonanceArrowItem, ReactionEquilibriumArrowItem, 
+                    ReactionRetroArrowItem, ReactionCurvedArrowItem, ReactionTextItem, 
+                    ReactionPlusItem, ReactionMinusItem, ReactionNoArrowItem, 
+                    ReactionDashedArrowItem, ReactionLineItem, ReactionCurvedLineItem,
+                    ReactionFreehandItem, ReactionBracketItem, ReactionCircleItem, ReactionHandle)
 from .icons import create_style_icon, create_shape_variant_icon
 
 class InteractionHandler(QObject):
@@ -71,7 +71,7 @@ class InteractionHandler(QObject):
         # scene_pos = self.main_window.view_2d.mapToScene(event.pos())
         
         if event.button() == Qt.MouseButton.RightButton:
-            # Context Menu logic
+            # Context Menu (Shift+Right) or Delete (Right)
             scene_pos = self.main_window.view_2d.mapToScene(event.pos())
             item = self.main_window.scene.itemAt(scene_pos, self.main_window.view_2d.transform())
             
@@ -79,6 +79,23 @@ class InteractionHandler(QObject):
             # If item is None, maybe show global menu?
             
             if item:
+                # Check for Shift
+                modifiers = QApplication.keyboardModifiers()
+                if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
+                    # Just Delete
+                    # But first ensure it's a reaction item
+                    if hasattr(item, "create_json_data") or hasattr(item, "handle_type"):
+                         # If handle, maybe delete parent?
+                         target = item
+                         if hasattr(item, "handle_type") and item.parentItem():
+                             target = item.parentItem()
+                         
+                         self.main_window.scene.removeItem(target)
+                         self.main_window.push_undo_state()
+                         return True
+                    return False
+
+                # Proceed with Context Menu (Shift held)
                 # Check if this is a Reaction Item
                 # Duck Typing
                 if not hasattr(item, "create_json_data"):
@@ -249,19 +266,17 @@ class InteractionHandler(QObject):
             
         scene_pos = self.main_window.view_2d.mapToScene(event.pos())
         
-        # PRIORITY CHECK: If clicking on a Handle (QGraphicsRectItem usually), let standard event processing handle it.
-        # Handles usually have ZValue > Items.
-        # We need to check if there is a selectable/movable item under cursor that IS a handle or similar control.
-        # Actually, simply check if there is an item at pos that accepts mouse clicks?
-        # But we want to allow placing atoms *over* bonds etc.
-        # The user specifically mentioned "clicking on square" (ReactionHandle).
+        # PRIORITIZE HANDLES: If clicking on a Handle or selected movable item, let standard scene event processing handle it.
         items_under = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.view_2d.transform())
         for item in items_under:
             # Check if it is a Handle. ReactionHandle usually has a 'handle_type' or we can check class name?
             # Or just check if it is selected/selectable and we are clicking it?
             # If it's a handle, we should probably return False to let Scene handle it (resizing/moving).
             if hasattr(item, "handle_type") or (isinstance(item, QGraphicsItem) and (item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable) and item.isSelected()):
-                 # If we clicked a handle, or a SELECTED movable item, prioritizing interaction over drawing.
+                 # If we clicked a handle, or a SELECTED movable item, prioritize selection/manipulation.
+                 # Automatically switch to Select Mode if not already active to prevent accidental drawing.
+                 if self.active_tool != "select":
+                     self.mode_manager.activate_tool_by_name("select")
                  return False
 
         # If in "select" tool, let it pass to standard Qt selection system
@@ -307,21 +322,21 @@ class InteractionHandler(QObject):
         elif self.active_tool == "arrow_res":
             self.start_pos = scene_pos
             self.preview_item = ReactionResonanceArrowItem(QPointF(0,0), QPointF(0,0))
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_res", "triangle")
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_res", "chevron")
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "arrow_eq":
             self.start_pos = scene_pos
-            self.preview_item = ReactionEquilibriumArrowItem(QPointF(0,0), QPointF(0,0))
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_eq", "triangle")
-            self.preview_item.setPos(self.start_pos)
+            self.preview_item = ReactionEquilibriumArrowItem(scene_pos, scene_pos)
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_eq", "harpoon")
+            self.preview_item.double_arrow_offset = getattr(self.mode_manager, "default_double_arrow_offset", 4.0)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "arrow_retro":
             self.start_pos = scene_pos
             self.preview_item = ReactionRetroArrowItem(QPointF(0,0), QPointF(0,0))
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_retro", "triangle")
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_retro", "chevron")
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
@@ -329,27 +344,26 @@ class InteractionHandler(QObject):
             self.start_pos = scene_pos
             self.preview_item = ReactionNoArrowItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.negation_style = self.mode_manager.default_no_arrow_style
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_no", "triangle")
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_no", "chevron")
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "curved_double":
             self.start_pos = scene_pos
             self.preview_item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(0,0))
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("curved_double", "triangle")
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("curved_double", "chevron")
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "curved_fish":
             self.start_pos = scene_pos
             self.preview_item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(0,0), is_fish_hook=True)
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("curved_fish", "triangle")
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("curved_fish", "chevron")
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "bracket":
             self.start_pos = scene_pos
-            from .items import ReactionBracketItem
             self.preview_item = ReactionBracketItem(scene_pos, scene_pos)
             self.preview_item.bracket_type = getattr(self.mode_manager, "default_bracket_type", "square")
             self.preview_item.line_style = getattr(self.mode_manager, "default_bracket_line_style", "solid")
@@ -357,7 +371,6 @@ class InteractionHandler(QObject):
             return True
         elif self.active_tool == "circle":
             self.start_pos = scene_pos
-            from .items import ReactionCircleItem
             self.preview_item = ReactionCircleItem(scene_pos, scene_pos)
             self.preview_item.shape_type = getattr(self.mode_manager, "default_circle_shape_type", "rectangle")
             self.preview_item.line_style = getattr(self.mode_manager, "default_circle_line_style", "solid")
@@ -385,22 +398,19 @@ class InteractionHandler(QObject):
             return True
         elif self.active_tool == "arrow_dashed":
             self.start_pos = scene_pos
-            from .items import ReactionDashedArrowItem
             self.preview_item = ReactionDashedArrowItem(QPointF(0,0), QPointF(0,0))
-            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow", "chevron")
+            self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_dashed", "chevron")
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "line":
             self.start_pos = scene_pos
-            from .items import ReactionLineItem
             self.preview_item = ReactionLineItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "line_dashed":
             self.start_pos = scene_pos
-            from .items import ReactionLineItem
             self.preview_item = ReactionLineItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.line_style = "dashed"
             self.preview_item.setPos(self.start_pos)
@@ -408,14 +418,12 @@ class InteractionHandler(QObject):
             return True
         elif self.active_tool == "line_curved":
             self.start_pos = scene_pos
-            from .items import ReactionCurvedLineItem
             self.preview_item = ReactionCurvedLineItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.setPos(self.start_pos)
             add_and_select(self.preview_item)
             return True
         elif self.active_tool == "freehand":
             self.start_pos = scene_pos
-            from .items import ReactionFreehandItem
             self.preview_item = ReactionFreehandItem(scene_pos)
             add_and_select(self.preview_item)
             # Special state for freehand
@@ -428,9 +436,14 @@ class InteractionHandler(QObject):
         if self.preview_item:
             scene_pos = self.main_window.view_2d.mapToScene(event.pos())
             
-            # Angle Snapping (30 degrees) if not Alt
+            # Angle Snapping (15 degrees) if not Alt, ONLY for Straight Lines/Arrows
             modifiers = QApplication.keyboardModifiers()
-            if not (modifiers & Qt.KeyboardModifier.AltModifier):
+            should_snap = self.active_tool in [
+                "arrow", "arrow_eq", "arrow_res", "arrow_retro", 
+                "arrow_no", "arrow_dashed", "line", "line_dashed"
+            ]
+            
+            if should_snap and not (modifiers & Qt.KeyboardModifier.AltModifier):
                 if hasattr(self, "start_pos") and self.start_pos:
                     line = QLineF(self.start_pos, scene_pos)
                     if line.length() > 5:
@@ -525,6 +538,13 @@ class InteractionHandler(QObject):
         return False
 
     def handle_key_press(self, event):
+        # CRITICAL: Check if a ReactionTextItem is being edited
+        # If so, let ALL keypresses pass through for text input
+        focus_item = self.main_window.scene.focusItem()
+        if focus_item and hasattr(focus_item, "textInteractionFlags"):
+            if focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                return False  # Let text item handle ALL keys
+        
         if event.key() == Qt.Key.Key_Space:
             # Match main app logic: 
             # 1. If not in select mode, switch to it.
@@ -542,11 +562,6 @@ class InteractionHandler(QObject):
             return True
 
         if event.key() in [Qt.Key.Key_Delete, Qt.Key.Key_Backspace]:
-            # Check if focus is on a text editor (ReactionTextItem)
-            focus_item = self.main_window.scene.focusItem()
-            if focus_item and hasattr(focus_item, "textInteractionFlags"):
-                if focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-                    return False
             return self.delete_selection()
                     
         return False
@@ -557,6 +572,7 @@ class InteractionHandler(QObject):
         
         # Prioritize Text Edit
         for item in items:
+            from .items import ReactionTextItem
             if isinstance(item, ReactionTextItem):
                 # Force focus and edit mode
                 item.setFocus()
@@ -573,10 +589,7 @@ class InteractionHandler(QObject):
         # Reuse logic from main_window? Or implement BFS here.
         # usually main_window has a select_molecule_at(pos) or similar.
         # If not, let's implement simple BFS.
-        from unittest.mock import Mock 
-        # Actually we need AtomItem/BondItem checks. 
-        # But we can't easily import them if they are in main app modules.
-        # We can check attributes.
+        # Duck typing for AtomItem/BondItem since direct imports are tricky with main app modules.
         
         start_atom = None
         for item in items:
