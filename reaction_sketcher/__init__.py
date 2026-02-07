@@ -37,7 +37,7 @@ from .utils import load_handler_core
 from .patcher import apply_patches
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "0.0.0"
+PLUGIN_VERSION = "0.1.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
@@ -52,9 +52,6 @@ REACTION_ITEM_TYPES = (ReactionArrowItem, ReactionPlusItem, ReactionTextItem,
 def initialize(context):
     """Plugin initialization."""
     main_window = context.get_main_window()
-    
-    # Apply ALL patches globally. Interaction patches have internal guards.
-    apply_patches(main_window)
     
     # Initialize components
     mode_manager = ModeManager(main_window)

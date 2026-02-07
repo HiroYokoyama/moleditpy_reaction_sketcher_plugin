@@ -6,71 +6,63 @@ A comprehensive chemical reaction sketching tool for MoleditPy, allowing users t
 
 ## Features
 
-- **Reaction Arrows**: Standard, Equilibrium, Resonance, Retrosynthetic, Dashed, and "No Reaction" arrows.
+- **Reaction Arrows**: Standard (Forward), Equilibrium, Resonance, Retrosynthetic, Dashed, and "No Reaction" arrows.
 - **Curved Arrows**: Electron pushing arrows (Double headed and Fish-hook/Single electron).
 - **Annotations**: Text boxes, Plus (+), and Minus (-) signs.
-- **Grouping**: Brackets (Square, Round, Curly) and Circles/Ellipses.
-- **Customization**:
-  - **Head Styles**: Triangle, Chevron, Harpoon, Barb.
-  - **Double Arrow Spacing**: Adjustable spacing for equilibrium arrows.
-  - **Properties**: Configurable line widths, colors, head sizes, and curvature.
-  - **Templates**: Save and load custom element styles.
+- **Shapes & Grouping**: 
+  - **Brackets**: Square, Round, Curly.
+  - **Shapes**: Circles and Ellipses.
+  - **Grouping**: Select multiple items and press `Ctrl+G` to group them for easy movement and selection. Use `Ctrl+U` to ungroup.
+- **Alignment & Distribution**: 
+  - Align selected items: Top, Bottom, Left, Right, Center (Horizontal/Vertical).
+  - Distribute items evenly: Horizontally or Vertically.
+- **Enhanced Properties Toolbar**:
+  - **Typography**: Change Font family, Size, and Style (Bold, Italic, Underline).
+  - **Chemistry Mode**: Automatic subscripting for chemical formulas (e.g., `H2O` -> `H₂O`).
+  - **Styling**: Quick access to Line Width and Color for all reaction items.
+- **Enhanced Clipboard**: Copy and paste molecules alongside reaction items seamlessly.
 - **Undo/Redo Support**: Fully integrated with the main application's undo stack.
 - **Smart Interaction**:
-  - **Auto-Select**: Automatically switches to Select mode after placing an item (except for continuous tools).
-  - **Right-Click**: Delete item.
-  - **Shift+Right-Click**: Open Context Menu (Styles, Properties).
-  - **Clickable Heads**: Easy selection of curved arrows by clicking their arrowheads.
-  - **Angle snapping**: Every 15 degrees for straight arrows (hold Alt to bypass).
-  - **Double-click**: Edit Text items.
+  - **Consistent Selection**: Atoms show a clear blue rectangle highlight when selected, including skeletal carbons.
+  - **Angle snapping**: 15-degree increments for straight arrows (hold **Alt** to bypass).
+  - **Context Menu**: **Shift+Right-Click** on any item to access specific styles or open Advanced Properties.
+  - **Double-click**: Instantly edit Text items.
+  - **Right-Click**: Quick delete of items.
 
 ## Installation
 
 1. Copy the `reaction_sketcher` folder into the `plugins` directory of your MoleditPy installation.
 2. Restart MoleditPy.
-3. The plugin will automatically load.
 
 ## Usage
 
 ### Activation
 - Click the **Reaction Tool** icon (Flask) in the main toolbar.
-- Or use the menu: `View -> Toolbars -> Reaction Tools`.
+- Or use the menu: `Extensions -> Reaction Sketcher...`.
 
 ### Tools Overview
-The side toolbar provides the following tools:
-- **Select**: Move and select items.
-- **Arrows**:
-  - **Standard**: Basic reaction arrow.
-  - **Equilibrium**: Reversible reaction arrow.
-  - **Resonance**: Double-headed resonance arrow.
-  - **Retro**: Retrosynthetic arrow (thick open arrow).
-  - **No Rxn**: Arrow with a cross or slash indicating no reaction.
-  - **Dashed**: Dashed arrow for theoretical steps.
-- **Curved Arrows**:
-  - **Double**: Two-electron transfer (curved).
-  - **Fish-hook**: Single-electron radical transfer.
-- **Shapes**:
-  - **Bracket**: Enclose structures. (Context menu to change style: Square, Round, Curly).
-  - **Circle**: Highlight areas.
-- **Annotations**:
-  - **Plus/Minus**: Charge or addition symbols.
-  - **Text**: Add labels or conditions.
+The side toolbar provides categorized tools:
+- **Selection**: 
+  - **Select**: Move objects.
+  - **Alignment Icons**: Top, Left, Center V, Center H, Bottom, Right.
+  - **Distribution Icons**: Distribute V, Distribute H.
+- **Grouping**: **Group** and **Ungroup** buttons.
+- **Arrows**: Standard, Dashed, No Rxn, Equilibrium, Resonance, Retro.
+- **Curved Arrows**: Double headed (2e-) and Fish-hook (1e-).
+- **Shapes**: Bracket (Right-click for Square/Round/Curly) and Circle/Rectangle.
+- **Text & Signs**: Plus/Minus signs and Text boxes.
 
-### Advanced Customization
+### Customization
 **Basic Actions:**
 - **Right-Click**: Delete the item under cursor.
-- **Shift + Right-Click**: Open **Context Menu** to change Color, Line Width, Head Style, or open **Properties**.
-
-**Properties Dialog:**
-- Accessible via Context Menu -> Properties.
-- Adjust **Color**, **Line Width**, **Head Size**, **Head Angle**, **Curvature**.
-- **Double Arrow Spacing**: Adjust spacing for Equilibrium arrows.
-- **Templates**: Save your settings as "Default" to apply them to future items.
+- **Shift + Right-Click**: Open **Context Menu** for quick style changes.
+- **Advanced Settings**: Accessible via Context Menu -> Advanced Settings. Save templates as "Default" to apply them automatically to new items.
 
 ### Tips
-- **3D Conversion**: The "Convert to 3D" button is disabled while in Reaction Mode to prevent accidental conversion of annotations. Exit Reaction Mode to convert your molecules.
-- **Deleting**: Select items and press `Delete` or `Backspace`. Simple Right-click also deletes.
-- **Curve Control**: Curved arrows have control points (orange handles) to adjust their arc.
+- **Mode Isolation**: Reaction drawing tools are strictly active only in Reaction Mode. Standard molecular editing is unaffected.
+- **3D Conversion**: The "Convert to 3D" button is disabled while in Reaction Mode to preserve annotations.
+- **Curve Control**: Use the orange control points to adjust the arc of curved arrows.
+- **Angle Snap**: Hold **Alt** to draw arrows at free angles.
 
 ## License
 This project is licensed under the GNU General Public License v3.0 (GPLv3).

@@ -260,8 +260,8 @@ class ReactionArrowItem(QGraphicsItem):
 
     def boundingRect(self):
         # We must include the arrowhead size to avoid clipping
-        # A safe bound is the start/end points expanded by the head size
-        extra = self.head_size + self.pen_width + 10
+        # Reduced padding from 10 to 2
+        extra = self.head_size + self.pen_width + 2
         return QRectF(self.start_p, self.end_p).normalized().adjusted(-extra, -extra, extra, extra)
 
     def shape(self):
@@ -299,7 +299,8 @@ class ReactionArrowItem(QGraphicsItem):
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 4))
+            # Reduced strength: lighter blue, thinner line
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(self.start_p, self.end_p)
 
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -397,7 +398,7 @@ class ReactionPlusItem(QGraphicsItem):
     def paint(self, painter, option, widget):
         s = self.size / 2
         if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), 6))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(QPointF(-s, 0), QPointF(s, 0))
             painter.drawLine(QPointF(0, -s), QPointF(0, s))
 
@@ -423,7 +424,6 @@ class ReactionPlusItem(QGraphicsItem):
             "x": self.pos().x(),
             "y": self.pos().y(),
             "rotation": self.rotation(),
-            "size": self.size,
             "size": self.size,
             "color": self.pen_color.name(),
             "width": self.pen_width,
@@ -455,7 +455,7 @@ class ReactionMinusItem(QGraphicsItem):
         s = self.size / 2
         painter.setPen(QPen(self.pen_color, self.pen_width))
         if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), 6))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
         painter.drawLine(QPointF(-s, 0), QPointF(s, 0))
 
     def set_size(self, size):
@@ -477,7 +477,6 @@ class ReactionMinusItem(QGraphicsItem):
              "y": self.pos().y(),
              "rotation": self.rotation(),
              "size": self.size,
-             "size": self.size,
              "color": self.pen_color.name(),
              "width": self.pen_width,
              "group_id": self.group_id
@@ -492,7 +491,7 @@ class ReactionResonanceArrowItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 4))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(self.start_p, self.end_p)
 
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -614,7 +613,7 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
         l2_end = self.end_p - p_offset
         
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 8))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(self.start_p, self.end_p)
             
         painter.setPen(QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
@@ -752,7 +751,7 @@ class ReactionRetroArrowItem(ReactionArrowItem):
         l2_end = self.end_p - p_offset
         
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 8))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(self.start_p, self.end_p)
             
         # Retro arrowhead (large triangle)
@@ -829,6 +828,35 @@ class ReactionNoArrowItem(ReactionArrowItem):
         self.negation_style = "slash" # "slash", "cross"
 
     def paint(self, painter, option, widget):
+        # We handle selection ourselves to match style
+        # But QGraphicsTextItem handles selection natively with a dashed box usually.
+        # We can disable the native selection indicator by option.state &= ~State_Selected
+        # and draw our own.
+        
+        is_selected = (option.state & QStyle.StateFlag.State_Selected)
+        if is_selected and not self.is_group_selected:
+             # Draw custom selection rect
+             painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
+             painter.setBrush(Qt.BrushStyle.NoBrush)
+             painter.drawRect(self.boundingRect())
+             
+        is_selected = (option.state & QStyle.StateFlag.State_Selected)
+        if is_selected and not self.is_group_selected:
+             # Draw custom selection rect
+             painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
+             painter.setBrush(Qt.BrushStyle.NoBrush)
+             painter.drawRect(self.boundingRect())
+             
+        is_selected = (option.state & QStyle.StateFlag.State_Selected)
+        if is_selected and not self.is_group_selected:
+             # Draw custom selection rect
+             painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
+             painter.setBrush(Qt.BrushStyle.NoBrush)
+             painter.drawRect(self.boundingRect())
+             
+             # Remove state so base class doesn't draw its own
+             option.state &= ~QStyle.StateFlag.State_Selected
+
         super().paint(painter, option, widget)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         line = QLineF(self.start_p, self.end_p)
@@ -873,7 +901,7 @@ class ReactionDashedArrowItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 4))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(self.start_p, self.end_p)
 
         # Dashed Pen
@@ -1026,7 +1054,8 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
     def boundingRect(self):
         rect = super().boundingRect()
         cp = self.get_control_point()
-        return rect.united(QRectF(cp, cp).adjusted(-15, -15, 15, 15))
+        # Reduced padding from 15 to 5
+        return rect.united(QRectF(cp, cp).adjusted(-5, -5, 5, 5))
 
     def shape(self):
         cp = self.get_control_point()
@@ -1091,8 +1120,9 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         path = QPainterPath()
         path.moveTo(self.start_p)
         path.quadTo(cp, self.end_p)
+        path.quadTo(cp, self.end_p)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 6))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
             
@@ -1247,7 +1277,8 @@ class ReactionBracketItem(QGraphicsItem):
         return super().itemChange(change, value)
 
     def boundingRect(self):
-        return self.rect.normalized().adjusted(-10, -10, 10, 10)
+        # Reduced padding from 10 to 2
+        return self.rect.normalized().adjusted(-2, -2, 2, 2)
 
     def shape(self):
         path = QPainterPath()
@@ -1316,7 +1347,7 @@ class ReactionBracketItem(QGraphicsItem):
             pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 2))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), self.pen_width + 2))
         
         painter.setBrush(Qt.BrushStyle.NoBrush)
         
@@ -1376,7 +1407,8 @@ class ReactionBracketItem(QGraphicsItem):
             "color": self.pen_color.name(),
             "width": self.pen_width,
             "bracket_type": self.bracket_type,
-            "line_style": self.line_style
+            "line_style": self.line_style,
+            "group_id": self.group_id
         }
 
     def rotate_around(self, center, angle_degrees):
@@ -1442,7 +1474,7 @@ class ReactionCircleItem(QGraphicsItem):
         painter.setPen(QPen(self.pen_color, self.pen_width, pen_style))
         
         if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 2, pen_style))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), self.pen_width + 2, pen_style))
         
         if self.shape_type == "rectangle":
             painter.drawRect(r)
@@ -1460,7 +1492,8 @@ class ReactionCircleItem(QGraphicsItem):
             "color": self.pen_color.name(),
             "width": self.pen_width,
             "shape_type": getattr(self, "shape_type", "circle"),
-            "line_style": self.line_style
+            "line_style": self.line_style,
+            "group_id": self.group_id
         }
 
     def rotate_around(self, center, angle_degrees):
@@ -1477,7 +1510,7 @@ class ReactionLineItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 4))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.drawLine(self.start_p, self.end_p)
 
         style = Qt.PenStyle.DashLine if self.line_style == "dashed" else Qt.PenStyle.SolidLine
@@ -1496,7 +1529,8 @@ class ReactionLineItem(ReactionArrowItem):
             "end_y": self.pos().y() + self.end_p.y(),
             "color": self.pen_color.name(),
             "width": self.pen_width,
-            "line_style": self.line_style
+            "line_style": self.line_style,
+            "group_id": self.group_id
         }
 
 class ReactionCurvedLineItem(ReactionCurvedArrowItem):
@@ -1513,7 +1547,7 @@ class ReactionCurvedLineItem(ReactionCurvedArrowItem):
         path.quadTo(cp, self.end_p)
         
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 6))
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
             
@@ -1583,7 +1617,8 @@ class ReactionFreehandItem(QGraphicsItem):
         self.update()
 
     def boundingRect(self):
-        return self.boundingRect_.adjusted(-5, -5, 5, 5)
+        # Reduced padding from 5 to 2
+        return self.boundingRect_.adjusted(-2, -2, 2, 2)
 
     def shape(self):
         from PyQt6.QtGui import QPainterPathStroker
@@ -1594,7 +1629,8 @@ class ReactionFreehandItem(QGraphicsItem):
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), self.pen_width + 4))
+            # Reduced strength: lighter blue, thinner line
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self.path)
 
@@ -1666,9 +1702,28 @@ class ReactionTextItem(QGraphicsTextItem):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
-        # When in edit mode, handle Esc to finish editing, and accept ALL other
-        # key events to prevent shortcuts from triggering.
+        # Handle shortcuts explicitly when in edit mode
         if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                if event.key() == Qt.Key.Key_B:
+                    # Toggle Bold
+                    fmt = self.textCursor().charFormat()
+                    fmt.setFontWeight(QFont.Weight.Bold if fmt.fontWeight() != QFont.Weight.Bold else QFont.Weight.Normal)
+                    self.textCursor().setCharFormat(fmt)
+                    return
+                elif event.key() == Qt.Key.Key_I:
+                    # Toggle Italic
+                    fmt = self.textCursor().charFormat()
+                    fmt.setFontItalic(not fmt.fontItalic())
+                    self.textCursor().setCharFormat(fmt)
+                    return
+                elif event.key() == Qt.Key.Key_U:
+                    # Toggle Underline
+                    fmt = self.textCursor().charFormat()
+                    fmt.setFontUnderline(not fmt.fontUnderline())
+                    self.textCursor().setCharFormat(fmt)
+                    return
+
             if event.key() == Qt.Key.Key_Escape:
                 self.clearFocus()
                 event.accept()
@@ -1680,6 +1735,123 @@ class ReactionTextItem(QGraphicsTextItem):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def format_as_chemical(self):
+        """Format the text as a chemical formula."""
+        import re
+        text = self.toPlainText()
+        
+        # 1. Subscript numbers (not preceded by charge symbols + or -)
+        # We process charges first to avoid H2O -> H2 O issue? No, numbers are sub. Charges are sup.
+        
+        # Charges: (+ or - or 2+, 3-) at the end of groups or line?
+        # Simple heuristic: Letter followed by + or - or number then +/-
+        # e.g. Cl-, Na+, Ca2+, SO4 2-
+        
+        # Let's do a robust multi-pass or single pass with callback.
+        
+        # Use span with vertical-align for better control, especially for SVG export where sub/sup might have large gaps.
+        # But QGraphicsTextItem HTML support is limited. 
+        # 'vertical-align: sub' is supported.
+        # Let's try standard sub/sup first, but if user complained about distance, maybe they mean the vertical offset is too large?
+        # Or lateral spacing?
+        # A common trick is to use font-size smaller (75%)?
+        # Actually, let's stick to <sub> but maybe the font handling in SVG is the culprit.
+        # If I use `<sub>` it uses Qt's default sub offset.
+        # Let's try using `vertical-align: sub` explicitly on a span?
+        # Or maybe the user meant horizontal distance?
+        # "sub or sup text get distance" -> "H 2 O".
+        # This often happens if the font metrics are weird in SVG.
+        
+        # I will replace <sub> with <span style='vertical-align:sub;'> which might behave differently?
+        # Actually, let's just try to be standard but cleaner.
+        
+        def replace_sub(match):
+            # Using span with vertical-align
+            return f"<span style='vertical-align:sub;'>{match.group(1)}</span>"
+
+        def replace_sup(match):
+            return f"<span style='vertical-align:super;'>{match.group(1)}</span>"
+        #    Hard to distinguish 43- without chemical knowledge. 
+        #    BUT user specifically asked "minus cannnot be sup when chem is applied".
+        #    Actually user said: "minus cannnot be sup when chem is applied" -> Wait, "minus CANNOT be sup"? 
+        #    "also minus cannnot be sup when chem is applied" <- This sounds like a complaint that it IS sup but shouldn't be?
+        #    OR "minus cannot be sup" meaning it fails to become sup?
+        #    Context: "also the font size is not adjustable. maybe once it sub or sup. also minus cannnot be sup when chem is applied. fix all"
+        #    Interpretation: "Minus sign is failing to represent as superscript when chemical formatting is applied" OR "Minus sign IS becoming superscript but shouldn't".
+        #    Given "Cl-", it SHOULD be superscript. So likely it is FAILING to be sup.
+        #    "minus cannnot be sup" -> "I cannot make minus sup".
+        
+        new_html = ""
+        # Split by potential ions to handle them?
+        # Simplest widely accepted regex approach:
+        
+        # 1. Global number subscripting: ([A-Za-z\)])(\d+) -> $1<sub>$2</sub>
+        # 2. Charge Superscripting: ([A-Za-z0-9\)])([+-][1-9]?|[1-9][+-]) -> $1<sup>$2</sup> ??
+        #    This is risky.
+        
+        # Let's try iterating.
+        # Common convention for simple sketchers:
+        # Numbers after letters -> Sub
+        # +/- after letters -> Sup
+        
+        # Handle "Cl-" -> Cl + sup(-)
+        # Handle "Na+" -> Na + sup(+)
+        # Handle "Ca2+" -> Ca + sup(2+)
+        # Handle "SO42-" -> SO4(sub) + 2-(sup).
+        # "SO4" -> S O sub(4).
+        
+        # Step 1: Subscript all numbers
+        # But we need to protect charge numbers.
+        # Charge numbers are followed by + or -.
+        
+        # Regex for Charge: (\d*[+-]) 
+        # If we find a number followed by +/- it is a charge -> Sup.
+        # If we find a number NOT followed by +/-, it is a count -> Sub.
+        
+        segments = []
+        i = 0
+        n = len(text)
+        while i < n:
+            # Check for Charge Pattern: Single Digit Number + +/- OR just +/-
+            # Look ahead
+            # Limit charge number to 0 or 1 digit to distinguishing from counts (e.g. SO42-)
+            match_charge = re.match(r"^(\d?[+-])", text[i:])
+            if match_charge and i > 0: # Charge must follow something
+                 # It's a charge (e.g. "+" or "2+" or "3-" or "-")
+                 # We assume charges > 9 are very rare in this context.
+                 
+                 charge_txt = match_charge.group(1)
+                 # Ensure it's not part of a hyphenated word like "Co-op" (if text has letters)
+                 # But "Co" is Cobalt. "Co-"?
+                 # Heuristic: If followed by space, end of string, or punctuation.
+                 is_end_of_token = (i + len(charge_txt) == n) or (text[i + len(charge_txt)] in " \t\n,.)]")
+                 
+                 if is_end_of_token:
+                      segments.append(f"<sup>{charge_txt}</sup>")
+                      i += len(charge_txt)
+                      continue
+            
+            # Check for Subscript Number: \d+
+            match_sub = re.match(r"^(\d+)", text[i:])
+            if match_sub and i > 0 and text[i-1].isalpha():
+                 # Digits following letter -> Sub
+                 # BUT wait, what if it was part of "Ca2+"?
+                 # If we missed the charge check above (e.g. 2 is separate from +?),
+                 # The charge check `(\d*[+-])` would catch "2+".
+                 # If we have "SO4", the "4" is not followed by +/-.
+                 # So it matches here.
+                 
+                 num_txt = match_sub.group(1)
+                 segments.append(f"<sub>{num_txt}</sub>")
+                 i += len(num_txt)
+                 continue
+                 
+            segments.append(text[i])
+            i += 1
+            
+        new_html = "".join(segments)
+        self.setHtml(new_html)
 
     def focusInEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
@@ -1719,9 +1891,17 @@ class ReactionTextItem(QGraphicsTextItem):
         except: pass
 
     def paint(self, painter, option, widget):
-        if (option.state & QStyle.StateFlag.State_Selected) and not self.is_group_selected:
-            painter.setPen(QPen(QColor(0, 120, 215, 100), 2, Qt.PenStyle.DashLine))
+        # Handle custom selection highlight
+        is_selected = (option.state & QStyle.StateFlag.State_Selected)
+        if is_selected and not self.is_group_selected:
+            # Custom soft blue highlight
+            painter.setPen(QPen(QColor(0, 100, 255, 150), 2, Qt.PenStyle.SolidLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.boundingRect())
+            
+            # Remove state so base class doesn't draw the default dashed box
+            option.state &= ~QStyle.StateFlag.State_Selected
+            
         super().paint(painter, option, widget)
 
     def create_json_data(self):
@@ -1730,13 +1910,14 @@ class ReactionTextItem(QGraphicsTextItem):
             "x": self.pos().x(),
             "y": self.pos().y(),
             "rotation": self.rotation(),
-            "rotation": self.rotation(),
             "text": self.toPlainText(),
+            "html": self.toHtml(),
             "group_id": self.group_id,
             "font_family": self.font().family(),
             "font_size": self.font().pointSize(),
             "bold": self.font().bold(),
             "italic": self.font().italic(),
+            "underline": self.font().underline(),
             "color": self.defaultTextColor().name()
         }
 
@@ -1761,6 +1942,134 @@ class ReactionGroupOverlay(QGraphicsItem):
         self._updating = False
         self.update_rect()
         
+        self.h_scale = ReactionHandle(self, "scale")
+        self.h_scale.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self.sync_handles()
+        
+    def sync_handles(self):
+        self.h_scale.setPos(self._rect.bottomRight())
+
+    def on_handle_moved(self, handle):
+        if handle.handle_type == "scale":
+            # Determine scale factor based on handle movement relative to TopLeft
+            # Origin is Rect.topLeft()
+            origin = self._rect.topLeft()
+            current_br = self._rect.bottomRight()
+            new_br = handle.pos()
+            
+            # Avoid division by zero
+            if current_br.x() - origin.x() < 1 or current_br.y() - origin.y() < 1:
+                return
+                
+            scale_x = (new_br.x() - origin.x()) / (current_br.x() - origin.x())
+            scale_y = (new_br.y() - origin.y()) / (current_br.y() - origin.y())
+            
+            # Uniform scale? Use max or average? 
+            # User typically expects uniform scale for groups unless it's just resize handles.
+            # Let's use uniform scale based on the larger dimension change or projection?
+            # Or just update geometry.
+            
+            scale = max(scale_x, scale_y) # Uniform
+            
+            # Apply scale to all group items
+            # Center of scaling is origin (TopLeft of group box)
+            
+            for item in self.group_items:
+                if not sip_isdeleted_safe(item):
+                     # Logic:
+                     # NewPos = Origin + (OldPos - Origin) * scale
+                     # Item.scale *= scale ??
+                     # Items like ArrowItem use start_p, end_p. They don't use Item Transform for geometry usually.
+                     # We must update their standard props.
+                     
+                     # Generic approach: Use duck typing for `scale_by(origin, factor)` if exists,
+                     # else manual property updates.
+                     
+                     if hasattr(item, "start_p") and hasattr(item, "end_p"):
+                         item.start_p = origin + (item.start_p - origin) * scale
+                         item.end_p = origin + (item.end_p - origin) * scale
+                         if hasattr(item, "control_p") and item.control_p:
+                              # control_p is local? No, standard ArrowItem uses local coords?
+                              # ReactionCurvedArrowItem: control_p is Scene or Local? 
+                              # Looking at code: `cp = self.get_control_point()` returns scene/item coords.
+                              # It stores `self.control_p` which seems to be absolute based on `mouseMove` logic.
+                              # Let's assume absolute for now based on handle setPos.
+                              item.control_p = origin + (item.control_p - origin) * scale
+                         
+                         if hasattr(item, "head_size"):
+                             item.head_size *= scale
+                         
+                         item.sync_handles()
+                         item.update()
+                         
+                     elif hasattr(item, "setBox"): # Future proofing
+                         pass
+                     elif isinstance(item, QGraphicsTextItem):
+                         # Text scaling: Update pos and Font size
+                         item.setPos(origin + (item.pos() - origin) * scale)
+                         f = item.font()
+                         if f.pointSize() > 0:
+                             f.setPointSize(int(f.pointSize() * scale))
+                         elif f.pixelSize() > 0:
+                             f.setPixelSize(int(f.pixelSize() * scale))
+                         item.setFont(f)
+                         
+                     elif hasattr(item, "rect"): # Bracket, Circle
+                         # Rect based
+                         curr_r = item.rect
+                         # TopLeft moves
+                         new_tl = origin + (item.mapToScene(curr_r.topLeft()) - origin) * scale
+                         new_br = origin + (item.mapToScene(curr_r.bottomRight()) - origin) * scale
+                         
+                         # Map back to item local if item pos didn't change?
+                         # Usually these items are at setPos(start_pos) and rect is local?
+                         # Items.py: `ReactionBracketItem`: `self.rect = QRectF(QPointF(0, 0), self.mapFromScene(end_pos))`
+                         # It seems `start_pos` is item pos.
+                         
+                         # Safest: Update item.setPos and item geometry props (width/height)
+                         new_pos = origin + (item.pos() - origin) * scale
+                         item.setPos(new_pos)
+                         
+                         # Scale dimensions
+                         new_w = curr_r.width() * scale
+                         new_h = curr_r.height() * scale
+                         item.rect = QRectF(0, 0, new_w, new_h)
+                         item.sync_handles()
+                         item.update()
+                     
+                     elif hasattr(item, "points"): # Freehand
+                         # Scale points relative to item pos, and scale item pos
+                         new_pos = origin + (item.pos() - origin) * scale
+                         item.setPos(new_pos)
+                         # Points are local
+                         item.points = [p * scale for p in item.points]
+                         # Rebuild path
+                         item.path = QPainterPath()
+                         if item.points:
+                            item.path.moveTo(item.points[0])
+                            for p in item.points[1:]:
+                                item.path.lineTo(p)
+                         item.prepareGeometryChange()
+                         item.update()
+
+                     elif hasattr(item, "size"): # Plus/Minus
+                          new_pos = origin + (item.pos() - origin) * scale
+                          item.setPos(new_pos)
+                          item.size *= scale
+                          item.update()
+
+            # Push undo
+            try:
+                mw = get_main_window(self.scene())
+                if mw: mw.push_undo_state()
+            except: pass
+
+            # Force overlay update
+            self.update_rect()
+            self.sync_handles()
+        
+
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSceneChange:
             old_scene = self.scene()
@@ -1784,6 +2093,8 @@ class ReactionGroupOverlay(QGraphicsItem):
         self._updating = True
         try:
             self.update_rect()
+            if hasattr(self, 'h_scale'):
+                self.sync_handles()
         finally:
             self._updating = False
 

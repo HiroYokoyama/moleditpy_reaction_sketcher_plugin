@@ -134,13 +134,16 @@ def load_handler_core(main_window, reaction_items):
 
         elif item_type == "text":
             item = ReactionTextItem(item_data["text"], QPointF(item_data["x"], item_data["y"]))
+            if "html" in item_data:
+                item.setHtml(item_data["html"])
             if "color" in item_data: item.setDefaultTextColor(QColor(item_data["color"]))
-            if "font_family" in item_data:
+            if "font_family" in item_data and not "html" in item_data: # Only set if No HTML
                 f = item.font()
                 f.setFamily(item_data["font_family"])
                 f.setPointSize(item_data.get("font_size", 14))
                 f.setBold(item_data.get("bold", False))
                 f.setItalic(item_data.get("italic", False))
+                f.setUnderline(item_data.get("underline", False))
                 item.setFont(f)
 
         if "rotation" in item_data: item.setRotation(item_data["rotation"])

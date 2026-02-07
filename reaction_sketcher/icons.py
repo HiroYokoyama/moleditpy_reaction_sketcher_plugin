@@ -168,6 +168,41 @@ def create_reaction_icon(tool_name, size=32):
         painter.setFont(QFont("Arial", int(size * 0.5), QFont.Weight.Bold))
         painter.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, "A")
         
+    elif tool_name == "sub":
+        painter.setPen(QPen(QColor("#222222"), 1))
+        f = QFont("Arial", int(size * 0.45), QFont.Weight.Bold)
+        painter.setFont(f)
+        painter.drawText(QRectF(1, 0, size, size), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "A")
+        f.setPointSize(int(size * 0.3))
+        painter.setFont(f)
+        # Move '2' even closer by reducing the right-alignment box width
+        painter.drawText(QRectF(0, size*0.18, size-7, size), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "2")
+
+    elif tool_name == "sup":
+        painter.setPen(QPen(QColor("#222222"), 1))
+        f = QFont("Arial", int(size * 0.45), QFont.Weight.Bold)
+        painter.setFont(f)
+        painter.drawText(QRectF(1, 0, size, size), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "A")
+        f.setPointSize(int(size * 0.3))
+        painter.setFont(f)
+        # Move '2' even closer by reducing the right-alignment box width
+        painter.drawText(QRectF(0, -size*0.18, size-7, size), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "2")
+
+    elif tool_name == "chem":
+        painter.setPen(QPen(QColor("#222222"), 1))
+        f_main = QFont("Arial", int(size * 0.35), QFont.Weight.Bold)
+        f_sub = QFont("Arial", int(size * 0.25), QFont.Weight.Bold)
+        
+        # Tightened H2O layout
+        painter.setFont(f_main)
+        painter.drawText(QRectF(1, 0, size, size), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "H")
+        
+        painter.setFont(f_sub)
+        painter.drawText(QRectF(size*0.3, size*0.18, size*0.3, size), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "2")
+        
+        painter.setFont(f_main)
+        painter.drawText(QRectF(size*0.5, 0, size*0.4, size), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "O")
+
     elif tool_name == "exit":
         pen.setColor(QColor("#d32f2f"))
         pen.setWidthF(2.5)
@@ -410,6 +445,28 @@ def create_alignment_icon(tool_name, size=32):
         # Boxes centered
         painter.drawRect(m, mid-4, 6, 8)
         painter.drawRect(m+10, mid-6, 6, 12)
+        
+    elif tool_name == "align_left":
+        # Bar at left
+        painter.drawLine(QPointF(m, m), QPointF(m, h-m))
+        # Two boxes to the right
+        painter.drawRect(m+4, m, 8, 6)
+        painter.drawRect(m+4, m+10, 12, 6)
+        
+    elif tool_name == "align_right":
+        # Bar at right
+        painter.drawLine(QPointF(w-m, m), QPointF(w-m, h-m))
+        # Two boxes to the left
+        painter.drawRect(w-m-8, m, 8, 6)
+        painter.drawRect(w-m-12, m+10, 12, 6)
+        
+    elif tool_name == "align_center_h":
+        # Line in middle vertical
+        mid = int(w/2)
+        painter.drawLine(QPointF(mid, m), QPointF(mid, h-m))
+        # Boxes centered horizontally
+        painter.drawRect(mid-4, m, 8, 6)
+        painter.drawRect(mid-6, m+10, 12, 6)
         
     elif tool_name == "distribute_h":
         # Three vertical bars equally spaced

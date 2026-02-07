@@ -4,16 +4,16 @@
 import time
 import json
 import os
-import uuid
-import re
 from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy, 
                              QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QGridLayout, QWidget, QLabel, 
                              QColorDialog, QFileDialog, QMessageBox, QMenu, QFrame)
-from PyQt6.QtGui import QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import (QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, 
+                           QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, QFontDatabase)
 from PyQt6.QtSvg import QSvgGenerator
 from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, QObject, QEvent
 from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
-from .patcher import apply_patches, unapply_patches
+from .patcher import (apply_interaction_patches, revert_interaction_patches,
+                      apply_core_patches, revert_core_patches)
 
 class ModeManager(QObject):
     def __init__(self, main_window):
@@ -124,6 +124,8 @@ class ModeManager(QObject):
         categories = [
             ("Selection", [
                 ("Select", "select", "Select and Move Objects"),
+            ]),
+            ("Grouping", [
                 ("Group", "group", "Group Selected Items"),
                 ("Ungroup", "ungroup", "Ungroup Selected Items"),
             ]),
@@ -156,10 +158,16 @@ class ModeManager(QObject):
         # Define Alignment Tools
         align_tools = [
             ("align_top", "Align Top", lambda: self.align_items("top")),
+            ("align_left", "Align Left", lambda: self.align_items("left")),
+            
             ("align_center_v", "Align Vertical Center", lambda: self.align_items("center_v")),
+            ("align_center_h", "Align Horizontal Center", lambda: self.align_items("center_h")),
+            
             ("align_bottom", "Align Bottom", lambda: self.align_items("bottom")),
-            ("distribute_h", "Distribute Horizontally", lambda: self.distribute_items("horizontal")),
-            ("distribute_v", "Distribute Vertically", lambda: self.distribute_items("vertical"))
+            ("align_right", "Align Right", lambda: self.align_items("right")),
+            
+            ("distribute_v", "Distribute Vertically", lambda: self.distribute_items("vertical")),
+            ("distribute_h", "Distribute Horizontally", lambda: self.distribute_items("horizontal"))
         ]
 
         for cat_name, tools in categories:
@@ -321,7 +329,13 @@ class ModeManager(QObject):
         # Font family
         self.property_toolbar.addWidget(QLabel(" Font: "))
         self.font_combo = QComboBox()
-        self.font_combo.addItems(["Arial", "Times New Roman", "Courier New", "Verdana", "Impact", "Comic Sans MS"])
+        # Populate with all system fonts
+        self.font_combo.addItems(QFontDatabase.families())
+        # Try to select Arial by default if available
+        idx = self.font_combo.findText("Arial")
+        if idx >= 0:
+            self.font_combo.setCurrentIndex(idx)
+            
         self.font_combo.currentTextChanged.connect(self.apply_properties)
         self.property_toolbar.addWidget(self.font_combo)
 
@@ -335,24 +349,31 @@ class ModeManager(QObject):
         self.italic_action.setCheckable(True)
         self.italic_action.setFont(QFont("Arial", 10, QFont.Weight.Normal, True))
         self.italic_action.triggered.connect(self.apply_properties)
+
+        self.underline_action = self.property_toolbar.addAction("U")
+        self.underline_action.setCheckable(True)
+        f_under = QFont("Arial", 10)
+        f_under.setUnderline(True)
+        self.underline_action.setFont(f_under)
+        self.underline_action.triggered.connect(self.apply_properties)
         
         self.property_toolbar.addSeparator()
         
-        self.sub_action = self.property_toolbar.addAction("Sub")
-        self.sub_action.setCheckable(False) # Using as toggle via method but button state might need sync? 
-        # Actually my toggle method logic checks current state of TEXT, not button.
-        # So button is just a trigger.
+        self.sub_action = self.property_toolbar.addAction(create_reaction_icon("sub", 24), "Sub")
+        self.sub_action.setCheckable(False)
         self.sub_action.setToolTip("Subscript")
         self.sub_action.triggered.connect(self.toggle_subscript)
         
-        self.sup_action = self.property_toolbar.addAction("Sup")
+        self.sup_action = self.property_toolbar.addAction(create_reaction_icon("sup", 24), "Sup")
         self.sup_action.setCheckable(False)
         self.sup_action.setToolTip("Superscript")
         self.sup_action.triggered.connect(self.toggle_superscript)
         
-        self.chem_action = self.property_toolbar.addAction("Chem")
+        self.chem_action = self.property_toolbar.addAction(create_reaction_icon("chem", 24), "Chem")
         self.chem_action.setToolTip("Apply Chemistry Style (e.g. H_2O -> H₂O)")
         self.chem_action.triggered.connect(self.apply_chem_style)
+        
+        self.property_toolbar.addSeparator()
         
         self.lbl_font_size = QLabel(" Font Size: ")
         self.property_toolbar.addWidget(self.lbl_font_size)
@@ -389,28 +410,18 @@ class ModeManager(QObject):
         self.update_color_button(QColor("#222222"))
         
         self.property_toolbar.addSeparator()
-        
-        self.property_toolbar.addWidget(QLabel(" Text: "))
-        # Chem Style
-        self.chem_action = self.property_toolbar.addAction("Chem")
-        self.chem_action.setToolTip("Parse Chemistry Syntax (_ for sub, ~ or ^ for sup)")
-        self.chem_action.triggered.connect(self.apply_chem_style)
-        
-        # Sub/Sup (Placeholder/Extra)
-        # self.sub_action = self.property_toolbar.addAction("Sub")
-        # self.sub_action.triggered.connect(self.toggle_subscript)
-        # self.sup_action = self.property_toolbar.addAction("Sup") 
-        # self.sup_action.triggered.connect(self.toggle_superscript)
 
-        # SVG Export
-        self.property_toolbar.addAction("Export SVG", self.export_svg)
-        self.property_toolbar.addAction("Copy SVG", self.copy_svg_to_clipboard)
-        
         self.property_toolbar.addSeparator()
-
+        
         # Advanced Settings Button
         settings_btn = self.property_toolbar.addAction("More...")
         settings_btn.triggered.connect(lambda: self.open_advanced_settings())
+        
+        self.property_toolbar.addSeparator()
+
+        # Export/Copy Actions at the end
+        self.property_toolbar.addAction("Export SVG", self.export_svg)
+        self.property_toolbar.addAction("Copy SVG", self.copy_svg_to_clipboard)
         
         self.main_window.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.property_toolbar)
         self.property_toolbar.hide()
@@ -421,9 +432,21 @@ class ModeManager(QObject):
 
 
     def export_svg(self):
-        items = [i for i in self.main_window.scene.items() if hasattr(i, "create_json_data")]
+        # Helper to decide if an item is a "Content" item (Reaction or Molecule)
+        def is_content_item(item):
+            # Check for Reaction Items
+            if hasattr(item, "create_json_data"): return True
+            # Check for Molecule Items (Atom/Bond)
+            # They might not have a specific tag, but they are definitely NOT Handles or Overlays
+            name = item.__class__.__name__
+            if name in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
+                return False
+            return True
+
+        # Use all content items since export usually exports the whole scene (or bounds of it)
+        items = [i for i in self.main_window.scene.items() if is_content_item(i)]
         if not items:
-            self.main_window.statusBar().showMessage("No reaction items to export.")
+            self.main_window.statusBar().showMessage("No content items to export.")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(self.main_window, "Export SVG", "", "SVG Files (*.svg)")
@@ -443,10 +466,31 @@ class ModeManager(QObject):
         selected_items = self.main_window.scene.selectedItems()
         self.main_window.scene.clearSelection()
 
+        # Prepare items to hide (Non-content items)
+        to_hide = []
+        all_items = self.main_window.scene.items()
+        
+        # Hide only "Helper" items (Handles, Overlays)
+        for i in all_items:
+            if i.isVisible() and not is_content_item(i):
+                to_hide.append(i)
+
+        for i in to_hide: i.hide()
+
         painter = QPainter()
         painter.begin(generator)
+        
+        # Transparency Fix
+        old_bg = self.main_window.scene.backgroundBrush()
+        self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+        
         self.main_window.scene.render(painter, bounds, bounds)
+        
+        self.main_window.scene.setBackgroundBrush(old_bg)
         painter.end()
+        
+        # Restore visibility
+        for i in to_hide: i.show()
         
         # Restore selection
         for item in selected_items:
@@ -456,10 +500,26 @@ class ModeManager(QObject):
 
     def copy_svg_to_clipboard(self):
         selected = self.main_window.scene.selectedItems()
-        # If nothing selected, copy everything reaction-related
-        items = [i for i in (selected if selected else self.main_window.scene.items()) if hasattr(i, "create_json_data")]
+        
+        # Helper to decide if an item is a "Content" item (Reaction or Molecule)
+        def is_content_item(item):
+            # Check for Reaction Items
+            if hasattr(item, "create_json_data"): return True
+            # Check for Molecule Items (Atom/Bond)
+            # They might not have a specific tag, but they are definitely NOT Handles or Overlays
+            name = item.__class__.__name__
+            if name in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
+                return False
+            return True
+
+        # If nothing selected, copy everything content-related
+        if not selected:
+             items = [i for i in self.main_window.scene.items() if is_content_item(i)]
+        else:
+             items = [i for i in selected if is_content_item(i)]
+
         if not items:
-            self.main_window.statusBar().showMessage("No reaction items selected to copy.")
+            self.main_window.statusBar().showMessage("No content items selected to copy.")
             return
 
         bounds = self.get_reaction_bounds(items)
@@ -477,35 +537,40 @@ class ModeManager(QObject):
         self.main_window.scene.clearSelection()
 
         painter = QPainter()
-        painter.begin(generator)
-        # Render only specific items if selected
+        # Prepare items to hide (Non-content items or unselected items)
+        to_hide = []
+        all_items = self.main_window.scene.items()
+        
         if selected:
-            # We temporarily hide others to render only selected
-            to_hide = [i for i in self.main_window.scene.items() if i.isVisible() and i not in selected]
-            for i in to_hide: i.hide()
-            
-            # Transparency Fix: Save old bg, set to NoBrush
-            old_bg = self.main_window.scene.backgroundBrush()
-            self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
-            
-            self.main_window.scene.render(painter, bounds, bounds)
-            
-            self.main_window.scene.setBackgroundBrush(old_bg)
-            
-            for i in to_hide: i.show()
+            # Hide anything that is NOT selected AND is visible
+            # But wait, if we have a molecule, and we select only one part, we might want to hide the rest?
+            # Yes, standard "Copy Selection" behavior.
+            for i in all_items:
+                if i.isVisible() and i not in selected:
+                    to_hide.append(i)
         else:
-            to_hide = [i for i in self.main_window.scene.items() if i.isVisible() and not hasattr(i, "create_json_data")]
-            for i in to_hide: i.hide()
-            
-            # Transparency Fix
-            old_bg = self.main_window.scene.backgroundBrush()
-            self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
-            
-            self.main_window.scene.render(painter, bounds, bounds)
-            
-            self.main_window.scene.setBackgroundBrush(old_bg)
-            
-            for i in to_hide: i.show()
+            # Hide only "Helper" items (Handles, Overlays)
+            for i in all_items:
+                if i.isVisible() and not is_content_item(i):
+                    to_hide.append(i)
+
+        for i in to_hide: i.hide()
+
+        # Render
+        painter = QPainter()
+        painter.begin(generator)
+        
+        # Transparency Fix
+        old_bg = self.main_window.scene.backgroundBrush()
+        self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+        
+        self.main_window.scene.render(painter, bounds, bounds)
+        
+        self.main_window.scene.setBackgroundBrush(old_bg)
+        painter.end()
+        
+        # Restore visibility
+        for i in to_hide: i.show()
             
         painter.end()
         
@@ -521,10 +586,22 @@ class ModeManager(QObject):
         QGuiApplication.clipboard().setMimeData(mime)
 
     def get_reaction_bounds(self, items):
-        rect = QRectF()
+        if not items: return QRectF()
+        
+        molecule_bounds = QRectF()
         for item in items:
-            rect = rect.united(item.sceneBoundingRect())
-        return rect.adjusted(-10, -10, 10, 10)
+            # [FIX] Skip handles, overlays, etc. to ensure tight bounding box
+            if item.__class__.__name__ in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
+                continue
+            # Also skip children that are handles
+            if hasattr(item, "handle_type"):
+                continue
+            
+            # [FIX] Use mapToScene(boundingRect) to exclude children handles
+            item_bounds = item.mapToScene(item.boundingRect()).boundingRect()
+            molecule_bounds = molecule_bounds.united(item_bounds)
+            
+        return molecule_bounds.adjusted(-5, -5, 5, 5)
 
     def set_auto_start(self, enabled):
         self.auto_start_pref = enabled
@@ -587,19 +664,41 @@ class ModeManager(QObject):
         self.size_spin.hide()
         
         if isinstance(first, ReactionTextItem):
-            f = first.font()
+            # Get font from actual content (Rich Text)
+            f = first.font() # Default fallback
+            try:
+                cursor = first.textCursor()
+                if first.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                    # If editing, use cursor style
+                    f = cursor.charFormat().font()
+                elif not first.document().isEmpty():
+                     # If just selected, use style of first character
+                     c = QTextCursor(first.document())
+                     c.setPosition(0)
+                     c.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
+                     f = c.charFormat().font()
+            except: pass
+
             idx = self.font_combo.findText(f.family())
             if idx >= 0: self.font_combo.setCurrentIndex(idx)
             self.bold_action.setChecked(f.bold())
             self.italic_action.setChecked(f.italic())
+            self.underline_action.setChecked(f.underline())
             
             self.lbl_font_size.show()
             self.font_size_spin.show()
-            self.font_size_spin.setValue(int(f.pointSize()))
+            
+            size = f.pointSize()
+            if size <= 0:
+                size = f.pixelSize()
+            if size <= 0: size = 12 # Default fallback
+            
+            self.font_size_spin.setValue(int(size))
             
             self.font_combo.setEnabled(True)
             self.bold_action.setEnabled(True)
             self.italic_action.setEnabled(True)
+            self.underline_action.setEnabled(True)
             self.font_size_spin.setEnabled(True)
         elif hasattr(first, "size"):
             self.lbl_item_size.show()
@@ -610,10 +709,12 @@ class ModeManager(QObject):
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
+            self.underline_action.setEnabled(False)
         else:
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
+            self.underline_action.setEnabled(False)
 
         # Sync width if arrow/bracket/signs
         if hasattr(first, "pen_width"):
@@ -640,15 +741,38 @@ class ModeManager(QObject):
         family = self.font_combo.currentText()
         bold = self.bold_action.isChecked()
         italic = self.italic_action.isChecked()
+        underline = self.underline_action.isChecked()
         item_size = self.size_spin.value()
         font_size = self.font_size_spin.value()
         width = self.width_spin.value()
         
         for item in items:
             if isinstance(item, ReactionTextItem):
-                item.setDefaultTextColor(color)
+                item.setDefaultTextColor(QColor(color))
+                
+                # Apply to Rich Text Content
+                fmt = QTextCharFormat()
+                fmt.setFontFamily(family)
+                fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
+                fmt.setFontItalic(italic)
+                fmt.setFontUnderline(underline)
+                fmt.setFontPointSize(font_size)
+                fmt.setForeground(QBrush(QColor(color)))
+
+                cursor = item.textCursor()
+                if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction and cursor.hasSelection():
+                     # Apply to selection only
+                     cursor.mergeCharFormat(fmt)
+                     item.setTextCursor(cursor)
+                else:
+                     # Apply to ALL text if not actively editing a selection
+                     doc_cursor = QTextCursor(item.document())
+                     doc_cursor.select(QTextCursor.SelectionType.Document)
+                     doc_cursor.mergeCharFormat(fmt)
+                
+                # Also update default font for new typing
                 f = item.font()
-                f.setFamily(family); f.setBold(bold); f.setItalic(italic); f.setPointSize(font_size)
+                f.setFamily(family); f.setBold(bold); f.setItalic(italic); f.setUnderline(underline); f.setPointSize(font_size)
                 item.setFont(f)
             elif isinstance(item, (ReactionArrowItem, ReactionBracketItem, ReactionCircleItem)):
                  if hasattr(item, "pen_color"): item.pen_color = color
@@ -894,6 +1018,25 @@ class ModeManager(QObject):
                 def make_cb(s, l): return lambda: self.set_circle_variant(s, l)
                 act.triggered.connect(make_cb(stype, lstyle))
             
+            menu.addSeparator()
+            
+        elif tool_name == "text":
+            # Text Options
+            act_chem = menu.addAction("Format as Chemical")
+            def format_chem():
+                try:
+                    if self.main_window and self.main_window.scene:
+                        selected = self.main_window.scene.selectedItems()
+                        from .items import ReactionTextItem
+                        modified = False
+                        for item in selected:
+                            if isinstance(item, ReactionTextItem):
+                                item.format_as_chemical()
+                                modified = True
+                        if modified:
+                            self.main_window.push_undo_state()
+                except: pass
+            act_chem.triggered.connect(format_chem)
             menu.addSeparator()
 
         # "Switch Tool" section for common grouping
@@ -1387,8 +1530,10 @@ class ModeManager(QObject):
         if self.property_toolbar:
             self.property_toolbar.show()
             
-        # Apply patches (safe to call multiple times)
-        apply_patches(self.main_window)
+        # Apply patches (Core and Interaction) dynamically
+        apply_core_patches(self.main_window)
+        apply_interaction_patches(self.main_window)
+        self.is_reaction_mode = True
             
         self.set_3d_action_state(False)
         self.main_window.statusBar().showMessage("Reaction Sketching Mode Active", 3000)
@@ -1421,7 +1566,8 @@ class ModeManager(QObject):
                 break
         
         # Unapply patches (restore original behavior)
-        unapply_patches(self.main_window)
+        revert_interaction_patches()
+        revert_core_patches()
 
     def set_3d_action_state(self, enabled):
         # 1. Disable the specific buttons found in main_window_main_init.py
@@ -1500,9 +1646,10 @@ class ModeManager(QObject):
 
     def get_logical_units(self, items):
         """
-        Partition items into rigid units for alignment/distribution:
+        Group selected items into logical "moveable units".
+        Rules:
         1. Explicit Groups (all scene items with same group_id)
-        2. Molecule Fragments (all scene items connected to selected atoms/bonds)
+        2. Molecules: If ANY part of a molecule is selected, the ENTIRE molecule is the unit.
         3. Single Reaction Items
         """
         scene = self.main_window.scene if self.main_window else None
@@ -1512,6 +1659,7 @@ class ModeManager(QObject):
         atom_to_item = {}
         bond_to_item = {}
         mol_data = getattr(self.main_window, "data", None)
+        
         if mol_data:
             if hasattr(mol_data, "atoms"):
                 for aid, info in mol_data.atoms.items():
@@ -1531,31 +1679,47 @@ class ModeManager(QObject):
         visited = set()
         units = []
         
-        # Helper to find all connected items in a fragment (DFS/BFS)
-        def get_fragment_items(start_item):
-            fragment = set()
-            stack = [start_item]
+        # Helper: Get all items in a connected molecule component using DATA connectivity
+        def get_molecule_items(start_aid=None, start_bid=None):
+            fragment_items = set()
+            
+            # We need a set of visited atom IDs for graph traversal
+            visited_aids = set()
+            stack = []
+            
+            if start_aid is not None: stack.append(start_aid)
+            elif start_bid is not None:
+                # If starting from a bond, add its atoms
+                if start_bid in mol_data.bonds:
+                    b_info = mol_data.bonds[start_bid]
+                    if isinstance(start_bid, tuple):
+                         stack.append(start_bid[0])
+                         stack.append(start_bid[1])
+
             while stack:
-                curr = stack.pop()
-                if curr in fragment: continue
-                fragment.add(curr)
+                curr_aid = stack.pop()
+                if curr_aid in visited_aids: continue
+                visited_aids.add(curr_aid)
                 
-                # If it's an atom item
-                if hasattr(curr, "bonds"): # Typical for AtomItem
-                    for b_data in curr.bonds:
-                        b_item = bond_to_item.get(b_data)
-                        if b_item and b_item.scene() == scene and b_item not in fragment:
-                            stack.append(b_item)
+                # Add Atom Item
+                if curr_aid in atom_to_item:
+                    fragment_items.add(atom_to_item[curr_aid])
                 
-                # If it's a bond item
-                if hasattr(curr, "bond"): # Typical for BondItem
-                    core_b = curr.bond
-                    if hasattr(core_b, "atom1"):
-                        for a_data in [core_b.atom1, core_b.atom2]:
-                            a_item = atom_to_item.get(a_data)
-                            if a_item and a_item.scene() == scene and a_item not in fragment:
-                                stack.append(a_item)
-            return fragment
+                # Check neighbors via bonds
+                if curr_aid in mol_data.atoms:
+                    atom_info = mol_data.atoms[curr_aid]
+                    for bid in atom_info.get('bonds', []):
+                         # Add Bond Item
+                         if bid in bond_to_item:
+                             fragment_items.add(bond_to_item[bid])
+                         
+                         # Find neighbor atom
+                         if isinstance(bid, tuple):
+                             neighbor = bid[1] if bid[0] == curr_aid else bid[0]
+                             if neighbor not in visited_aids:
+                                 stack.append(neighbor)
+            
+            return fragment_items
 
         for item in items:
             if item in visited: continue
@@ -1568,34 +1732,41 @@ class ModeManager(QObject):
                 # Treat the WHOLE group in the scene as one unit
                 unit_members = [i for i in scene.items() if hasattr(i, "group_id") and i.group_id == gid]
                 
-            # 2. Molecule Fragment (Atoms/Bonds)
-            elif hasattr(item, "bonds") or hasattr(item, "bond"):
-                unit_members = list(get_fragment_items(item))
+            # 2. Molecule (Rigid Body Selection)
+            # Check if item corresponds to an atom or bond in mol_data
+            elif hasattr(item, "atom_id"): # AtomItem
+                unit_members = list(get_molecule_items(start_aid=item.atom_id))
+            elif hasattr(item, "atom1") and hasattr(item, "atom2"): # BondItem
+                a1 = item.atom1
+                a2 = item.atom2
+                aid1 = a1 if isinstance(a1, int) else getattr(a1, 'atom_id', None)
+                aid2 = a2 if isinstance(a2, int) else getattr(a2, 'atom_id', None)
                 
-            # 3. Single Reaction Item
+                if aid1 is not None:
+                     unit_members = list(get_molecule_items(start_aid=aid1))
+                elif aid2 is not None:
+                     unit_members = list(get_molecule_items(start_aid=aid2))
+                else:
+                     unit_members = [item] # Fallback
+                
+            # 3. Single Reaction Item / Other
             else:
                 unit_members = [item]
                 
-            # Mark all as visited so we don't process them again if they were in selection
+            # Mark all as visited
             for m in unit_members:
                 visited.add(m)
             
-            # Calculate total bounding box and COG (Center of Gravity)
+            if not unit_members: continue
+
+            # Calculate total bounding box matches VISUAL bounds
             rect = QRectF()
-            atom_positions = []
             for m in unit_members:
                 if rect.isNull(): rect = m.sceneBoundingRect()
                 else: rect = rect.united(m.sceneBoundingRect())
-                # If it has .bonds, it's an AtomItem
-                if hasattr(m, "bonds"):
-                    atom_positions.append(m.pos())
             
-            # Use average of atom positions for molecules, otherwise rect center
+            # Use geometric center of the bounding box
             center = rect.center()
-            if atom_positions:
-                avg_x = sum(p.x() for p in atom_positions) / len(atom_positions)
-                avg_y = sum(p.y() for p in atom_positions) / len(atom_positions)
-                center = QPointF(avg_x, avg_y)
                 
             units.append({
                 "members": unit_members,
@@ -1612,6 +1783,7 @@ class ModeManager(QObject):
         items = self.main_window.scene.selectedItems()
         if len(items) < 2: return
         
+        # Get rigid units (whole molecules)
         units = self.get_logical_units(items)
         if len(units) < 2: return
         
@@ -1621,36 +1793,73 @@ class ModeManager(QObject):
         moved_atoms = []
         
         if mode == "top":
+            # Align to the topmost edge of the selection
             ref = min(r.top() for r in rects)
             for u in units:
                 dy = ref - u["rect"].top()
-                for item in u["members"]: 
-                    item.moveBy(0, dy)
-                    if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                if abs(dy) > 0.1:
+                    for item in u["members"]: 
+                        item.moveBy(0, dy)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
                 
         elif mode == "bottom":
+             # Align to the bottommost edge
             ref = max(r.bottom() for r in rects)
             for u in units:
                 dy = ref - u["rect"].bottom()
-                for item in u["members"]: 
-                    item.moveBy(0, dy)
-                    if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                if abs(dy) > 0.1:
+                    for item in u["members"]: 
+                        item.moveBy(0, dy)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
                 
         elif mode == "center_v":
+            # Align Y-centers to the average Y-center
             avg_y = sum(u["center"].y() for u in units) / len(units)
             for u in units:
                 dy = avg_y - u["center"].y()
-                for item in u["members"]: 
-                    item.moveBy(0, dy)
-                    if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                if abs(dy) > 0.1:
+                    for item in u["members"]: 
+                        item.moveBy(0, dy)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                    
+        elif mode == "left":
+            ref = min(r.left() for r in rects)
+            for u in units:
+                dx = ref - u["rect"].left()
+                if abs(dx) > 0.1:
+                    for item in u["members"]: 
+                        item.moveBy(dx, 0)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                
+        elif mode == "right":
+            ref = max(r.right() for r in rects)
+            for u in units:
+                dx = ref - u["rect"].right()
+                if abs(dx) > 0.1:
+                    for item in u["members"]: 
+                        item.moveBy(dx, 0)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                
+        elif mode == "center_h":
+            # Align X-centers to the average X-center
+            avg_x = sum(u["center"].x() for u in units) / len(units)
+            for u in units:
+                dx = avg_x - u["center"].x()
+                if abs(dx) > 0.1:
+                    for item in u["members"]: 
+                        item.moveBy(dx, 0)
+                        if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
 
+        # Update connections
         if moved_atoms and hasattr(self.main_window.scene, "update_connected_bonds"):
              self.main_window.scene.update_connected_bonds(moved_atoms)
+        self.main_window.update_2d_measurement_labels()
         self.main_window.scene.update()
 
-    def distribute_items(self, mode):
-        """Distribute selected items (Rigid Units)."""
+    def distribute_items(self, axis):
+        """Distribute selected items evenly (Equal Gaps between Edges)."""
         if not self.main_window or not self.main_window.scene: return
+        
         items = self.main_window.scene.selectedItems()
         if len(items) < 3: return
         
@@ -1658,39 +1867,63 @@ class ModeManager(QObject):
         if len(units) < 3: return
         
         self.main_window.push_undo_state()
+        
         moved_atoms = []
         
-        if mode == "horizontal":
-            units.sort(key=lambda u: u["center"].x())
-            start_x = units[0]["center"].x()
-            end_x = units[-1]["center"].x()
-            dist = end_x - start_x
-            if len(units) > 1:
-                step = dist / (len(units) - 1)
-                for i, u in enumerate(units):
-                    target_x = start_x + step * i
-                    dx = target_x - u["center"].x()
+        if axis == "horizontal":
+            # Sort by X position (left edge)
+            units.sort(key=lambda u: u["rect"].left())
+            
+            # Calculate total width spanned by edges
+            start_x = units[0]["rect"].left()
+            end_x = units[-1]["rect"].right()
+            total_span = end_x - start_x
+            
+            # Sum of widths of objects
+            sum_width = sum(u["rect"].width() for u in units)
+            
+            # Total gap space
+            total_gap = total_span - sum_width
+            gap = total_gap / (len(units) - 1) if (len(units) > 1) else 0
+            
+            current_left = start_x
+            for u in units:
+                dx = current_left - u["rect"].left()
+                if abs(dx) > 0.1:
                     for item in u["members"]: 
                         item.moveBy(dx, 0)
                         if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
+                
+                current_left += u["rect"].width() + gap
                     
-        elif mode == "vertical":
-            units.sort(key=lambda u: u["center"].y())
-            start_y = units[0]["center"].y()
-            end_y = units[-1]["center"].y()
-            dist = end_y - start_y
-            if len(units) > 1:
-                step = dist / (len(units) - 1)
-                for i, u in enumerate(units):
-                    target_y = start_y + step * i
-                    dy = target_y - u["center"].y()
+        elif axis == "vertical":
+            # Sort by Y position (top edge)
+            units.sort(key=lambda u: u["rect"].top())
+            
+            start_y = units[0]["rect"].top()
+            end_y = units[-1]["rect"].bottom()
+            total_span = end_y - start_y
+            
+            sum_height = sum(u["rect"].height() for u in units)
+            
+            total_gap = total_span - sum_height
+            gap = total_gap / (len(units) - 1) if (len(units) > 1) else 0
+            
+            current_top = start_y
+            for u in units:
+                dy = current_top - u["rect"].top()
+                if abs(dy) > 0.1:
                     for item in u["members"]: 
                         item.moveBy(0, dy)
                         if hasattr(item, "atom") or hasattr(item, "atom_id"): moved_atoms.append(item)
-
+                
+                current_top += u["rect"].height() + gap
+                    
         if moved_atoms and hasattr(self.main_window.scene, "update_connected_bonds"):
              self.main_window.scene.update_connected_bonds(moved_atoms)
+        self.main_window.update_2d_measurement_labels()
         self.main_window.scene.update()
+
 
             
     def toggle_subscript(self):
@@ -1749,14 +1982,13 @@ class ModeManager(QObject):
                     cursor.mergeCharFormat(fmt)
 
     def apply_chem_style(self):
-        """Parse text and apply chemical formatting (sub/sup)."""
+        """Robust chemical formatting (Sub/Sup) for targets."""
         if not self.main_window or not self.main_window.scene: return
         
         from .items import ReactionTextItem
         from PyQt6.QtGui import QTextCharFormat
         import re
         
-        # Prefer focused item
         focus_item = self.main_window.scene.focusItem()
         targets = []
         if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
@@ -1769,38 +2001,68 @@ class ModeManager(QObject):
         
         self.main_window.push_undo_state()
         
-        # Regex for _X or ~X or ^X where X is digit or +/-
-        pattern = re.compile(r'([_~^])([0-9+\-])')
-        
         for item in targets:
+            # We work with HTML to allow complex formatting updates, 
+            # or use cursor movements on the document.
             cursor = item.textCursor()
+            cursor.beginEditBlock()
+            
+            # Step 1: Normalize (Reset formatting)
+            cursor.select(cursor.SelectionType.Document)
+            fmt_norm = QTextCharFormat()
+            fmt_norm.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+            # Preserving font size/bold/italic from item base if needed, 
+            # but usually a reset is fine for the whole block.
+            cursor.setCharFormat(fmt_norm)
+            
             text = item.toPlainText()
             
-            # Reset format first
-            cursor.select(cursor.SelectionType.Document)
-            fmt_normal = QTextCharFormat()
-            fmt_normal.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
-            cursor.mergeCharFormat(fmt_normal)
+            # Formats
+            sub_fmt = QTextCharFormat()
+            sub_fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
+            sup_fmt = QTextCharFormat()
+            sup_fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
             
-            matches = list(pattern.finditer(text))
+            # List of (start, end, format, new_text) for replacements
+            actions = []
             
-            # Iterate backwards
-            for m in reversed(matches):
-                start, end = m.span()
-                trigger = m.group(1)
-                char = m.group(2)
+            def add_action(s, e, f, t):
+                # Check for ANY intersection with existing actions
+                for as_s, as_e, _, _ in actions:
+                    if max(s, as_s) < min(e, as_e):
+                        return False
+                actions.append((s, e, f, t))
+                return True
+
+            # 1. LaTeX-style braces: _{...} or ^{...}
+            for m in re.finditer(r'([_\^])\{([^}]*)\}', text):
+                atype = m.group(1)
+                content = m.group(2)
+                add_action(m.start(), m.end(), sub_fmt if atype == '_' else sup_fmt, content)
+            
+            # 2. Traditional triggers: _X or ^X or ~X (where X is not {)
+            for m in re.finditer(r'([_\^~])([^{}\s])', text):
+                atype = m.group(1)
+                content = m.group(2)
+                add_action(m.start(), m.end(), sub_fmt if atype == '_' else sup_fmt, content)
+            
+            # 3. Smart Subscripts: Numbers following letters
+            for m in re.finditer(r'([A-Za-z])([0-9]+)', text):
+                # We only format the digit group
+                add_action(m.start(2), m.end(2), sub_fmt, m.group(2))
                 
-                # Setup format
-                fmt = QTextCharFormat()
-                if trigger == '_':
-                    fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
-                else:
-                    fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
-                
-                # Replace trigger+char with char (formatting applied) of char
-                # Actually, we replace "_3" with "3" and format "3".
-                
+            # 4. Smart Charges: + or - or 2+ etc. at the end of a word cluster
+            for m in re.finditer(r'([0-9]*[\+\-])(?!\w)', text):
+                add_action(m.start(), m.end(), sup_fmt, m.group(1))
+            
+            # Sort actions by start pos descending to allow safe removal/insertion
+            actions.sort(key=lambda x: x[0], reverse=True)
+            
+            for start, end, fmt, new_text in actions:
                 cursor.setPosition(start)
                 cursor.setPosition(end, cursor.MoveMode.KeepAnchor)
                 cursor.removeSelectedText()
-                cursor.insertText(char, fmt)
+                cursor.insertText(new_text, fmt)
+            
+            cursor.endEditBlock()
+            item.update()
