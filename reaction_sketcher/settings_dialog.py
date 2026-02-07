@@ -2,65 +2,375 @@
 # -*- coding: utf-8 -*-
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QSpinBox, QPushButton, QColorDialog, QGroupBox)
+                             QSpinBox, QDoubleSpinBox, QPushButton, QColorDialog, 
+                             QGroupBox, QComboBox, QMessageBox, QWidget, QCheckBox,
+                             QFormLayout)
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
+import json
+import os
+
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 class AdvancedSettingsDialog(QDialog):
     def __init__(self, parent=None, item=None):
         super().__init__(parent)
         self.item = item
         self.setWindowTitle("Advanced Settings")
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(350)
+        
+        # Determine "Kind" of item for specific template storage
+        self.item_kind = "general"
+        if hasattr(item, "create_json_data"):
+            data = item.create_json_data()
+            self.item_kind = data.get("type", "general")
+            
         self.init_ui()
-        
+        self.load_templates()
+
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        
-        # Color Setting
-        color_layout = QHBoxLayout()
-        color_layout.addWidget(QLabel("Color:"))
+        main_layout = QVBoxLayout(self)
+
+        # --- Properties Group ---
+        props_group = QGroupBox("Properties")
+        props_layout = QFormLayout()
+
+        # Color
         self.color_btn = QPushButton()
         self.current_color = getattr(self.item, "pen_color", QColor("#222222"))
         if hasattr(self.item, "defaultTextColor"):
             self.current_color = self.item.defaultTextColor()
-        
         self.update_color_button()
         self.color_btn.clicked.connect(self.choose_color)
-        color_layout.addWidget(self.color_btn)
-        layout.addLayout(color_layout)
+        props_layout.addRow("Color:", self.color_btn)
 
         # Line Width
         if hasattr(self.item, "pen_width"):
-            width_layout = QHBoxLayout()
-            width_layout.addWidget(QLabel("Line Width:"))
             self.width_spin = QSpinBox()
             self.width_spin.setRange(1, 20)
             self.width_spin.setValue(int(self.item.pen_width))
-            width_layout.addWidget(self.width_spin)
-            layout.addLayout(width_layout)
+            props_layout.addRow("Line Width:", self.width_spin)
 
-        # Buttons
-        btns = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        btns.addWidget(ok_btn)
-        btns.addWidget(cancel_btn)
-        layout.addLayout(btns)
+        # Head Size
+        if hasattr(self.item, "head_size"):
+            self.head_size_spin = QDoubleSpinBox()
+            self.head_size_spin.setRange(1.0, 100.0)
+            self.head_size_spin.setValue(float(self.item.head_size))
+            props_layout.addRow("Head Size:", self.head_size_spin)
 
+        # Head Angle
+        if hasattr(self.item, "head_angle"):
+            self.head_angle_spin = QDoubleSpinBox()
+            self.head_angle_spin.setRange(5.0, 85.0)
+            self.head_angle_spin.setValue(float(self.item.head_angle))
+            props_layout.addRow("Head Angle (Width):", self.head_angle_spin)
+
+        # Concavity
+        if hasattr(self.item, "head_concavity"):
+            self.concavity_spin = QDoubleSpinBox()
+            self.concavity_spin.setRange(0.0, 1.0)
+            self.concavity_spin.setSingleStep(0.1)
+            self.concavity_spin.setValue(float(self.item.head_concavity))
+            props_layout.addRow("Chevron Concavity:", self.concavity_spin)
+
+        # Curvature
+        if hasattr(self.item, "curvature"):
+            self.curvature_spin = QDoubleSpinBox()
+            self.curvature_spin.setRange(0.1, 2.0)
+            self.curvature_spin.setSingleStep(0.1)
+            self.curvature_spin.setValue(float(self.item.curvature))
+            props_layout.addRow("Curvature:", self.curvature_spin)
+            
+        # Head Style (New)
+        if hasattr(self.item, "head_style"):
+            self.head_style_combo = QComboBox()
+            # Determine available styles based on item type?
+            # For now, list standard ones.
+            self.head_style_combo.addItems(["triangle", "chevron", "harpoon", "barb"])
+            self.head_style_combo.setCurrentText(self.item.head_style)
+            self.head_style_combo.currentTextChanged.connect(self.update_ui_state)
+            props_layout.addRow("Head Style:", self.head_style_combo)
+
+        # Bracket Type
+        if hasattr(self.item, "bracket_type"):
+            self.bracket_combo = QComboBox()
+            self.bracket_combo.addItems(["square", "round", "curly"])
+            self.bracket_combo.setCurrentText(self.item.bracket_type)
+            props_layout.addRow("Bracket Style:", self.bracket_combo)
+
+        props_group.setLayout(props_layout)
+        main_layout.addWidget(props_group)
+        
+        # --- Templates Group ---
+        tmpl_group = QGroupBox("Templates")
+        tmpl_layout = QVBoxLayout()
+        
+        row1 = QHBoxLayout()
+        self.tmpl_combo = QComboBox()
+        self.tmpl_combo.currentTextChanged.connect(self.on_template_selected)
+        row1.addWidget(self.tmpl_combo, 1)
+        
+        btn_apply = QPushButton("Load")
+        btn_apply.clicked.connect(self.apply_template_to_ui)
+        row1.addWidget(btn_apply)
+        tmpl_layout.addLayout(row1)
+        
+        row2 = QHBoxLayout()
+        btn_save = QPushButton("Save/Update")
+        btn_save.clicked.connect(self.save_template)
+        row2.addWidget(btn_save)
+        
+        btn_del = QPushButton("Delete")
+        btn_del.clicked.connect(self.delete_template)
+        row2.addWidget(btn_del)
+        tmpl_layout.addLayout(row2)
+        
+        tmpl_group.setLayout(tmpl_layout)
+        main_layout.addWidget(tmpl_group)
+
+        # --- Dialog Buttons ---
+        btn_box = QHBoxLayout()
+        btn_ok = QPushButton("OK")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        
+        btn_box.addStretch()
+        btn_box.addWidget(btn_ok)
+        btn_box.addWidget(btn_cancel)
+        main_layout.addLayout(btn_box)
+
+        # Initial gray-out state
+        self.update_ui_state()
+        
+    def update_ui_state(self, _=None):
+        # Enable/Disable based on item state
+        if hasattr(self, "concavity_spin"):
+            # Enable only if head style is chevron
+            is_chevron = False
+            if hasattr(self, "head_style_combo"):
+                is_chevron = (self.head_style_combo.currentText() == "chevron")
+            elif hasattr(self.item, "head_style"):
+                is_chevron = (self.item.head_style == "chevron")
+            self.concavity_spin.setEnabled(is_chevron)
+        
     def choose_color(self):
         color = QColorDialog.getColor(self.current_color, self, "Choose Color")
         if color.isValid():
             self.current_color = color
             self.update_color_button()
-            
+
     def update_color_button(self):
-        self.color_btn.setStyleSheet(f"background-color: {self.current_color.name()}; border: 1px solid #888;")
+        rgb = self.current_color.name()
+        self.color_btn.setStyleSheet(f"background-color: {rgb}; border: 1px solid #555; min-width: 40px;")
+        self.color_btn.setText(rgb)
+
+    def get_current_values(self):
+        """Returns a dict of currently displayed values."""
+        vals = {"color": self.current_color.name()}
+        if hasattr(self, "width_spin"): vals["width"] = self.width_spin.value()
+        if hasattr(self, "head_size_spin"): vals["head_size"] = self.head_size_spin.value()
+        if hasattr(self, "head_angle_spin"): vals["head_angle"] = self.head_angle_spin.value()
+        if hasattr(self, "concavity_spin"): vals["head_concavity"] = self.concavity_spin.value()
+        if hasattr(self, "curvature_spin"): vals["curvature"] = self.curvature_spin.value()
+        if hasattr(self, "bracket_combo"): vals["bracket_type"] = self.bracket_combo.currentText()
+        if hasattr(self, "head_style_combo"): vals["head_style"] = self.head_style_combo.currentText()
+        return vals
+
+    def set_ui_values(self, vals):
+        """Updates UI from a dict."""
+        if "color" in vals:
+            self.current_color = QColor(vals["color"])
+            self.update_color_button()
+        if "width" in vals and hasattr(self, "width_spin"):
+            self.width_spin.setValue(int(vals["width"]))
+        if "head_size" in vals and hasattr(self, "head_size_spin"):
+            self.head_size_spin.setValue(float(vals["head_size"]))
+        if "head_angle" in vals and hasattr(self, "head_angle_spin"):
+            self.head_angle_spin.setValue(float(vals["head_angle"]))
+        if "head_concavity" in vals and hasattr(self, "concavity_spin"):
+            self.concavity_spin.setValue(float(vals["head_concavity"]))
+        if "curvature" in vals and hasattr(self, "curvature_spin"):
+             self.curvature_spin.setValue(float(vals["curvature"]))
+        if "bracket_type" in vals and hasattr(self, "bracket_combo"):
+             self.bracket_combo.setCurrentText(vals["bracket_type"])
+        if "head_style" in vals and hasattr(self, "head_style_combo"):
+             self.head_style_combo.setCurrentText(vals["head_style"])
+             
+        self.update_ui_state()
+
+    # --- Template Logic ---
+    def load_templates(self):
+        self.templates = {}
+        # Load from file
+        if os.path.exists(SETTINGS_FILE):
+             try:
+                 with open(SETTINGS_FILE, "r") as f:
+                     data = json.load(f)
+                     # Load templates for this kind, or global?
+                     # Let's support kind-specific storage in the JSON structure
+                     # Structure: { "templates": { "General": {...}, "Arrow": {"Default": ...} } }
+                     # Or flat? For now flat is easier but with prefix? 
+                     # Previous implementation was flat. Let's stick to flat but maybe filter?
+                     # Ideally we want "Default" to be unique per kind.
+                     # Let's try to look for keys that match our kind?
+                     # Or just use a simple dictionary and let user manage names.
+                     # BUT for "Default", we handle it specially.
+                     all_templates = data.get("templates", {})
+                     self.templates = all_templates
+             except: pass
+        
+        # Ensure "Default" exists in our local list for the UI
+        # We construct a unique key for default for this kind, e.g. "Default (Arrow)"
+        # OR we just use "Default" and it saves as "Default_arrow" in JSON?
+        # User wants "Default".
+        # Let's use "Default" in the UI. When saving, if it is "Default", mapping to "Default_{kind}" in JSON?
+        # Or just "Default" if we assume kind separation. 
+        # But settings.json is shared. 
+        # Let's prefix in the file, show as "Default" in UI.
+        
+        self.default_key = f"Default_{self.item_kind}"
+        
+        # If the file had a saved default for this kind, load it into "Default" entry
+        if self.default_key in self.templates:
+             self.templates["Default"] = self.templates[self.default_key]
+             del self.templates[self.default_key] # Remove raw key from display
+        else:
+             # Factory Defaults
+             self.templates["Default"] = self.get_factory_defaults()
+
+        self.update_combo()
+
+    def get_factory_defaults(self):
+        # Return hardcoded defaults based on item kind
+        defaults = {"color": "#000000", "width": 2}
+        if "arrow" in self.item_kind:
+            defaults.update({
+                "head_size": 15.0, "head_angle": 25.0, "head_concavity": 0.5,
+                "head_style": "chevron", "width": 2
+            })
+        if "bracket" in self.item_kind:
+             defaults.update({"bracket_type": "square", "width": 2})
+        return defaults
+
+    def update_combo(self):
+        current_text = self.tmpl_combo.currentText()
+        self.tmpl_combo.clear()
+        
+        # Always "Default" first
+        self.tmpl_combo.addItem("Default")
+        
+        # Then others
+        for name in sorted(self.templates.keys()):
+            if name == "Default": continue
+            self.tmpl_combo.addItem(name)
+            
+        if current_text in self.templates:
+            self.tmpl_combo.setCurrentText(current_text)
+        else:
+            self.tmpl_combo.setCurrentText("Default")
+
+    def on_template_selected(self, text):
+        pass # No checkbox anymore
+
+    def apply_template_to_ui(self):
+        name = self.tmpl_combo.currentText()
+        if name in self.templates:
+            self.set_ui_values(self.templates[name])
+
+    def save_template(self):
+        from PyQt6.QtWidgets import QInputDialog
+        # Suggest current name
+        current = self.tmpl_combo.currentText()
+        name, ok = QInputDialog.getText(self, "Save Template", "Template Name:", text=current)
+        if ok and name:
+            vals = self.get_current_values()
+            self.templates[name] = vals
+            self.save_to_file()
+            self.update_combo()
+            self.tmpl_combo.setCurrentText(name)
+
+    def delete_template(self):
+        name = self.tmpl_combo.currentText()
+        if name == "Default":
+            reply = QMessageBox.question(self, "Reset Default?", "Reset 'Default' to factory settings?", 
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.templates["Default"] = self.get_factory_defaults()
+                self.save_to_file()
+                self.apply_template_to_ui()
+            return
+
+        if name in self.templates:
+            del self.templates[name]
+            self.save_to_file()
+            self.update_combo()
+
+    def save_to_file(self):
+        # Prepare data for saving
+        # transform "Default" back to "Default_{kind}"
+        to_save = {}
+        for k, v in self.templates.items():
+            if k == "Default":
+                to_save[self.default_key] = v
+            else:
+                to_save[k] = v
+                
+        # Merge with existing data in file (to preserve other kinds)
+        existing_templates = {}
+        if os.path.exists(SETTINGS_FILE):
+             try:
+                 with open(SETTINGS_FILE, "r") as f:
+                     data = json.load(f)
+                     existing_templates = data.get("templates", {})
+             except: pass
+        
+        # Update existing with ours
+        # We need to be careful not to overwrite other kinds' Defaults if we cleared them?
+        # No, we only loaded OUR default_key into "Default".
+        # So we update existing_templates with our "Default" -> "Default_{kind}"
+        # And our other custom templates. 
+        # Custom templates might collide if names are generic. 
+        # Ideally custom templates should also be kind-namespaced or global.
+        # Let's assume global for custom, specific for Default.
+        
+        existing_templates.update(to_save)
+        
+        # If we "deleted" a template that was providing a Default_{kind}, we must ensure it's removed?
+        # We just updated existing with ours. If 'Default' was reset to factory, we write the factory values to Default_{kind}.
+        # Wait, if we delete a custom template, we need to remove it from existing_templates too.
+        # But we don't know which ones were "ours" vs "others" (e.g. Brackets vs Arrows) unless we namespace them all.
+        # For this task, let's assume we maintain the whole list we loaded + what we added/removed.
+        # Currently load_templates loads ALL templates. So self.templates contains everything.
+        # So it's safe to overwrite "templates" with self.templates (plus the Default key swap).
+        
+        # Reconstruct full dict
+        full_templates = {}
+        for k, v in self.templates.items():
+             if k == "Default":
+                 full_templates[self.default_key] = v
+             else:
+                 full_templates[k] = v
+                 
+        # But wait, self.templates initially loaded ALL templates.
+        # And we mapped "Default_{kind}" to "Default".
+        # What about "Default_{other_kind}"?
+        # They are in self.templates as raw keys "Default_bracket" etc. unless we filtered.
+        # load_templates line: self.templates = all_templates.
+        # Then we did: self.templates["Default"] = ... and del self.templates[key].
+        # So self.templates contains "Default_bracket" (if we are Arrow), and "Default" (our arrow default).
+        # So when we save, we swap our "Default" back to "Default_arrow".
+        # "Default_bracket" remains untouched.
+        # So this logic holds!
+        
+        data = {"templates": full_templates}
+        try:
+            with open(SETTINGS_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
 
     def get_settings(self):
-        settings = {"color": self.current_color}
-        if hasattr(self, "width_spin"):
-            settings["width"] = self.width_spin.value()
-        return settings
+        vals = self.get_current_values()
+        vals["color"] = self.current_color
+        return vals

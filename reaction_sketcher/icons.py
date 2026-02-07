@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtGui import QIcon, QPainter, QPixmap, QPen, QColor, QFont, QPolygonF
+from PyQt6.QtGui import QIcon, QPainter, QPixmap, QPen, QColor, QFont, QPolygonF, QPainterPath
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 def create_reaction_icon(tool_name, size=32):
@@ -29,7 +29,7 @@ def create_reaction_icon(tool_name, size=32):
     # Draw Symbol
     pen = QPen(QColor("#222222"))
     pen.setWidthF(2.5)
-    if tool_name in ["select", "arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", "curved_double", "curved_fish"]:
+    if tool_name in ["select", "arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", "curved_double", "curved_fish", "arrow_dashed"]:
         pen.setColor(QColor("#005a9e")) # Premium Blue for primary tools
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -92,17 +92,34 @@ def create_reaction_icon(tool_name, size=32):
         painter.drawLine(QPointF(c-5, c+5), QPointF(c+5, c-5))
 
     elif tool_name == "curved_double":
-        rect = QRectF(inner_margin, inner_margin, w, h*1.5)
-        painter.drawArc(rect, 45*16, 90*16)
-        end = QPointF(c, inner_margin+1)
+        path = QPainterPath()
+        start = QPointF(inner_margin, inner_margin + h)
+        ctrl = QPointF(inner_margin, inner_margin)
+        end = QPointF(inner_margin + w, inner_margin)
+        path.moveTo(start)
+        path.quadTo(ctrl, end)
+        
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        
         painter.setBrush(QColor("#005a9e"))
-        painter.drawPolygon(QPolygonF([end, QPointF(end.x()-4, end.y()+5), QPointF(end.x()+4, end.y()+5)]))
+        painter.setPen(Qt.PenStyle.NoPen)
+        head = 5
+        painter.drawPolygon(QPolygonF([end, QPointF(end.x()-head, end.y()-3), QPointF(end.x()-head, end.y()+3)]))
 
     elif tool_name == "curved_fish":
-        rect = QRectF(inner_margin, inner_margin, w, h*1.5)
-        painter.drawArc(rect, 45*16, 90*16)
-        end = QPointF(c, inner_margin+1)
-        painter.drawLine(end, QPointF(end.x()-5, end.y()+5))
+        path = QPainterPath()
+        start = QPointF(inner_margin, inner_margin + h)
+        ctrl = QPointF(inner_margin, inner_margin)
+        end = QPointF(inner_margin + w, inner_margin)
+        path.moveTo(start)
+        path.quadTo(ctrl, end)
+        
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        painter.drawPath(path)
+        
+        painter.drawLine(end, QPointF(end.x()-5, end.y()+4))
 
     elif tool_name == "plus":
         painter.drawLine(QPointF(c-h/2, c), QPointF(c+h/2, c))
@@ -122,8 +139,8 @@ def create_reaction_icon(tool_name, size=32):
         painter.drawLine(QPointF(size-inner_margin, size-inner_margin), QPointF(size-inner_margin-bw, size-inner_margin))
 
     elif tool_name == "circle":
-        painter.setPen(QPen(QColor("#222222"), 2, Qt.PenStyle.DashLine))
-        painter.drawEllipse(QRectF(inner_margin, inner_margin, w, h))
+        painter.setPen(QPen(QColor("#222222"), 2, Qt.PenStyle.SolidLine))
+        painter.drawRect(QRectF(inner_margin, inner_margin, w, h))
 
     elif tool_name == "text":
         painter.setPen(QPen(QColor("#222222"), 1))
@@ -137,49 +154,196 @@ def create_reaction_icon(tool_name, size=32):
         painter.drawLine(QPointF(c-6, c-6), QPointF(c+6, c+6))
         painter.drawLine(QPointF(c+6, c-6), QPointF(c-6, c+6))
         
+    elif tool_name == "line":
+        painter.drawLine(QPointF(inner_margin, size - inner_margin), QPointF(size - inner_margin, inner_margin))
+        
+    elif tool_name == "line_dashed":
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(inner_margin, size - inner_margin), QPointF(size - inner_margin, inner_margin))
+        
+    elif tool_name == "line_curved":
+        path = QPainterPath()
+        start = QPointF(inner_margin, size - inner_margin)
+        ctrl = QPointF(inner_margin, inner_margin)
+        end = QPointF(size - inner_margin, inner_margin)
+        path.moveTo(start)
+        path.quadTo(ctrl, end)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        
+    elif tool_name == "freehand":
+        # Scribble icon
+        path = QPainterPath()
+        path.moveTo(inner_margin, size - inner_margin)
+        path.cubicTo(c - 5, size - inner_margin, c + 5, inner_margin, size - inner_margin, inner_margin)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        
+    elif tool_name == "arrow_dashed":
+        # Same as arrow but dashed
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        start = QPointF(inner_margin, size - inner_margin)
+        end = QPointF(size - inner_margin, inner_margin)
+        painter.drawLine(start, end)
+        
+        # Head (solid)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#005a9e"))
+        angle = QLineF(start, end).angle()
+        head = 6
+        h1 = QLineF.fromPolar(head, angle + 180 + 35).p2()
+        h2 = QLineF.fromPolar(head, angle + 180 - 35).p2()
+        painter.drawPolygon(QPolygonF([end, end + h1, end + h2]))
+        
     painter.end()
     return QIcon(pixmap)
-def create_style_icon(item_type, style_name, size=24):
-    """Generates small style icons for sub-menus."""
+def create_style_icon(item_type, style_name, selected=False):
+    # Create a pixmap for the style icon
+    size = 32
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     
-    pen = QPen(QColor("#005a9e"))
-    pen.setWidthF(2.0)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    painter.setPen(pen)
-    
+    if selected:
+        painter.setBrush(QColor("#E0E0E0")) # Light Gray
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(0, 0, size, size, 4, 4)
+        
     c = size / 2
-    m = size * 0.2
+    m = 4 # Margin
+    
+    pen_color = QColor("#333333")
+    pen = QPen(pen_color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    
+    if item_type == "arrow": # Generic/Straight default
+        w = size - 2*m
+        h = size - 2*m
     
     if item_type == "arrow_no":
         # Draw a line with style
+        painter.setPen(pen)
         painter.drawLine(QPointF(m, c), QPointF(size-m, c))
+        
+        # Draw negation symbol
+        red_pen = QPen(QColor("#d32f2f"), 2)
+        painter.setPen(red_pen)
+        
         if style_name == "slash":
-            painter.setPen(QPen(QColor("#222222"), 2))
-            painter.drawLine(QPointF(c-4, c+4), QPointF(c+4, c-4))
+            painter.drawLine(QPointF(c-3, c+4), QPointF(c+3, c-4))
         elif style_name == "cross":
-            painter.setPen(QPen(QColor("#222222"), 2))
             painter.drawLine(QPointF(c-3, c+3), QPointF(c+3, c-3))
             painter.drawLine(QPointF(c+3, c+3), QPointF(c-3, c-3))
+        elif style_name == "double_slash":
+            painter.drawLine(QPointF(c-4, c+4), QPointF(c, c-4))
+            painter.drawLine(QPointF(c, c+4), QPointF(c+4, c-4))
             
-    elif item_type == "curved":
-        # Draw a small curve with head style
-        rect = QRectF(m, m, size-2*m, size)
-        painter.drawArc(rect, 45*16, 90*16)
-        end = QPointF(c, m+1)
-        if style_name == "triangle":
-            painter.setBrush(QColor("#005a9e"))
-            head = 5
-            painter.drawPolygon(QPolygonF([end, QPointF(end.x()-4, end.y()+head), QPointF(end.x()+4, end.y()+head)]))
-        elif style_name == "barb":
-            painter.drawLine(end, QPointF(end.x()-5, end.y()+5))
-            painter.drawLine(end, QPointF(end.x()+5, end.y()+5))
-        elif style_name == "fish":
-            painter.drawLine(end, QPointF(end.x()-5, end.y()+5))
+    elif item_type == "curved" or item_type == "straight":
+        # Draw a curve or straight line with head style
+        
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
 
+        if item_type == "curved":
+            path = QPainterPath()
+            start = QPointF(m, size-m)
+            ctrl = QPointF(m, m)
+            end = QPointF(size-m, m)
+            path.moveTo(start)
+            path.quadTo(ctrl, end)
+            
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen)
+            painter.drawPath(path)
+            
+            # Vector P2-P1 for angle
+            vec = end - ctrl
+            angle = QLineF(QPointF(0,0), vec).angle()
+            
+        else: # straight
+            start = QPointF(m, size/2)
+            end = QPointF(size-m, size/2)
+            
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen)
+            painter.drawLine(start, end)
+            
+            angle = QLineF(start, end).angle()
+        
+        # Draw Head
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#005a9e"))
+        
+        head_len = 5
+        
+        if style_name == "triangle":
+             p1 = QLineF.fromPolar(head_len, angle + 180 + 30).p2() + end
+             p2 = QLineF.fromPolar(head_len, angle + 180 - 30).p2() + end
+             painter.drawPolygon(QPolygonF([end, p1, p2]))
+             
+        elif style_name == "chevron":
+             # Concave base
+             p1 = QLineF.fromPolar(head_len, angle + 180 + 30).p2() + end
+             p2 = QLineF.fromPolar(head_len, angle + 180 - 30).p2() + end
+             mid = QLineF.fromPolar(head_len * 0.5, angle + 180).p2() + end
+             painter.drawPolygon(QPolygonF([end, p1, mid, p2]))
+             
+        elif style_name == "harpoon":
+             # Half head (top side relative to angle?)
+             p1 = QLineF.fromPolar(head_len, angle + 180 + 30).p2() + end
+             painter.drawPolygon(QPolygonF([end, p1, QLineF.fromPolar(head_len*0.8, angle+180).p2() + end]))
+             
+        elif style_name == "barb":
+             painter.setBrush(Qt.BrushStyle.NoBrush)
+             painter.setPen(QPen(QColor("#005a9e"), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+             p1 = QLineF.fromPolar(head_len, angle + 180 + 35).p2() + end
+             p2 = QLineF.fromPolar(head_len, angle + 180 - 35).p2() + end
+             painter.drawLine(end, p1)
+             painter.drawLine(end, p2)
+
+        elif style_name == "fish":
+             painter.setBrush(Qt.BrushStyle.NoBrush)
+             painter.setPen(QPen(QColor("#005a9e"), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+             p1 = QLineF.fromPolar(head_len, angle + 180 + 35).p2() + end
+             painter.drawLine(end, p1)
+
+    painter.end()
+    return QIcon(pixmap)
+
+def create_shape_variant_icon(shape_type, line_style, size=32):
+    """Generates an icon for specific shape variants (Solid/Dashed Rect/Circle)."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    
+    # Background
+    margin = 2
+    r_rect = QRectF(margin, margin, size - 2*margin, size - 2*margin)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(240, 240, 240, 255))
+    painter.drawRoundedRect(r_rect, 6, 6)
+    
+    # Pen
+    pen = QPen(QColor("#222222"))
+    pen.setWidthF(2.0)
+    if line_style == "dashed":
+        pen.setStyle(Qt.PenStyle.DashLine)
+    else:
+        pen.setStyle(Qt.PenStyle.SolidLine)
+    painter.setPen(pen)
+    
+    inner_m = size * 0.25
+    r = QRectF(inner_m, inner_m, size - 2*inner_m, size - 2*inner_m)
+    
+    if shape_type == "rectangle":
+        painter.drawRect(r)
+    else:
+        painter.drawEllipse(r)
+        
     painter.end()
     return QIcon(pixmap)

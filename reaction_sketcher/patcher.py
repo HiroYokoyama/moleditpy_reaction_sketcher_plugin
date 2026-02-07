@@ -3,9 +3,9 @@
 
 import types
 import copy
-from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter
-from PyQt6.QtCore import Qt, QPointF
-from PyQt6.QtWidgets import QStyle
+from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter, QPolygonF
+from PyQt6.QtCore import Qt, QPointF, QByteArray, QMimeData, QRectF
+from PyQt6.QtWidgets import QStyle, QApplication
 
 # Storage for original methods to allow reverting
 _originals = {}
@@ -15,9 +15,13 @@ def apply_patches(main_window):
     try:
         from modules.atom_item import AtomItem
         from modules.bond_item import BondItem
+        from modules.main_window_edit_actions import MainWindowEditActions
+        from modules.main_window_ui_manager import MainWindowUiManager
+        from modules.constants import CLIPBOARD_MIME_TYPE
+        from modules.main_window import MainWindow
+        from modules.view_2d import View2D
         from modules.molecule_scene import MoleculeScene
         from modules.main_window_app_state import MainWindowAppState
-        from modules.main_window_edit_actions import MainWindowEditActions
     except ImportError:
         try:
             from moleditpy.modules.atom_item import AtomItem
@@ -25,6 +29,10 @@ def apply_patches(main_window):
             from moleditpy.modules.molecule_scene import MoleculeScene
             from moleditpy.modules.main_window_app_state import MainWindowAppState
             from moleditpy.modules.main_window_edit_actions import MainWindowEditActions
+            from moleditpy.modules.main_window_ui_manager import MainWindowUiManager
+            from moleditpy.modules.constants import CLIPBOARD_MIME_TYPE
+            from moleditpy.modules.main_window import MainWindow
+            from moleditpy.modules.view_2d import View2D
         except ImportError:
             return
 
@@ -34,6 +42,308 @@ def apply_patches(main_window):
         if key not in _originals:
             _originals[key] = getattr(cls, name)
             setattr(cls, name, new_func)
+
+    # --- 0. Patch MainWindowUiManager.set_mode ---
+    def patched_set_mode(self, mode_str):
+        _originals[(MainWindowUiManager, 'set_mode')](self, mode_str)
+        
+        # Notify Reaction Mode Manager if ACTIVE
+        rmm = getattr(self, '_reaction_mode_manager', None)
+        if rmm and getattr(rmm, 'is_reaction_mode', False):
+            try:
+                rmm._handle_main_mode_change(mode_str)
+            except Exception:
+                pass
+
+    patch(MainWindowUiManager, 'set_mode', patched_set_mode)
+
+    def patched_close_event(self, event):
+        orig = _originals.get((MainWindow, 'closeEvent'))
+        revert_patches()
+        if orig:
+            return orig(self, event)
+        # Fallback if somehow missing
+        from PyQt6.QtWidgets import QMainWindow
+        return QMainWindow.closeEvent(self, event)
+    
+    patch(MainWindow, 'closeEvent', patched_close_event)
+    
+    # --- 4. Patch View2D Mouse Events ---
+    from .interaction import InteractionHandler
+
+    def patched_mousePressEvent(view, event):
+        # Access handler via main_window (we need to store it somewhere accessible or pass it)
+        # We stored it in main_window.reaction_mode_manager.interaction_handler
+        # But here 'view' is View2D, 'view.window()' is MainWindow
+        mw = view.window()
+        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
+            handler = mw.reaction_mode_manager.interaction_handler
+            if handler and handler.handle_mouse_press(event):
+                return # Handled
+        
+        # Original behavior
+        _originals[(View2D, 'mousePressEvent')](view, event)
+
+    def patched_mouseMoveEvent(view, event):
+        mw = view.window()
+        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
+            handler = mw.reaction_mode_manager.interaction_handler
+            if handler and handler.handle_mouse_move(event):
+                try: 
+                    _originals[(View2D, 'mouseMoveEvent')](view, event)
+                except: pass
+                return
+
+        _originals[(View2D, 'mouseMoveEvent')](view, event)
+
+    def patched_mouseReleaseEvent(view, event):
+        mw = view.window()
+        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
+            handler = mw.reaction_mode_manager.interaction_handler
+            if handler and handler.handle_mouse_release(event):
+                return # Handled
+        
+        # Original behavior
+        _originals[(View2D, 'mouseReleaseEvent')](view, event)
+        
+        # Check if we moved any reaction items (Select Mode)
+        # InteractionHandler.handle_mouse_press saves 'initial_positions_in_event'
+        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
+             scene = mw.scene
+             if hasattr(scene, "initial_positions_in_event") and scene.initial_positions_in_event:
+                 from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                                     ReactionMinusItem, ReactionResonanceArrowItem, 
+                                     ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                                     ReactionNoArrowItem, ReactionCurvedArrowItem,
+                                     ReactionBracketItem, ReactionCircleItem,
+                                     ReactionLineItem, ReactionCurvedLineItem,
+                                     ReactionFreehandItem, ReactionDashedArrowItem)
+                 
+                 reaction_types = (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
+                                     ReactionMinusItem, ReactionResonanceArrowItem, 
+                                     ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+                                     ReactionNoArrowItem, ReactionCurvedArrowItem,
+                                     ReactionBracketItem, ReactionCircleItem,
+                                     ReactionLineItem, ReactionCurvedLineItem,
+                                     ReactionFreehandItem, ReactionDashedArrowItem)
+                 
+                 moved = False
+                 for item in scene.selectedItems():
+                     if isinstance(item, reaction_types):
+                         if item in scene.initial_positions_in_event:
+                             old_pos = scene.initial_positions_in_event[item]
+                             if item.pos() != old_pos:
+                                 moved = True
+                                 break
+                 
+                 if moved:
+                     if hasattr(mw, "push_undo_state"):
+                         mw.push_undo_state()
+                     # Clear prevents double detection (though mousePress resets it)
+                     scene.initial_positions_in_event = {}
+        
+    def patched_mouseDoubleClickEvent(view, event):
+        mw = view.window()
+        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
+            handler = mw.reaction_mode_manager.interaction_handler
+            if handler and hasattr(handler, "handle_mouse_double_click"):
+                if handler.handle_mouse_double_click(event):
+                    return
+
+        # Original behavior (View2D might not have this method, so check original or call super)
+        if (View2D, 'mouseDoubleClickEvent') in _originals:
+            _originals[(View2D, 'mouseDoubleClickEvent')](view, event)
+        else:
+            # Fallback to standard QGraphicsView behavior if original didn't exist (unlikely but safe)
+            super(View2D, view).mouseDoubleClickEvent(event)
+
+    def patched_keyPressEvent(view, event):
+        mw = view.window()
+        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
+            handler = mw.reaction_mode_manager.interaction_handler
+            if handler:
+                # Check for Text Edit Mode Suppression FIRST
+                focus_item = view.scene().focusItem()
+                # Duck typing for ReactionTextItem: has toPlainText and create_json_data
+                is_editing_text = (focus_item and 
+                                   hasattr(focus_item, "toPlainText") and 
+                                   hasattr(focus_item, "create_json_data") and 
+                                   (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction))
+                
+                if is_editing_text:
+                    # We are editing text.
+                    # 1. Let the item handle the event (call original View event which forwards to Scene->Item)
+                    if (View2D, 'keyPressEvent') in _originals:
+                        _originals[(View2D, 'keyPressEvent')](view, event)
+                    else:
+                        super(View2D, view).keyPressEvent(event)
+                    
+                    # 2. CRITICAL: Consume the event so it does NOT bubble to MainWindow shortcuts
+                    event.accept() 
+                    return
+
+                # Normal interaction handling (Delete, Space, etc)
+                handler_handled = handler.handle_key_press(event)
+                if handler_handled:
+                    event.accept()
+                    return # Handled
+        
+        # Original behavior - Allow shortcuts to propagate!
+        # If we didn't handle it above, we call original view event.
+        # But for shortcuts to work, the view must NOT accept the event if it doesn't use it?
+        # QGraphicsView keyPressEvent usually consumes arrow keys etc.
+        # Main window shortcuts (Ctrl+Z) are usually handled by QAction shortcuts which trigger BEFORE focus widget keyPressEvent if they are WindowShortcut.
+        # But Space is often a shortcut.
+        
+        if (View2D, 'keyPressEvent') in _originals:
+            _originals[(View2D, 'keyPressEvent')](view, event)
+        else:
+            super(View2D, view).keyPressEvent(event)
+
+    patch(View2D, 'mousePressEvent', patched_mousePressEvent)
+    patch(View2D, 'mouseMoveEvent', patched_mouseMoveEvent)
+    patch(View2D, 'mouseReleaseEvent', patched_mouseReleaseEvent)
+    patch(View2D, 'mouseDoubleClickEvent', patched_mouseDoubleClickEvent)
+    patch(View2D, 'keyPressEvent', patched_keyPressEvent)
+
+    def patched_copy_selection(self):
+        try:
+            from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
+                                ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
+            
+            selected_atoms = [item for item in self.scene.selectedItems() if hasattr(item, 'atom_id')]
+            selected_rs_items_raw = [item for item in self.scene.selectedItems() if hasattr(item, 'create_json_data')]
+            
+            if not selected_atoms and not selected_rs_items_raw:
+                return
+
+            # Combine center calculation
+            all_pts = []
+            for a in selected_atoms: all_pts.append(a.pos())
+            for rs in selected_rs_items_raw: all_pts.append(rs.sceneBoundingRect().center())
+            
+            center = QPointF(sum(p.x() for p in all_pts)/len(all_pts), sum(p.y() for p in all_pts)/len(all_pts))
+
+            # Molecular part
+            selected_atom_ids = {atom.atom_id for atom in selected_atoms}
+            atom_id_to_idx_map = {}
+            fragment_atoms = []
+            for i, atom in enumerate(selected_atoms):
+                atom_id_to_idx_map[atom.atom_id] = i
+                fragment_atoms.append({
+                    'symbol': atom.symbol,
+                    'rel_pos': atom.pos() - center,
+                    'charge': atom.charge,
+                    'radical': atom.radical,
+                })
+            fragment_bonds = []
+            for (id1, id2), bond_data in self.data.bonds.items():
+                if id1 in selected_atom_ids and id2 in selected_atom_ids:
+                    fragment_bonds.append({'idx1': atom_id_to_idx_map[id1], 'idx2': atom_id_to_idx_map[id2], 'order': bond_data['order'], 'stereo': bond_data.get('stereo', 0)})
+
+            # Reaction items part
+            fragment_rs_items = []
+            for item in selected_rs_items_raw:
+                if hasattr(item, "create_json_data"):
+                    d = item.create_json_data()
+                    # Offset calculations
+                    if d['type'] in ["arrow", "arrow_res", "arrow_eq", "arrow_retro", "arrow_no", "curved_fish", "curved_double", "arrow_dashed"]:
+                        d['start_x'] -= center.x()
+                        d['start_y'] -= center.y()
+                        d['end_x'] -= center.x()
+                        d['end_y'] -= center.y()
+                        if "cp_x" in d:
+                            d["cp_x"] -= center.x()
+                            d["cp_y"] -= center.y()
+                    elif d['type'] in ["plus", "minus", "text", "bracket", "circle"]:
+                        d['x'] -= center.x()
+                        d['y'] -= center.y()
+                    fragment_rs_items.append(d)
+
+            # Serialize
+            import io, pickle
+            
+            data_to_pickle = {'atoms': fragment_atoms, 'bonds': fragment_bonds, 'rs_items': fragment_rs_items}
+            byte_array = QByteArray()
+            buffer = io.BytesIO()
+            pickle.dump(data_to_pickle, buffer)
+            byte_array.append(buffer.getvalue())
+
+            mime_data = QMimeData()
+            mime_data.setData(CLIPBOARD_MIME_TYPE, byte_array)
+            QApplication.clipboard().setMimeData(mime_data)
+            self.statusBar().showMessage(f"Copied selection ({len(fragment_atoms)} atoms, {len(fragment_rs_items)} reaction items).")
+
+        except Exception as e:
+            print(f"Error during patched copy: {e}")
+
+    patch(MainWindowEditActions, 'copy_selection', patched_copy_selection)
+
+    def patched_paste_from_clipboard(self):
+        try:
+            from PyQt6.QtGui import QCursor
+            clipboard = QApplication.clipboard()
+            mime_data = clipboard.mimeData()
+            if not mime_data or not mime_data.hasFormat(CLIPBOARD_MIME_TYPE): return
+
+            import io, pickle
+            byte_array = mime_data.data(CLIPBOARD_MIME_TYPE)
+            buffer = io.BytesIO(byte_array)
+            fragment_data = pickle.load(buffer)
+            
+            paste_center_pos = self.view_2d.mapToScene(self.view_2d.mapFromGlobal(QCursor.pos()))
+            self.scene.clearSelection()
+
+            # Atoms/Bonds
+            new_atoms = []
+            for atom_data in fragment_data.get('atoms', []):
+                pos = paste_center_pos + atom_data['rel_pos']
+                new_id = self.scene.create_atom(atom_data['symbol'], pos, charge=atom_data.get('charge', 0), radical=atom_data.get('radical', 0))
+                item = self.data.atoms[new_id]['item']
+                new_atoms.append(item)
+                item.setSelected(True)
+            for bond_data in fragment_data.get('bonds', []):
+                self.scene.create_bond(new_atoms[bond_data['idx1']], new_atoms[bond_data['idx2']], bond_order=bond_data.get('order', 1), bond_stereo=bond_data.get('stereo', 0))
+
+            # Reaction Items
+            rs_items_data = fragment_data.get('rs_items', [])
+            if rs_items_data:
+                for d in rs_items_data:
+                    if 'start_x' in d:
+                        d['start_x'] += paste_center_pos.x()
+                        d['start_y'] += paste_center_pos.y()
+                        d['end_x'] += paste_center_pos.x()
+                        d['end_y'] += paste_center_pos.y()
+                        if "cp_x" in d:
+                            d["cp_x"] += paste_center_pos.x()
+                            d["cp_y"] += paste_center_pos.y()
+                    elif 'x' in d:
+                        d['x'] += paste_center_pos.x()
+                        d['y'] += paste_center_pos.y()
+                
+                from .utils import load_handler_core
+                load_handler_core(self, rs_items_data)
+
+            self.push_undo_state()
+            self.statusBar().showMessage("Pasted selection.")
+            if hasattr(self, 'activate_select_mode'):
+                self.activate_select_mode()
+        except Exception as e:
+            print(f"Error during patched paste: {e}")
+
+    patch(MainWindowEditActions, 'paste_from_clipboard', patched_paste_from_clipboard)
+
+    # --- 0.8 Patch MainWindowEditActions.select_all ---
+    def patched_select_all(self):
+        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
+                            ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
+        for item in self.scene.items():
+            if isinstance(item, (AtomItem, BondItem, ReactionArrowItem, ReactionPlusItem, 
+                                 ReactionMinusItem, ReactionTextItem, ReactionBracketItem, ReactionCircleItem)):
+                item.setSelected(True)
+
+    patch(MainWindowEditActions, 'select_all', patched_select_all)
+
 
     # --- 1. Patch AtomItem.paint ---
     def patched_atom_paint(self, painter, option, widget):
@@ -171,32 +481,56 @@ def apply_patches(main_window):
                             ReactionMinusItem, ReactionResonanceArrowItem, 
                             ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
                             ReactionNoArrowItem, ReactionCurvedArrowItem,
-                            ReactionBracketItem, ReactionCircleItem)
+                            ReactionBracketItem, ReactionCircleItem,
+                            ReactionLineItem, ReactionCurvedLineItem,
+                            ReactionFreehandItem, ReactionDashedArrowItem)
 
         core_items = []
         reaction_items = []
         
+        # Expand items_to_delete to include parents of handles
+        expanded_items = set(items_to_delete)
         for item in items_to_delete:
+            if hasattr(item, "handle_type") and item.parentItem():
+                expanded_items.add(item.parentItem())
+        
+        for item in expanded_items:
             if isinstance(item, (AtomItem, BondItem)):
                 core_items.append(item)
-            elif isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                                   ReactionMinusItem, ReactionResonanceArrowItem, 
-                                   ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                                   ReactionNoArrowItem, ReactionCurvedArrowItem,
-                                   ReactionBracketItem, ReactionCircleItem)):
-                reaction_items.append(item)
+            # Duck typing check for reaction items
+            elif hasattr(item, "create_json_data"):
+                # Avoid duplicates and check if it's still in the list
+                if item not in reaction_items:
+                    reaction_items.append(item)
 
-        # リアクションアイテムを手動削除
+        # Remove reaction items manually
         deleted_reaction = False
         for item in reaction_items:
             if item.scene() == self:
+                # Defensive: Explicitly remove child handles if any
+                if hasattr(item, "childItems"):
+                    for child in item.childItems():
+                        if hasattr(child, "handle_type") or child.__class__.__name__ == "ReactionHandle":
+                            self.removeItem(child)
                 self.removeItem(item)
                 deleted_reaction = True
 
-        # 原子・結合はオリジナル処理へ
+        # Delegate core atoms/bonds to original
+        # Note: Original method pushes undo. 
         success_core = False
         if core_items:
             success_core = _originals[(MoleculeScene, 'delete_items')](self, core_items)
+            
+        # If we deleted reaction items BUT NOT core items, we must push undo ourselves.
+        if deleted_reaction and not success_core:
+            views = self.views()
+            if views:
+                window = views[0].window()
+                if hasattr(window, "push_undo_state"):
+                    window.push_undo_state()
+            # Fallback: Check if scene's parent (often MainWindow or related) has push_undo_state
+            elif hasattr(self, "parent") and hasattr(self.parent(), "push_undo_state"):
+                 self.parent().push_undo_state()
             
         return deleted_reaction or success_core
 
@@ -206,20 +540,12 @@ def apply_patches(main_window):
     # 【新規追加】原子が0になった時の強制クリアから矢印を守る
     def patched_scene_clear(self):
         from PyQt6.QtWidgets import QGraphicsScene
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                            ReactionMinusItem, ReactionResonanceArrowItem, 
-                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                            ReactionNoArrowItem, ReactionCurvedArrowItem,
-                            ReactionBracketItem, ReactionCircleItem)
         
         # 1. リアクションアイテムを一時退避
         items_to_save = []
         for item in self.items():
-            if isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                                 ReactionMinusItem, ReactionResonanceArrowItem, 
-                                 ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                                 ReactionNoArrowItem, ReactionCurvedArrowItem,
-                                 ReactionBracketItem, ReactionCircleItem)):
+            # Duck typing: simply check for create_json_data method
+            if hasattr(item, "create_json_data"):
                 items_to_save.append(item)
         
         for item in items_to_save:
@@ -247,17 +573,15 @@ def apply_patches(main_window):
         # データを退避
         rs_items_data = []
         for it in self.scene.items():
-            if isinstance(it, (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                               ReactionTextItem, ReactionBracketItem, ReactionCircleItem)):
-                if hasattr(it, "create_json_data"):
-                    rs_items_data.append(it.create_json_data())
+            if hasattr(it, "create_json_data"):
+                rs_items_data.append(it.create_json_data())
         
         # 本来のクリア処理（オブジェクトは破棄される）
         _originals[(MainWindowEditActions, 'clear_2d_editor')](self, push_to_undo=push_to_undo)
         
         # データから再生成
         if rs_items_data:
-            from . import load_handler_core
+            from .utils import load_handler_core
             load_handler_core(self, rs_items_data)
         return
 
@@ -363,14 +687,14 @@ def apply_patches(main_window):
         state['rs_bond_colors'] = bcols
         
         # Reaction items
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                            ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
         rs_items_data = []
         for item in self.scene.items():
-            if isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                                 ReactionTextItem, ReactionBracketItem, ReactionCircleItem)):
-                if hasattr(item, "create_json_data"):
-                    rs_items_data.append(item.create_json_data())
+             if hasattr(item, "create_json_data"):
+                 rs_items_data.append(item.create_json_data())
+        
+        # Consistent sorting for Undo state comparison
+        rs_items_data.sort(key=lambda x: (x.get('type', ''), x.get('x', x.get('start_x', 0)), x.get('y', x.get('start_y', 0))))
+        
         state['rs_items'] = rs_items_data
         
         return state
@@ -402,17 +726,14 @@ def apply_patches(main_window):
             except: continue
 
         # Restore Reaction items
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                            ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
         # Remove existing reaction items from scene only
         for item in list(self.scene.items()):
-            if isinstance(item, (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                                 ReactionTextItem, ReactionBracketItem, ReactionCircleItem)):
-                self.scene.removeItem(item)
+            if hasattr(item, "create_json_data"):
+                 self.scene.removeItem(item)
 
         # Load from state
         if 'rs_items' in state_data:
-            from . import load_handler_core
+            from .utils import load_handler_core
             load_handler_core(self, state_data['rs_items'])
 
     patch(MainWindowAppState, 'set_state_from_data', patched_set_state_from_data)

@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (C) 2026 Reaction Sketcher Plugin
+# This file is part of MoleditPy Reaction Sketcher Plugin.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
 
 """
 Reaction Sketcher Plugin
@@ -26,71 +39,7 @@ PLUGIN_VERSION = "0.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
-def load_handler_core(main_window, reaction_items):
-    from PyQt6.QtCore import QPointF
-    from PyQt6.QtGui import QColor
-    for item_data in reaction_items:
-        item_type = item_data.get("type")
-        item = None
-        
-        if item_type in ["arrow", "arrow_res", "arrow_eq", "arrow_retro", "arrow_no"]:
-            dx = item_data["end_x"] - item_data["start_x"]
-            dy = item_data["end_y"] - item_data["start_y"]
-            if item_type == "arrow": item = ReactionArrowItem(QPointF(0, 0), QPointF(dx, dy))
-            elif item_type == "arrow_res": item = ReactionResonanceArrowItem(QPointF(0, 0), QPointF(dx, dy))
-            elif item_type == "arrow_eq": item = ReactionEquilibriumArrowItem(QPointF(0, 0), QPointF(dx, dy))
-            elif item_type == "arrow_retro": item = ReactionRetroArrowItem(QPointF(0, 0), QPointF(dx, dy))
-            elif item_type == "arrow_no": item = ReactionNoArrowItem(QPointF(0, 0), QPointF(dx, dy))
-            
-            if item:
-                item.setPos(item_data["start_x"], item_data["start_y"])
-                if "color" in item_data: item.pen_color = QColor(item_data["color"])
-                if "width" in item_data: item.pen_width = item_data["width"]
-        
-        elif item_type in ["curved_double", "curved_fish", "curved_single"]:
-            dx = item_data["end_x"] - item_data["start_x"]
-            dy = item_data["end_y"] - item_data["start_y"]
-            is_fish = (item_type in ["curved_fish", "curved_single"])
-            item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(dx, dy), is_fish_hook=is_fish)
-            item.setPos(item_data["start_x"], item_data["start_y"])
-            if "cp_x" in item_data and "cp_y" in item_data:
-                item.control_p = QPointF(item_data["cp_x"], item_data["cp_y"])
-                item.sync_handles()
-            if "color" in item_data: item.pen_color = QColor(item_data["color"])
-            if "width" in item_data: item.pen_width = item_data["width"]
-
-        elif item_type == "plus":
-            item = ReactionPlusItem(QPointF(item_data["x"], item_data["y"]))
-            if "color" in item_data: item.pen_color = QColor(item_data["color"])
-        elif item_type == "minus":
-            item = ReactionMinusItem(QPointF(item_data["x"], item_data["y"]))
-            if "color" in item_data: item.pen_color = QColor(item_data["color"])
-        
-        elif item_type == "bracket":
-            item = ReactionBracketItem(QPointF(item_data["x"], item_data["y"]), 
-                                     QPointF(item_data["x"] + item_data["w"], item_data["y"] + item_data["h"]))
-            if "color" in item_data: item.pen_color = QColor(item_data["color"])
-            if "width" in item_data: item.pen_width = item_data["width"]
-        
-        elif item_type == "circle":
-            item = ReactionCircleItem(QPointF(item_data["x"], item_data["y"]), 
-                                    QPointF(item_data["x"] + item_data["w"], item_data["y"] + item_data["h"]))
-            if "color" in item_data: item.pen_color = QColor(item_data["color"])
-            if "width" in item_data: item.pen_width = item_data["width"]
-
-        elif item_type == "text":
-            item = ReactionTextItem(item_data["text"], QPointF(item_data["x"], item_data["y"]))
-            if "color" in item_data: item.setDefaultTextColor(QColor(item_data["color"]))
-            if "font_family" in item_data:
-                f = item.font()
-                f.setFamily(item_data["font_family"])
-                f.setPointSize(item_data.get("font_size", 14))
-                f.setBold(item_data.get("bold", False))
-                f.setItalic(item_data.get("italic", False))
-                item.setFont(f)
-
-        if item:
-            main_window.scene.addItem(item)
+from .utils import load_handler_core
 
 def initialize(context):
     """Plugin initialization."""
@@ -103,10 +52,7 @@ def initialize(context):
     
     # Setup UI
     mode_manager.setup_toolbar()
-    
-    # Apply monkey patches to core modules
-    from .patcher import apply_patches
-    apply_patches(main_window)
+    main_window._reaction_mode_manager = mode_manager
     
     # Connect tool actions to interaction handler
     for action in mode_manager.reaction_toolbar.actions():
@@ -117,6 +63,7 @@ def initialize(context):
 
     # Install event filter on the 2D view
     main_window.view_2d.viewport().installEventFilter(interaction_handler)
+    main_window.view_2d.installEventFilter(interaction_handler)
     
     # Register main menu action
     def trigger_sketcher():

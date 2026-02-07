@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import time
 from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy, 
                              QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QWidget, QLabel, 
                              QColorDialog, QFileDialog, QMessageBox)
 from PyQt6.QtGui import QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication
 from PyQt6.QtSvg import QSvgGenerator
 from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint
-from .icons import create_reaction_icon
+from .icons import create_reaction_icon, create_shape_variant_icon
+from .patcher import apply_patches, revert_patches
 
 class ModeManager:
     def __init__(self, main_window):
@@ -26,6 +28,50 @@ class ModeManager:
         self.width_spin = None
         self.color_btn = None
         self._updating_props = False
+        self.default_head_styles = {
+            "arrow": "chevron",
+            "arrow_eq": "harpoon", 
+            "arrow_res": "chevron",
+            "arrow_retro": "chevron", 
+            "arrow_no": "chevron",
+            "curved_double": "chevron",
+            "curved_fish": "chevron",
+            "arrow_dashed": "chevron"
+        }
+        self.default_no_arrow_style = "slash"
+        self.default_circle_shape_type = "rectangle"
+        self.default_circle_line_style = "solid"
+        self.default_arrow_props = {}
+        self._last_menu_close_time = 0
+        
+        # Load persisted defaults
+        self.load_defaults()
+
+    def load_defaults(self):
+        import json
+        import os
+        settings_file = os.path.join(os.path.dirname(__file__), "settings.json")
+        if os.path.exists(settings_file):
+            try:
+                with open(settings_file, "r") as f:
+                    data = json.load(f)
+                    templates = data.get("templates", {})
+                    
+                    # Arrow Defaults
+                    if "Default_arrow" in templates:
+                        defs = templates["Default_arrow"]
+                        # Save whole dict for interaction.py to use
+                        self.default_arrow_props = defs
+                        
+                        style = defs.get("head_style")
+                        if style:
+                            self.default_head_styles["arrow"] = style
+                            self.default_head_styles["arrow_dashed"] = style
+                            self.default_head_styles["curved_double"] = style
+                            self.default_head_styles["curved_fish"] = style
+                            
+            except: pass
+
 
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
@@ -40,6 +86,7 @@ class ModeManager:
         self.action_group.setExclusive(True)
         
         # Tools
+
         # Select tool (Default)
         select_action = self.add_tool("Select", "select", "Select and Move Objects")
         select_action.setChecked(True)
@@ -47,10 +94,12 @@ class ModeManager:
         self.reaction_toolbar.addSeparator()
         
         self.add_tool("Arrow", "arrow", "Draw Reaction Arrow")
+        self.add_tool("Dashed Arrow", "arrow_dashed", "Draw Dashed Arrow")
+        self.add_tool("No Rxn", "arrow_no", "Draw No-Reaction Arrow")
         self.add_tool("Equilibrium", "arrow_eq", "Draw Equilibrium Arrow")
         self.add_tool("Resonance", "arrow_res", "Draw Resonance Arrow")
         self.add_tool("Retro", "arrow_retro", "Draw Retrosynthetic Arrow")
-        self.add_tool("No Rxn", "arrow_no", "Draw No-Reaction Arrow")
+
         
         self.reaction_toolbar.addSeparator()
         
@@ -85,16 +134,42 @@ class ModeManager:
         self.sync_with_main_window()
 
     def sync_with_main_window(self):
-        # If any of the main window's molecular tools are clicked, we exit reaction mode
-        if hasattr(self.main_window, 'mode_actions'):
-            for mode, action in self.main_window.mode_actions.items():
-                if mode != 'select':
-                    action.triggered.connect(self._on_main_tool_selected)
+        # We now use the monkey-patch on MainWindowUiManager.set_mode (see patcher.py)
+        # to intercept all mode changes, including templates.
+        pass
 
-    def _on_main_tool_selected(self):
-        if self.is_reaction_mode:
-            # If user selects a main tool (C, H, Bond, Template), we exit reaction mode
-            self.exit_reaction_mode()
+    def _handle_main_mode_change(self, mode_str):
+        if not self.is_reaction_mode:
+            return
+            
+        # Avoid infinite loops if we are the ones who triggered this change
+        if self.interaction_handler and getattr(self.interaction_handler, '_internal_mode_change', False):
+            return
+
+        # Modes that should trigger setting plugin tool to Select:
+        # 1. Molecular editing modes (atom_*, bond_*, etc.)
+        # 2. Main application Select mode (e.g. Space key pressed)
+        is_molecular_mode = (
+            mode_str.startswith('atom_') or 
+            mode_str.startswith('bond_') or 
+            mode_str.startswith('template_') or 
+            mode_str == 'charge_plus' or 
+            mode_str == 'charge_minus' or 
+            mode_str == 'radical'
+        )
+        
+        should_reset_plugin_tool = is_molecular_mode or mode_str == 'select'
+
+        if should_reset_plugin_tool:
+            # Switch plugin tool to 'select'
+            for action in self.action_group.actions():
+                if action.property("tool_name") == "select":
+                    if not action.isChecked():
+                        action.setChecked(True)
+                        if self.interaction_handler:
+                            # We don't want to call activate_select_mode again
+                            self.interaction_handler.active_tool = "select"
+                    break
 
     def setup_property_toolbar(self):
         self.property_toolbar = QToolBar("Reaction Properties", self.main_window)
@@ -118,9 +193,18 @@ class ModeManager:
         self.italic_action.setFont(QFont("Arial", 10, QFont.Weight.Normal, True))
         self.italic_action.triggered.connect(self.apply_properties)
         
-        self.property_toolbar.addWidget(QLabel(" Size: "))
+        self.lbl_font_size = QLabel(" Font Size: ")
+        self.property_toolbar.addWidget(self.lbl_font_size)
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(6, 120)
+        self.font_size_spin.valueChanged.connect(self.apply_properties)
+        self.property_toolbar.addWidget(self.font_size_spin)
+        
+        # Item Size (Plus / Minus)
+        self.lbl_item_size = QLabel(" Size: ")
+        self.property_toolbar.addWidget(self.lbl_item_size)
         self.size_spin = QSpinBox()
-        self.size_spin.setRange(6, 72)
+        self.size_spin.setRange(5, 200)
         self.size_spin.valueChanged.connect(self.apply_properties)
         self.property_toolbar.addWidget(self.size_spin)
         
@@ -174,6 +258,7 @@ class ModeManager:
             bold = self.bold_action.isChecked()
             italic = self.italic_action.isChecked()
             size = self.size_spin.value()
+            font_size = self.font_size_spin.value()
             family = self.font_combo.currentText()
             
             for item in items:
@@ -251,12 +336,28 @@ class ModeManager:
             # We temporarily hide others to render only selected
             to_hide = [i for i in self.main_window.scene.items() if i.isVisible() and i not in selected]
             for i in to_hide: i.hide()
+            
+            # Transparency Fix: Save old bg, set to NoBrush
+            old_bg = self.main_window.scene.backgroundBrush()
+            self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+            
             self.main_window.scene.render(painter, bounds, bounds)
+            
+            self.main_window.scene.setBackgroundBrush(old_bg)
+            
             for i in to_hide: i.show()
         else:
             to_hide = [i for i in self.main_window.scene.items() if i.isVisible() and not hasattr(i, "create_json_data")]
             for i in to_hide: i.hide()
+            
+            # Transparency Fix
+            old_bg = self.main_window.scene.backgroundBrush()
+            self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+            
             self.main_window.scene.render(painter, bounds, bounds)
+            
+            self.main_window.scene.setBackgroundBrush(old_bg)
+            
             for i in to_hide: i.show()
             
         painter.end()
@@ -333,25 +434,36 @@ class ModeManager:
         self.update_color_button(color)
         
         # Sync size (for text or signs)
+        self.lbl_font_size.hide()
+        self.font_size_spin.hide()
+        self.lbl_item_size.hide()
+        self.size_spin.hide()
+        
         if isinstance(first, ReactionTextItem):
             f = first.font()
             idx = self.font_combo.findText(f.family())
             if idx >= 0: self.font_combo.setCurrentIndex(idx)
             self.bold_action.setChecked(f.bold())
             self.italic_action.setChecked(f.italic())
-            self.size_spin.setValue(int(f.pointSize()))
+            
+            self.lbl_font_size.show()
+            self.font_size_spin.show()
+            self.font_size_spin.setValue(int(f.pointSize()))
+            
             self.font_combo.setEnabled(True)
             self.bold_action.setEnabled(True)
             self.italic_action.setEnabled(True)
-            self.size_spin.setEnabled(True)
+            self.font_size_spin.setEnabled(True)
         elif hasattr(first, "size"):
+            self.lbl_item_size.show()
+            self.size_spin.show()
             self.size_spin.setValue(int(first.size))
             self.size_spin.setEnabled(True)
+            
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
         else:
-            self.size_spin.setEnabled(False)
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
@@ -381,21 +493,24 @@ class ModeManager:
         family = self.font_combo.currentText()
         bold = self.bold_action.isChecked()
         italic = self.italic_action.isChecked()
-        size = self.size_spin.value()
+        item_size = self.size_spin.value()
+        font_size = self.font_size_spin.value()
         width = self.width_spin.value()
         
         for item in items:
             if isinstance(item, ReactionTextItem):
                 item.setDefaultTextColor(color)
                 f = item.font()
-                f.setFamily(family); f.setBold(bold); f.setItalic(italic); f.setPointSize(size)
+                f.setFamily(family); f.setBold(bold); f.setItalic(italic); f.setPointSize(font_size)
                 item.setFont(f)
             elif isinstance(item, (ReactionArrowItem, ReactionBracketItem, ReactionCircleItem)):
                  if hasattr(item, "pen_color"): item.pen_color = color
                  if hasattr(item, "pen_width"): item.pen_width = width
             elif hasattr(item, "set_size"):
-                 item.set_size(size)
+                 # Plus, Minus
+                 item.set_size(item_size)
                  if hasattr(item, "pen_color"): item.pen_color = color
+                 if hasattr(item, "pen_width"): item.pen_width = width
             elif hasattr(item, "pen_color"):
                  # AtomItem, BondItem
                  item.pen_color = color
@@ -420,21 +535,56 @@ class ModeManager:
         button.setDefaultAction(action)
         button.setFixedSize(36, 36)
         
-        # Add Style Menu for relevant tools
+        # Add Style Menu for relevant tools via Right Click
         if icon_name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", 
-                         "curved_double", "curved_fish", "bracket", "circle", "plus", "minus", "text"]:
-            button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-            menu = self.create_tool_style_menu(icon_name)
-            button.setMenu(menu)
+                         "curved_double", "curved_fish", "bracket", "circle", "plus", "minus", "text",
+                         "line", "line_curved", "freehand"]:
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.customContextMenuRequested.connect(lambda pos, b=button, t=icon_name: self.show_tool_context_menu(b, t, pos))
 
+        # Handle click to toggle menu if already active
+        # We need to know if it was active *before* the click.
+        button.pressed.connect(lambda: self.on_tool_pressed(icon_name))
+        button.clicked.connect(lambda: self.on_tool_clicked(button, icon_name))
+        
         button.triggered.connect(lambda act: self.on_action_triggered(act))
         self.reaction_toolbar.addWidget(button)
         return button
 
+    def on_tool_pressed(self, tool_name):
+        # Capture state before the action toggles
+        if self.interaction_handler:
+            self._was_active_before_click = (self.interaction_handler.active_tool == tool_name)
+        else:
+            self._was_active_before_click = False
+
+    def on_tool_clicked(self, button, tool_name):
+        # If the tool WAS already active before we clicked it, show menu
+        if getattr(self, '_was_active_before_click', False):
+            # Check if we just closed the menu (prevents re-opening immediately on click)
+            if time.time() - self._last_menu_close_time < 0.2:
+                return
+
+            # Show menu
+            if tool_name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", 
+                             "curved_double", "curved_fish", "bracket", "circle", "plus", "minus", "text",
+                             "line", "line_curved", "freehand"]:
+                self.show_tool_context_menu(button, tool_name, button.rect().bottomLeft())
+
     def on_action_triggered(self, action):
         tool_name = action.property("tool_name")
+            
         if self.interaction_handler:
             self.interaction_handler.set_tool(tool_name)
+            # Ensure focus returns to view so keyboard shortcuts (Space) work immediately
+            if self.main_window and hasattr(self.main_window, 'view_2d'):
+                self.main_window.view_2d.setFocus()
+
+    def show_tool_context_menu(self, button, tool_name, pos):
+        menu = self.create_tool_style_menu(tool_name)
+        if menu:
+            menu.exec(button.mapToGlobal(pos))
+            self._last_menu_close_time = time.time()
 
     def create_tool_style_menu(self, tool_name):
         from PyQt6.QtWidgets import QMenu
@@ -447,30 +597,273 @@ class ModeManager:
             QMenu::separator { height: 1px; background: #e0e0e0; margin: 4px 0; }
         """)
         
-        if tool_name == "arrow_no":
-            # Slash
-            act_slash = menu.addAction(create_style_icon("arrow_no", "slash"), "Slash Style")
-            act_slash.triggered.connect(lambda: self.set_arrow_no_style("slash"))
-            # Cross
-            act_cross = menu.addAction(create_style_icon("arrow_no", "cross"), "Cross Style")
-            act_cross.triggered.connect(lambda: self.set_arrow_no_style("cross"))
-        
-        if tool_name in ["curved_double", "curved_fish"]:
-            # Triangle head
-            act_tri = menu.addAction(create_style_icon("curved", "triangle"), "Triangular Head")
-            act_tri.setCheckable(True)
-            # We need to peek at selected or default to set checked
-            act_tri.triggered.connect(lambda checked: self.set_curved_head_style("triangle" if checked else "barb"))
+        if tool_name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "curved_double", "curved_fish"]:
+            current_style = self.default_head_styles.get(tool_name, "triangle")
             
+            # Check for selected item override
+            try:
+                if self.main_window and self.main_window.scene:
+                    selected = self.main_window.scene.selectedItems()
+                    if selected:
+                        from .items import ReactionArrowItem
+                        # Find first arrow item
+                        for item in selected:
+                            if isinstance(item, ReactionArrowItem):
+                                if hasattr(item, "head_style"):
+                                    current_style = item.head_style
+                                break
+            except: pass
+            
+            # Determine if we should show straight or curved icons based on the tool
+            icon_type = "curved" if "curved" in tool_name else "straight"
+            
+            # Triangle head (Full / Barbless)
+            act_tri = menu.addAction(create_style_icon(icon_type, "triangle", selected=(current_style == "triangle")), "Triangle (Filled)")
+            act_tri.setCheckable(True)
+            act_tri.setChecked(current_style == "triangle")
+            act_tri.triggered.connect(lambda: self.set_head_style(tool_name, "triangle"))
+            
+            # Chevron head (Concave base)
+            act_chevron = menu.addAction(create_style_icon(icon_type, "chevron", selected=(current_style == "chevron")), "Chevron (Concave)")
+            act_chevron.setCheckable(True)
+            act_chevron.setChecked(current_style == "chevron")
+            act_chevron.triggered.connect(lambda: self.set_head_style(tool_name, "chevron"))
+
+            # Harpoon head (Asymmetric / Half)
+            act_harpoon = menu.addAction(create_style_icon(icon_type, "harpoon", selected=(current_style == "harpoon")), "Harpoon (Asymmetric)")
+            act_harpoon.setCheckable(True)
+            act_harpoon.setChecked(current_style == "harpoon")
+            act_harpoon.triggered.connect(lambda: self.set_head_style(tool_name, "harpoon"))
+
+            # Barb head (Open)
+            act_barb = menu.addAction(create_style_icon(icon_type, "barb", selected=(current_style == "barb")), "Barb (Open)")
+            act_barb.setCheckable(True)
+            act_barb.setChecked(current_style == "barb")
+            act_barb.triggered.connect(lambda: self.set_head_style(tool_name, "barb"))
+
+        elif tool_name == "arrow_no":
             menu.addSeparator()
             
-            # Fish hook toggle
-            hook_act = menu.addAction(create_style_icon("curved", "fish"), "Fish Hook (Single Barb)")
-            hook_act.setCheckable(True)
-            hook_act.setChecked(tool_name == "curved_fish")
-            hook_act.triggered.connect(lambda checked: self.set_curved_hook_style(checked))
+            neg_style = self.default_no_arrow_style
+            try:
+                if self.main_window and self.main_window.scene:
+                        selected = self.main_window.scene.selectedItems()
+                        for item in selected:
+                            if hasattr(item, "negation_style"):
+                                neg_style = item.negation_style
+                                break
+            except: pass
+
+            # Slash
+            act_slash = menu.addAction(create_style_icon("arrow_no", "slash", selected=(neg_style == "slash")), "Slash (/)")
+            act_slash.setCheckable(True)
+            act_slash.setChecked(neg_style == "slash")
+            act_slash.triggered.connect(lambda: self.set_negation_style("slash"))
+            # Cross
+            act_cross = menu.addAction(create_style_icon("arrow_no", "cross", selected=(neg_style == "cross")), "Cross (X)")
+            act_cross.setCheckable(True)
+            act_cross.setChecked(neg_style == "cross")
+            act_cross.triggered.connect(lambda: self.set_negation_style("cross"))
+
+            # Double Slash
+            act_dslash = menu.addAction(create_style_icon("arrow_no", "double_slash", selected=(neg_style == "double_slash")), "Double Slash (//)")
+            act_dslash.setCheckable(True)
+            act_dslash.setChecked(neg_style == "double_slash")
+            act_dslash.triggered.connect(lambda: self.set_negation_style("double_slash"))
+
+            if tool_name in ["curved_double", "curved_fish"]:
+                menu.addSeparator()
+                # Fish hook toggle
+                hook_act = menu.addAction(create_style_icon("curved", "fish"), "Fish Hook (Single Barb)")
+                hook_act.setCheckable(True)
+                hook_act.setChecked(tool_name == "curved_fish")
+                hook_act.triggered.connect(lambda checked: self.set_curved_hook_style(checked))
+
+        elif tool_name == "bracket":
+            # Bracket Sub-types
+            curr_type = "square"
+            try:
+                if self.main_window and self.main_window.scene:
+                    selected = self.main_window.scene.selectedItems()
+                    for item in selected:
+                        if hasattr(item, "bracket_type"):
+                            curr_type = item.bracket_type
+                            break
+            except: pass
+
+            act_sq = menu.addAction("Square [ ]")
+            act_sq.setCheckable(True)
+            act_sq.setChecked(curr_type == "square")
+            act_sq.triggered.connect(lambda: self.set_bracket_type("square"))
+
+            act_rd = menu.addAction("Round ( )")
+            act_rd.setCheckable(True)
+            act_rd.setChecked(curr_type == "round")
+            act_rd.triggered.connect(lambda: self.set_bracket_type("round"))
+
+            act_cur = menu.addAction("Curly { }")
+            act_cur.setCheckable(True)
+            act_cur.setChecked(curr_type == "curly")
+            act_cur.triggered.connect(lambda: self.set_bracket_type("curly"))
+            
+        elif tool_name == "circle":
+            # 4 Options: Solid Rect, Dashed Rect, Solid Circle, Dashed Circle
+            curr_shape = "rectangle"
+            curr_style = "solid"
+            try:
+                if self.main_window and self.main_window.scene:
+                    selected = self.main_window.scene.selectedItems()
+                    for item in selected:
+                        if hasattr(item, "shape_type") and not hasattr(item, "bracket_type"):
+                            curr_shape = item.shape_type
+                            curr_style = getattr(item, "line_style", "solid")
+                            break
+            except: pass
+
+            variants = [
+                ("Solid Rectangle", "rectangle", "solid"),
+                ("Dashed Rectangle", "rectangle", "dashed"),
+                ("Solid Circle / Ellipse", "circle", "solid"),
+                ("Dashed Circle / Ellipse", "circle", "dashed")
+            ]
+            
+            for label, stype, lstyle in variants:
+                act = menu.addAction(create_shape_variant_icon(stype, lstyle), label)
+                act.setCheckable(True)
+                act.setChecked(curr_shape == stype and curr_style == lstyle)
+                def make_cb(s, l): return lambda: self.set_circle_variant(s, l)
+                act.triggered.connect(make_cb(stype, lstyle))
+            
+            menu.addSeparator()
+
+        # "Switch Tool" section for common grouping
+        if tool_name in ["circle", "line", "line_dashed", "line_curved", "freehand"]:
+            if menu.actions():
+                menu.addSeparator()
+            
+            tools = [
+                ("Straight Line", "line"),
+                ("Dashed Line", "line_dashed"),
+                ("Curved Line", "line_curved"),
+                ("Freehand", "freehand")
+            ]
+            
+            for label, t_name in tools:
+                act = menu.addAction(create_reaction_icon(t_name), label)
+                act.setCheckable(True)
+                act.setChecked(tool_name == t_name)
+                # Use a closure or separate method to avoid late binding issues
+                def make_trigger(tn): return lambda: self.activate_tool_by_name(tn)
+                act.triggered.connect(make_trigger(t_name))
+
+        if tool_name in ["arrow", "arrow_eq", "arrow_res", "arrow_retro", "arrow_no", "arrow_dashed"]:
+            if menu.actions():
+                menu.addSeparator()
+            
+            tools = [
+                ("Reaction Arrow", "arrow"),
+                ("Equilibrium", "arrow_eq"),
+                ("Resonance", "arrow_res"),
+                ("Retrosynthetic", "arrow_retro"),
+                ("No Arrow", "arrow_no"),
+                ("Dashed Arrow", "arrow_dashed")
+            ]
+            
+            for label, t_name in tools:
+                act = menu.addAction(create_reaction_icon(t_name), label)
+                act.setCheckable(True)
+                act.setChecked(tool_name == t_name)
+                def make_trigger(tn): return lambda: self.activate_tool_by_name(tn)
+                act.triggered.connect(make_trigger(t_name))
 
         return menu
+
+    def activate_tool_by_name(self, tool_name):
+        if self.interaction_handler:
+            self.interaction_handler.set_tool(tool_name)
+            for action in self.action_group.actions():
+                if action.property("tool_name") == tool_name:
+                    action.setChecked(True)
+                    break
+            # Return focus
+            if self.main_window and hasattr(self.main_window, 'view_2d'):
+                self.main_window.view_2d.setFocus()
+
+    def open_advanced_settings(self, tool_name):
+        from .settings_dialog import AdvancedSettingsDialog
+        from .items import ReactionArrowItem
+        
+        # Determine target item (first selected or a dummy for defaults)
+        target_item = None
+        if self.main_window and self.main_window.scene:
+            items = self.main_window.scene.selectedItems()
+            if items:
+                target_item = items[0]
+        
+        # If no item selected, we might want to configure defaults given the tool_name?
+        # But dialog requires an item to read properties from. 
+        # For now, let's require selection or create a dummy item of that type.
+        if not target_item:
+           # Create dummy item for default editing? 
+           # Actually, simpler to just edit selected item.
+           pass
+
+        if target_item:
+            dlg = AdvancedSettingsDialog(self.main_window, target_item)
+            if dlg.exec():
+                settings = dlg.get_settings()
+                # Apply settings to all selected items
+                for item in self.main_window.scene.selectedItems():
+                    if "color" in settings and hasattr(item, "pen_color"):
+                        item.pen_color = QColor(settings["color"])
+                    if "width" in settings and hasattr(item, "pen_width"):
+                        item.pen_width = settings["width"]
+                    if "head_size" in settings and hasattr(item, "head_size"):
+                        item.head_size = settings["head_size"]
+                    if "head_angle" in settings and hasattr(item, "head_angle"):
+                        item.head_angle = settings["head_angle"]
+                    if "head_concavity" in settings and hasattr(item, "head_concavity"):
+                         item.head_concavity = settings["head_concavity"]
+                    if "curvature" in settings and hasattr(item, "curvature"):
+                         item.curvature = settings["curvature"]
+                    if "bracket_type" in settings and hasattr(item, "bracket_type"):
+                         item.bracket_type = settings["bracket_type"]
+                    
+                    if hasattr(item, "sync_handles"):
+                        item.sync_handles()
+                    item.update()
+                
+                if self.main_window:
+                    self.main_window.push_undo_state()
+
+    def set_head_style(self, tool_name, style):
+        self.default_head_styles[tool_name] = style
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            return
+            
+        from .items import ReactionArrowItem
+        modified = False
+        for item in items:
+            if isinstance(item, ReactionArrowItem):
+                item.head_style = style
+                item.update()
+                modified = True
+        
+        # ACTIVATE TOOL
+        if self.interaction_handler:
+             self.interaction_handler.set_tool(tool_name)
+             for action in self.action_group.actions():
+                 if action.property("tool_name") == tool_name:
+                     if not action.isChecked():
+                         action.setChecked(True)
+                     break
+                     
+        if modified:
+            self.main_window.push_undo_state()
 
     def set_text_size(self, size):
         self.size_spin.setValue(size)
@@ -486,7 +879,8 @@ class ModeManager:
         if items:
             self.main_window.push_undo_state()
 
-    def set_arrow_no_style(self, style):
+    def set_negation_style(self, style):
+        self.default_no_arrow_style = style
         try:
             if not self.main_window or not self.main_window.scene:
                 return
@@ -494,20 +888,24 @@ class ModeManager:
         except (RuntimeError, AttributeError):
             return
         from .items import ReactionNoArrowItem
+        modified = False
         for item in items:
             if isinstance(item, ReactionNoArrowItem):
                 item.negation_style = style
                 item.update()
+                modified = True
         
         # ACTIVATE TOOL
         if self.interaction_handler:
              self.interaction_handler.set_tool("arrow_no")
              for action in self.action_group.actions():
                  if action.property("tool_name") == "arrow_no":
-                     action.setChecked(True)
+                     if not action.isChecked():
+                         action.setChecked(True)
                      break
                      
-        self.main_window.push_undo_state()
+        if modified:
+            self.main_window.push_undo_state()
 
     def set_curved_hook_style(self, is_fish):
         try:
@@ -532,6 +930,58 @@ class ModeManager:
                      break
 
         self.main_window.push_undo_state()
+
+    def set_bracket_type(self, btype):
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return
+            items = self.main_window.scene.selectedItems()
+        except: return
+        
+        from .items import ReactionBracketItem
+        modified = False
+        for item in items:
+            if isinstance(item, ReactionBracketItem):
+                item.bracket_type = btype
+                item.update()
+                modified = True
+        
+        # ACTIVATE TOOL
+        if self.interaction_handler:
+             self.interaction_handler.set_tool("bracket")
+             for action in self.action_group.actions():
+                 if action.property("tool_name") == "bracket":
+                     action.setChecked(True)
+                     break
+                     
+        if modified:
+            self.main_window.push_undo_state()
+
+    def set_circle_variant(self, shape_type, line_style):
+        self.default_circle_shape_type = shape_type
+        self.default_circle_line_style = line_style
+        try:
+            if not self.main_window or not self.main_window.scene: return
+            selected = self.main_window.scene.selectedItems()
+            from .items import ReactionCircleItem
+            modified = False
+            for item in selected:
+                if isinstance(item, ReactionCircleItem):
+                    item.shape_type = shape_type
+                    item.line_style = line_style
+                    item.update()
+                    modified = True
+            
+            # Activate tool
+            if self.interaction_handler:
+                 self.interaction_handler.set_tool("circle")
+                 for action in self.action_group.actions():
+                     if action.property("tool_name") == "circle":
+                         action.setChecked(True)
+                         break
+            if modified:
+                self.main_window.push_undo_state()
+        except: pass
 
     def set_curved_head_style(self, style):
         try:
@@ -567,14 +1017,32 @@ class ModeManager:
         self.apply_properties()
 
     def toggle_reaction_mode(self):
-        self.is_reaction_mode = not self.is_reaction_mode
+        new_state = not self.is_reaction_mode
         
+        if not new_state:
+            # Check for reaction items before exiting
+            items = [i for i in self.main_window.scene.items() if hasattr(i, "create_json_data")]
+            if items:
+                reply = QMessageBox.question(
+                    self.main_window, 
+                    "Confirm Exit",
+                    "Reaction objects are present in the scene. Are you sure you want to exit Reaction Sketching Mode?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+
+        self.is_reaction_mode = new_state
         if self.is_reaction_mode:
             self.enter_reaction_mode()
         else:
             self.exit_reaction_mode()
 
     def enter_reaction_mode(self):
+        # Apply patches when entering
+        apply_patches(self.main_window)
+
         # Save original layout
         self.original_splitter_sizes = self.main_window.splitter.sizes()
         
@@ -593,9 +1061,13 @@ class ModeManager:
         if self.property_toolbar:
             self.property_toolbar.show()
             
+        self.set_3d_action_state(False)
         self.main_window.statusBar().showMessage("Reaction Sketching Mode Active", 3000)
 
     def exit_reaction_mode(self):
+        # Revert patches when exiting
+        revert_patches()
+
         # Restore layout
         if self.original_splitter_sizes:
             self.main_window.splitter.setSizes(self.original_splitter_sizes)
@@ -610,6 +1082,7 @@ class ModeManager:
         if self.property_toolbar:
             self.property_toolbar.hide()
             
+        self.set_3d_action_state(True)
         self.main_window.statusBar().showMessage("Returned to Molecular Mode", 3000)
         self.is_reaction_mode = False
         
@@ -620,3 +1093,38 @@ class ModeManager:
                 if self.interaction_handler:
                     self.interaction_handler.set_tool("select")
                 break
+
+    def set_3d_action_state(self, enabled):
+        # 1. Disable the specific buttons found in main_window_main_init.py
+        if self.main_window:
+            if hasattr(self.main_window, 'convert_button'):
+                self.main_window.convert_button.setEnabled(enabled)
+            
+            if hasattr(self.main_window, 'optimize_3d_button'):
+                # optimize_3d_button is usually disabled by default until 3D exists, 
+                # but we should force disable it if in reaction mode
+                if not enabled:
+                    self.main_window.optimize_3d_button.setEnabled(False)
+                else:
+                    # When re-enabling, we should respect its check_enable_3d_features logic?
+                    # For now just let the main window handle its state, or leave it disabled specific to reaction mode.
+                    # The main window usually manages this button's state based on molecule existence.
+                    # A safe bet is to only explicitly DISABLE it. Re-enabling might be tricky if it should remain disabled.
+                    # Let's just trigger a UI update if possible, or do nothing.
+                    # Actually, if we disable it, we must be able to re-enable it if valid.
+                    # Let's trust the main window's update loop to re-enable it if needed, 
+                    # OR just set it enabled=True if there is a molecule? 
+                    # Simpler: Just target convert_button as requested.
+                    pass
+
+        # 2. Try to find other actions (menus)
+        if not hasattr(self, '_3d_actions'):
+            self._3d_actions = []
+            # Common names
+            for name in ['action_3d', 'act_3d', 'action_convert_to_3d', 'convert_3d_action', 
+                         'action_convert_to_3d', 'edit_3d_action']:
+                if hasattr(self.main_window, name):
+                    self._3d_actions.append(getattr(self.main_window, name))
+            
+        for action in self._3d_actions:
+            action.setEnabled(enabled)
