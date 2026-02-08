@@ -41,8 +41,7 @@ A comprehensive chemical reaction sketching tool for MoleditPy, allowing users t
 ## Usage
 
 ### Activation
-- Click the **Reaction Tool** icon (Flask) in the main toolbar.
-- Or use the menu: `Extensions -> Reaction Sketcher...`.
+- Activate from the menu: `Extensions -> Reaction Sketcher...`.
 
 ### Tools Overview
 The side toolbar provides categorized tools:
@@ -70,4 +69,5 @@ The side toolbar provides categorized tools:
 
 ## License
 This project is licensed under the GNU General Public License v3.0 (GPLv3).
+
 
