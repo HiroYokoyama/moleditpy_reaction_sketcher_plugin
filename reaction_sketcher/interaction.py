@@ -81,6 +81,18 @@ class InteractionHandler(QObject):
     def handle_mouse_press(self, event):
         scene_pos = self.main_window.view_2d.mapToScene(event.pos())
         
+        # Check if we are interacting with a text item currently being edited
+        focus_item = self.main_window.scene.focusItem()
+        if focus_item and hasattr(focus_item, "textInteractionFlags"):
+             if focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                 # Check if click is inside the item
+                 if focus_item.contains(focus_item.mapFromScene(scene_pos)):
+                     return False # Pass through to text item for cursor moving/selection
+                 else:
+                     # Click is outside the text item - exit edit mode
+                     focus_item.clearFocus()
+                     # Continue processing the click on other items
+        
         if event.button() == Qt.MouseButton.RightButton:
             # Context Menu (Shift+Right) or Delete (Right)
             item = self.main_window.scene.itemAt(scene_pos, self.main_window.view_2d.transform())
@@ -132,6 +144,14 @@ class InteractionHandler(QObject):
 
         # If in "select" tool, implement Custom Drag (Clone / Constrain)
         if self.active_tool == "select" or self.active_tool is None:
+            # Check if we are interacting with a text item currently being edited
+            try:
+                 focus_item = self.main_window.scene.focusItem()
+                 if focus_item and hasattr(focus_item, "textInteractionFlags"):
+                     if focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                         return False 
+            except: pass
+
             # Check for clickable items
             top_item = None
             
@@ -188,10 +208,15 @@ class InteractionHandler(QObject):
 
             # If clicking background
             if not items_under:
+                # Clear any text edit mode first
+                focus_item = self.main_window.scene.focusItem()
+                if focus_item:
+                    focus_item.clearFocus()
+                    
                 self.clear_group_overlay()
                 self.main_window.scene.clearSelection()
-                # self._is_dragging = False # No items to drag
-                # Pass through for rubberband?
+                self.main_window.scene.setFocusItem(None)
+                # Pass through for rubberband
                 return False
 
             return False
@@ -299,6 +324,7 @@ class InteractionHandler(QObject):
             
             # Enable interaction FIRST, then focus, then select
             item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             item.setFocus(Qt.FocusReason.OtherFocusReason)
             
             cursor = item.textCursor()
@@ -344,6 +370,15 @@ class InteractionHandler(QObject):
 
     def handle_mouse_move(self, event):
         scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+        
+        # Check if we are interacting with a text item currently being edited
+        focus_item = self.main_window.scene.focusItem()
+        if focus_item and hasattr(focus_item, "textInteractionFlags"):
+             if focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                 # Check if hovering inside the item
+                 if focus_item.contains(focus_item.mapFromScene(scene_pos)):
+                     return False # Pass through to text item selection
+        
         
         # 1. Handle Dragging (Select Tool)
         if self._is_dragging and self._drag_items:
@@ -526,9 +561,16 @@ class InteractionHandler(QObject):
         for item in items:
             from .items import ReactionTextItem
             if isinstance(item, ReactionTextItem):
-                # Force focus and edit mode
+                # If already editing, pass through for standard "Select Word" behavior
+                if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                    return False
+                    
+                # Force focus and edit mode with mouse selection enabled
                 item.setFocus()
-                item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+                item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction | Qt.TextInteractionFlag.TextSelectableByMouse)
+                
+                # Disable Movable flag to prevent dragging while selecting text
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
                 
                 # Select all text
                 cursor = item.textCursor()

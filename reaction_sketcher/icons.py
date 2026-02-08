@@ -428,9 +428,9 @@ def create_alignment_icon(tool_name, size=32):
     if tool_name == "align_top":
         # Bar at top
         painter.drawLine(QPointF(m, m), QPointF(w-m, m))
-        # Two boxes below
-        painter.drawRect(m, m+4, 6, 8)
-        painter.drawRect(m+10, m+4, 6, 12)
+        # Two boxes below - TOUCHING the line (y=m)
+        painter.drawRect(m, m, 6, 8)
+        painter.drawRect(m+10, m, 6, 12)
         
     elif tool_name == "align_bottom":
         # Bar at bottom
@@ -450,9 +450,9 @@ def create_alignment_icon(tool_name, size=32):
     elif tool_name == "align_left":
         # Bar at left
         painter.drawLine(QPointF(m, m), QPointF(m, h-m))
-        # Two boxes to the right
-        painter.drawRect(m+4, m, 8, 6)
-        painter.drawRect(m+4, m+10, 12, 6)
+        # Two boxes to the right - TOUCHING the line (x=m)
+        painter.drawRect(m, m, 8, 6)
+        painter.drawRect(m, m+10, 12, 6)
         
     elif tool_name == "align_right":
         # Bar at right

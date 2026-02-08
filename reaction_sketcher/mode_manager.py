@@ -9,12 +9,19 @@ from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy,
                              QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QGridLayout, QWidget, QLabel, 
                              QColorDialog, QFileDialog, QMessageBox, QMenu, QFrame)
 from PyQt6.QtGui import (QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, 
-                           QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, QFontDatabase)
+                         QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, QFontDatabase,
+                         QCursor)
 from PyQt6.QtSvg import QSvgGenerator
-from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, QObject, QEvent
+from PyQt6.QtCore import (Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, 
+                          QObject, QEvent, QTimer)
 from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
 from .patcher import (apply_interaction_patches, revert_interaction_patches,
-                      apply_core_patches, revert_core_patches)
+                      apply_core_patches, revert_core_patches, revert_all_patches)
+from .items import (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, 
+                    ReactionCircleItem, ReactionPlusItem, ReactionMinusItem,
+                    ReactionDashedArrowItem, ReactionResonanceArrowItem, 
+                    ReactionEquilibriumArrowItem, ReactionRetroArrowItem, 
+                    ReactionCurvedArrowItem)
 
 class ModeManager(QObject):
     def __init__(self, main_window):
@@ -365,12 +372,12 @@ class ModeManager(QObject):
         self.property_toolbar.addSeparator()
         
         self.sub_action = self.property_toolbar.addAction(create_reaction_icon("sub", 24), "Sub")
-        self.sub_action.setCheckable(False)
+        self.sub_action.setCheckable(True)
         self.sub_action.setToolTip("Subscript")
         self.sub_action.triggered.connect(self.toggle_subscript)
         
         self.sup_action = self.property_toolbar.addAction(create_reaction_icon("sup", 24), "Sup")
-        self.sup_action.setCheckable(False)
+        self.sup_action.setCheckable(True)
         self.sup_action.setToolTip("Superscript")
         self.sup_action.triggered.connect(self.toggle_superscript)
         
@@ -432,6 +439,9 @@ class ModeManager(QObject):
         # Export/Copy Actions at the end
         self.property_toolbar.addAction("Export SVG", self.export_svg)
         self.property_toolbar.addAction("Copy SVG", self.copy_svg_to_clipboard)
+
+        self.property_toolbar.addAction("Export PNG", self.export_image)
+        self.property_toolbar.addAction("Copy PNG", self.copy_to_clipboard)
         
         self.main_window.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.property_toolbar)
         self.property_toolbar.hide()
@@ -441,7 +451,45 @@ class ModeManager(QObject):
 
 
 
-    def export_svg(self, items, filename):
+    def export_image(self):
+        if hasattr(self.main_window, 'export_2d_png'):
+            self.main_window.export_2d_png()
+        else:
+            self.main_window.statusBar().showMessage("Export function not available.")
+
+    def copy_to_clipboard(self):
+        if hasattr(self.main_window, 'copy_to_clipboard'):
+            self.main_window.copy_to_clipboard()
+        else:
+            self.main_window.statusBar().showMessage("Copy function not available.")
+
+    def export_svg(self, items=None, filename=None):
+        if hasattr(self.main_window, 'export_2d_svg'):
+            self.main_window.export_2d_svg()
+            return
+
+        if items is None:
+             # Default to all content items similar to copy_svg
+             # Helper to decide if an item is a "Content" item
+            def is_content_item(itm):
+                name = itm.__class__.__name__
+                if any(x in name for x in ["ReactionArrow", "ReactionBracket", "ReactionText", "ReactionFreehand"]):
+                    return True
+                return name not in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]
+            
+            if self.main_window and self.main_window.scene:
+                items = [i for i in self.main_window.scene.items() if is_content_item(i)]
+            else:
+                items = []
+
+        if filename is None:
+            from PyQt6.QtWidgets import QFileDialog
+            folder = os.getcwd()
+            if hasattr(self.main_window, 'last_open_path'):
+                 folder = self.main_window.last_open_path
+            filename, _ = QFileDialog.getSaveFileName(self.main_window, "Export SVG", folder, "SVG Files (*.svg)")
+            if not filename:
+                return
         # Helper to decide if an item is a "Content" item (Reaction or Molecule)
         def is_content_item(itm):
             name = itm.__class__.__name__
@@ -495,6 +543,10 @@ class ModeManager(QObject):
         self.main_window.statusBar().showMessage(f"Reaction exported to {filename}")
 
     def copy_svg_to_clipboard(self):
+        if hasattr(self.main_window, 'copy_svg_to_clipboard'):
+            self.main_window.copy_svg_to_clipboard()
+            return
+            
         selected = self.main_window.scene.selectedItems()
         
         # Helper to decide if an item is a "Content" item (Reaction or Molecule)
@@ -624,8 +676,6 @@ class ModeManager(QObject):
         except (RuntimeError, AttributeError):
             # Scene or main window was deleted during teardown
             return
-        from .items import (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, 
-                            ReactionCircleItem, ReactionPlusItem, ReactionMinusItem)
         try:
              from modules.atom_item import AtomItem
              from modules.bond_item import BondItem
@@ -677,9 +727,43 @@ class ModeManager(QObject):
 
             idx = self.font_combo.findText(f.family())
             if idx >= 0: self.font_combo.setCurrentIndex(idx)
+            
+            self.blockSignals(True)
             self.bold_action.setChecked(f.bold())
             self.italic_action.setChecked(f.italic())
             self.underline_action.setChecked(f.underline())
+            
+            # Check vertical alignment for Sub/Sup
+            try:
+                align = QTextCharFormat.VerticalAlignment.AlignNormal
+                if first.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                    # In Edit Mode: Use current cursor format
+                    align = first.textCursor().charFormat().verticalAlignment()
+                else:
+                     # In Object Mode: Check the first character's format or default
+                     cursor = first.textCursor()
+                     if not cursor.hasSelection():
+                        cursor.select(QTextCursor.SelectionType.Document)
+                     
+                     # If mixed, we might default to Normal, or check first char
+                     # Let's check the char format of the beginning of selection
+                     cursor.setPosition(cursor.selectionStart())
+                     cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
+                     align = cursor.charFormat().verticalAlignment()
+                
+                if hasattr(self, 'sub_action'): 
+                    self.sub_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSubScript)
+                if hasattr(self, 'sup_action'): 
+                    self.sup_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSuperScript)
+            except Exception as e:
+                pass
+            self.blockSignals(False)
+            
+            # Ensure we are listening to cursor changes for live updates
+            try:
+                first.cursorChanged.disconnect(self.sync_property_toolbar)
+            except: pass
+            first.cursorChanged.connect(self.sync_property_toolbar)
             
             self.lbl_font_size.show()
             self.font_size_spin.show()
@@ -723,10 +807,22 @@ class ModeManager(QObject):
 
     def toggle_subscript(self):
         if not self.is_reaction_mode: return
+        
+        # When sub is active (Qt already toggled it), deactivate sup
+        if hasattr(self, 'sub_action') and hasattr(self, 'sup_action'):
+            if self.sub_action.isChecked():  # If sub is now active
+                self.sup_action.setChecked(False)  # Deactivate sup
+        
         self._apply_text_format_property("sub")
 
     def toggle_superscript(self):
         if not self.is_reaction_mode: return
+        
+        # When sup is active (Qt already toggled it), deactivate sub
+        if hasattr(self, 'sup_action') and hasattr(self, 'sub_action'):
+            if self.sup_action.isChecked():  # If sup is now active
+                self.sub_action.setChecked(False)  # Deactivate sub
+        
         self._apply_text_format_property("sup")
 
     def apply_chem_style(self):
@@ -734,7 +830,6 @@ class ModeManager(QObject):
         try:
              # Apply chemical formatting to ReactionTextItems
              items = self.main_window.scene.selectedItems()
-             from .items import ReactionTextItem
              modified = False
              
              for item in items:
@@ -757,7 +852,6 @@ class ModeManager(QObject):
             
             # Check for focus item first (Edit Mode)
             focus_item = self.main_window.scene.focusItem()
-            from .items import ReactionTextItem
             
             target_items = []
             is_edit_mode = False
@@ -787,15 +881,29 @@ class ModeManager(QObject):
                 elif property_name == "underline":
                     fmt.setFontUnderline(not fmt.fontUnderline())
                 elif property_name == "sub":
-                    align = QTextCharFormat.VerticalAlignment.AlignSubScript if fmt.verticalAlignment() != QTextCharFormat.VerticalAlignment.AlignSubScript else QTextCharFormat.VerticalAlignment.AlignNormal
-                    fmt.setVerticalAlignment(align)
+                    current_align = fmt.verticalAlignment()
+                    if current_align == QTextCharFormat.VerticalAlignment.AlignSubScript:
+                        # Toggle Off -> Normal
+                        fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+                    else:
+                        # Toggle On (Overwrites Sup if present)
+                        fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
+                        
                 elif property_name == "sup":
-                    align = QTextCharFormat.VerticalAlignment.AlignSuperScript if fmt.verticalAlignment() != QTextCharFormat.VerticalAlignment.AlignSuperScript else QTextCharFormat.VerticalAlignment.AlignNormal
-                    fmt.setVerticalAlignment(align)
+                    current_align = fmt.verticalAlignment()
+                    if current_align == QTextCharFormat.VerticalAlignment.AlignSuperScript:
+                         # Toggle Off -> Normal
+                        fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+                    else:
+                        # Toggle On (Overwrites Sub if present)
+                        fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
                 
                 cursor.mergeCharFormat(fmt)
                 if is_edit_mode:
                     item.setTextCursor(cursor)
+                
+            if self.is_reaction_mode:
+                self.sync_property_toolbar()
                 modified = True
             
             if modified:
@@ -816,7 +924,6 @@ class ModeManager(QObject):
             items = self.main_window.scene.selectedItems()
         except (RuntimeError, AttributeError):
             return
-        from .items import ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem
         
         sender = self.sender()
         if not sender: return
@@ -965,26 +1072,30 @@ class ModeManager(QObject):
         self._was_active_before_click = action.isChecked()
 
     def on_tool_clicked(self, button, action):
-        # If the tool WAS already active before we clicked it, show menu
+        # If the tool WAS already active before we clicked it -> Disable (Switch to Select)
         if getattr(self, '_was_active_before_click', False):
-            # Check if we just closed the menu (prevents re-opening immediately on click)
-            if time.time() - getattr(self, '_last_menu_close_time', 0) < 0.2:
-                return
+            # We prioritize disabling over showing the menu on second click.
+            # The menu is still available via Right-Click.
+            self.activate_select_tool()
 
-            tool_name = action.property("tool_name")
-            if button:
-                self.show_tool_context_menu(button, tool_name, button.rect().bottomLeft())
-            else:
-                from PyQt6.QtCore import QPoint
-                self.show_tool_context_menu(None, tool_name, QPoint(0, 0))
+    def activate_select_tool(self):
+        if self.interaction_handler:
+            self.interaction_handler.set_tool("select")
+        
+        # Update UI
+        for action in self.action_group.actions():
+            if action.property("tool_name") == "select":
+                action.setChecked(True)
+                break
 
     def show_tool_context_menu(self, button, tool_name, pos):
         menu = self.create_tool_style_menu(tool_name)
         if menu:
             if button:
                 menu.exec(button.mapToGlobal(pos))
+            if button:
+                menu.exec(button.mapToGlobal(pos))
             else:
-                from PyQt6.QtGui import QCursor
                 menu.exec(QCursor.pos())
             self._last_menu_close_time = time.time()
 
@@ -1005,7 +1116,6 @@ class ModeManager(QObject):
                 if self.main_window and self.main_window.scene:
                     selected = self.main_window.scene.selectedItems()
                     if selected:
-                        from .items import ReactionArrowItem
                         for item in selected:
                             if isinstance(item, ReactionArrowItem):
                                 if hasattr(item, "head_style"):
@@ -1144,7 +1254,6 @@ class ModeManager(QObject):
                 try:
                     if self.main_window and self.main_window.scene:
                         selected = self.main_window.scene.selectedItems()
-                        from .items import ReactionTextItem
                         modified = False
                         for item in selected:
                             if isinstance(item, ReactionTextItem):
@@ -1361,6 +1470,7 @@ class ModeManager(QObject):
                 if self.main_window:
                     self.main_window.push_undo_state()
 
+
     def set_head_style(self, tool_name, style):
         self.default_head_styles[tool_name] = style
         try:
@@ -1370,9 +1480,8 @@ class ModeManager(QObject):
         except (RuntimeError, AttributeError):
             return
             
-        from .items import (ReactionArrowItem, ReactionDashedArrowItem, 
-                            ReactionResonanceArrowItem, ReactionEquilibriumArrowItem, 
-                            ReactionRetroArrowItem, ReactionCurvedArrowItem)
+            return
+            
         
         # Mapping tool_name to class
         tool_map = {
@@ -1708,7 +1817,8 @@ class ModeManager(QObject):
         self.main_window.scene.update()
         self.is_reaction_mode = True
             
-        self.set_3d_action_state(False)
+        # Delay disabling 3D actions to ensure it overrides any file-load enabling logic
+        QTimer.singleShot(100, lambda: self.set_3d_action_state(False))
         self.main_window.statusBar().showMessage("Reaction Sketching Mode Active", 3000)
 
     def exit_reaction_mode(self):
@@ -1724,6 +1834,12 @@ class ModeManager(QObject):
         self.main_window.statusBar().showMessage("Returned to Molecular Mode", 3000)
         self.is_reaction_mode = False
         
+        # Hide toolbars
+        if self.reaction_toolbar:
+            self.reaction_toolbar.hide()
+        if self.property_toolbar:
+            self.property_toolbar.hide()
+        
         # Reset tool to Select
         for action in self.action_group.actions():
             if action.property("tool_name") == "select":
@@ -1733,8 +1849,7 @@ class ModeManager(QObject):
                 break
         
         # Unapply patches (restore original behavior)
-        revert_interaction_patches()
-        revert_core_patches()
+        revert_all_patches()
 
     def set_3d_action_state(self, enabled):
         # 1. Disable the specific buttons found in main_window_main_init.py
@@ -2151,7 +2266,10 @@ class ModeManager(QObject):
                 # In edit mode but no selection - set format for future typing
                 cursor.mergeCharFormat(fmt)
                 item.setTextCursor(cursor)
-            # If not in edit mode and no selection, do nothing (don't apply to whole document)
+            else:
+                # Apply to whole document if item is selected object
+                cursor.select(QTextCursor.SelectionType.Document)
+                cursor.mergeCharFormat(fmt)
     
     def apply_text_style(self, style):
         """Apply bold/italic/underline to selected text only."""
@@ -2178,20 +2296,40 @@ class ModeManager(QObject):
         for item in targets:
             cursor = item.textCursor()
             
-            # Only apply if there's a selection
+            # Apply if selection exists OR if valid target (whole item)
             if cursor.hasSelection():
-                fmt = cursor.charFormat()
+                # Apply to selection
+                pass
+            elif item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                 # In edit mode, no selection -> set alignment for future? 
+                 # For bold/italic, usually we toggle 'current char format' for insertion.
+                 # But mergeCharFormat on cursor works for that.
+                 pass
+            else:
+                # Select whole document
+                cursor.select(QTextCursor.SelectionType.Document)
                 
-                if style == 'bold':
-                    current_weight = fmt.fontWeight()
-                    new_weight = QFont.Weight.Bold if current_weight != QFont.Weight.Bold else QFont.Weight.Normal
-                    fmt.setFontWeight(new_weight)
-                elif style == 'italic':
-                    fmt.setFontItalic(not fmt.fontItalic())
-                elif style == 'underline':
-                    fmt.setFontUnderline(not fmt.fontUnderline())
-                
-                cursor.mergeCharFormat(fmt)
+            # Determine current state from cursor (or start of selection)
+            current_fmt = cursor.charFormat()
+            
+            # Create a NEW clean format to only apply the specific change
+            # merging a clean format with just one property set will preserve other properties (like subscript)
+            new_fmt = QTextCharFormat()
+            
+            if style == 'bold':
+                current_weight = current_fmt.fontWeight()
+                # Toggle based on current state
+                target_weight = QFont.Weight.Bold if current_weight != QFont.Weight.Bold else QFont.Weight.Normal
+                new_fmt.setFontWeight(target_weight)
+            elif style == 'italic':
+                new_fmt.setFontItalic(not current_fmt.fontItalic())
+            elif style == 'underline':
+                new_fmt.setFontUnderline(not current_fmt.fontUnderline())
+            
+            cursor.mergeCharFormat(new_fmt)
+            
+            if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction and not cursor.hasSelection():
+                # Update the cursor for typing
                 item.setTextCursor(cursor)
 
     def apply_chem_style(self):

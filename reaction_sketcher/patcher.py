@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import copy
-from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter, QPolygonF, QPaintEngine, QImage, QFontMetricsF, QAction, QKeySequence
+from PyQt6.QtGui import (QColor, QPen, QBrush, QFont, QPainter, QPolygonF, QPaintEngine, 
+                         QImage, QFontMetricsF, QAction, QKeySequence, qRgba)
 from PyQt6.QtCore import Qt, QPointF, QByteArray, QMimeData, QRectF, QSize, QBuffer, QIODevice
-from PyQt6.QtWidgets import QStyle, QApplication, QGraphicsItem, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QStyle, QApplication, QGraphicsItem, QFileDialog, QMessageBox, QGraphicsView
+import os
+import math
 try:
     from PyQt6.QtSvg import QSvgGenerator
 except ImportError:
@@ -55,6 +58,21 @@ def apply_core_patches(main_window):
     MainWindowEditActions = None
     if hasattr(main_window, 'main_window_edit_actions') and hasattr(main_window.main_window_edit_actions, '_cls'):
         MainWindowEditActions = main_window.main_window_edit_actions._cls
+
+    # Resolve AtomItem for Patching
+    AtomItem = None
+    try:
+        from modules.atom_item import AtomItem
+    except ImportError:
+        try:
+             from moleditpy.modules.atom_item import AtomItem
+        except ImportError:
+             pass
+
+    # AtomItem paint patch is applied later (line 621) after the function is defined
+    # if AtomItem:
+    #     _patch(_core_originals, AtomItem, 'paint', patched_atom_paint)
+
 
     # Resolve View2D
     View2D = None
@@ -777,14 +795,10 @@ def apply_core_patches(main_window):
         
     patch_core(MainWindowEditActions, 'clear_2d_editor', patched_clear_2d_editor)
 
+
     # --- Clean Up 2D ---
     def patched_clean_up_2d_structure(self):
-        # Even if not in group, treat as rigid in reaction mode
-        if hasattr(self, "reaction_mode_manager") and self.reaction_mode_manager.is_reaction_mode:
-            if hasattr(self, 'statusBar'):
-                self.statusBar().showMessage("Cleanup is disabled in Reaction Mode to preserve manual layout.", 3000)
-            return
-
+        # Cleanup now works in Reaction Mode with CoG preservation and supports selection
         try:
             from rdkit.Chem import AllChem, rdmolops
         except ImportError:
@@ -1033,7 +1047,6 @@ def apply_core_patches(main_window):
         except: MainWindowExport = None
 
     if MainWindowExport:
-        import os, math
         def _render_2d_to_image(self, is_transparent=True):
             all_visible_items = [i for i in self.scene.items() if i.isVisible()]
             molecule_bounds = QRectF()
@@ -1062,19 +1075,21 @@ def apply_core_patches(main_window):
                 
             # Fill with truly transparent using qRgba
             if is_transparent:
-                from PyQt6.QtGui import qRgba
-                image.fill(qRgba(0, 0, 0, 0))  # Fully transparent
+                image.fill(qRgba(255, 255, 255, 0))  # Transparent White (helps avoid black halos)
             else:
                 image.fill(Qt.GlobalColor.white)
             
             original_background = self.scene.backgroundBrush()
             if is_transparent:
-                # Clear scene background completely
-                self.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+                # Set truly transparent WHITE background (255,255,255,0) as requested by user.
+                # The patched_atom_paint will detect alpha=0 and trigger the eraser logic.
+                self.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
             
-            # Clear selection to avoid highlights in export
+            # Clear selection and focus to avoid highlights/cursors in export
             selected_items = self.scene.selectedItems()
             self.scene.clearSelection()
+            original_focus = self.scene.focusItem()
+            self.scene.setFocusItem(None)
             
             painter = QPainter()
             if painter.begin(image):
@@ -1095,6 +1110,8 @@ def apply_core_patches(main_window):
             # Restore selection
             for item in selected_items:
                 item.setSelected(True)
+            if original_focus:
+                original_focus.setFocus()
             return image, rect_to_render
 
         # Patch export_2d_png to INCLUDE reaction items
@@ -1126,6 +1143,34 @@ def apply_core_patches(main_window):
                 self.statusBar().showMessage("Failed to save image.")
 
         patch_core(MainWindowExport, 'export_2d_png', patched_export_2d_png)
+
+        def patched_copy_to_clipboard(self):
+            if not self.data.atoms and not any(hasattr(i, "create_json_data") for i in self.scene.items()):
+                self.statusBar().showMessage("Nothing to copy.")
+                return
+
+            # Default to Transparent for Clipboard as it is the most common desired behavior for passing to PPT/etc.
+            # We could ask, but it interrupts flow.
+            image, _ = _render_2d_to_image(self, is_transparent=True)
+            if image:
+                # Robust Copy: Provide both QImage and Raw PNG data to clipboard
+                # This ensures transparency is preserved in more applications (e.g. Office, Slack)
+                mime = QMimeData()
+                mime.setImageData(image)
+                
+                # Also provide raw PNG data
+                qba = QByteArray()
+                buffer = QBuffer(qba)
+                buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+                image.save(buffer, "PNG")
+                mime.setData("image/png", qba)
+                
+                QApplication.clipboard().setMimeData(mime)
+                self.statusBar().showMessage("Copied 2D view to clipboard (Transparent)")
+            else:
+                self.statusBar().showMessage("Failed to copy image.")
+
+        patch_core(MainWindowExport, 'copy_to_clipboard', patched_copy_to_clipboard)
 
         # Patch export_2d_svg to INCLUDE reaction items
         def patched_export_2d_svg(self):
@@ -1182,8 +1227,8 @@ def apply_core_patches(main_window):
             
             original_background = self.scene.backgroundBrush()
             if reply == QMessageBox.StandardButton.Yes:
-                # Use strictly transparent background
-                self.scene.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
+                # Use strictly transparent WHITE background
+                self.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
             else:
                 # Use white background if user chose No transparency
                 self.scene.setBackgroundBrush(QBrush(Qt.GlobalColor.white))
@@ -1191,13 +1236,17 @@ def apply_core_patches(main_window):
             generator = QSvgGenerator()
             generator.setFileName(filePath)
             generator.setSize(QSize(int(rect_to_render.width()), int(rect_to_render.height())))
-            # Internal coordinates mapping to content size
-            generator.setViewBox(rect_to_render)
+            generator.setResolution(96) # Standard 96 DPI to fix small fonts
+            
+            # Normalize coordinates to 0,0 locally
+            generator.setViewBox(QRectF(0, 0, rect_to_render.width(), rect_to_render.height()))
             generator.setTitle("MoleditPy Molecule")
             
             # Clear selection to avoid highlights in export
             selected_items = self.scene.selectedItems()
             self.scene.clearSelection()
+            self.original_focus = self.scene.focusItem()
+            self.scene.setFocusItem(None)
             
             painter = QPainter()
             if not painter.begin(generator):
@@ -1209,14 +1258,18 @@ def apply_core_patches(main_window):
 
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                # Render content from scene-rect to generators full area
-                self.scene.render(painter, rect_to_render, rect_to_render)
+                # Render content from scene-rect (source) to generator's origin (target)
+                target_rect = QRectF(0, 0, rect_to_render.width(), rect_to_render.height())
+                self.scene.render(painter, target_rect, rect_to_render)
             finally:
                 painter.end()
                 self.scene.setBackgroundBrush(original_background)
                 # Restore selection
+                # Restore selection
                 for item in selected_items:
                     item.setSelected(True)
+                if hasattr(self, 'original_focus') and self.original_focus:
+                     self.original_focus.setFocus()
             self.statusBar().showMessage(f"2D view exported to {filePath}")
 
         patch_core(MainWindowExport, 'export_2d_svg', patched_export_2d_svg)
@@ -1246,6 +1299,86 @@ def apply_core_patches(main_window):
         # Patch MainWindow with a delegator so self.copy_2d_image_to_clipboard works directly
         patch_core(MainWindow, 'copy_2d_image_to_clipboard', lambda self: self.main_window_edit_actions.copy_2d_image_to_clipboard())
 
+        # Patch copy_svg_to_clipboard to INCLUDE reaction items
+        def patched_copy_svg_to_clipboard(self):
+            if QSvgGenerator is None:
+                self.statusBar().showMessage("SVG copy not available (QtSvg missing).")
+                return
+
+            if not self.data.atoms and not any(hasattr(i, "create_json_data") for i in self.scene.items()):
+                self.statusBar().showMessage("Nothing to copy.")
+                return
+
+            # Get items to export: selected items if any, otherwise all visible
+            selected_items = [i for i in self.scene.selectedItems() if i.isVisible()]
+            items_to_export = selected_items if selected_items else list(self.scene.items())
+            
+            # Get tight bounds excluding invisible and helper items
+            molecule_bounds = QRectF()
+            for item in items_to_export:
+                # Skip if not visible
+                if not item.isVisible(): continue
+                # Skip helper items
+                if item.__class__.__name__ in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
+                     continue
+                if hasattr(item, "handle_type"): continue
+                
+                # Use sceneBoundingRect for tighter fit
+                item_bounds = item.sceneBoundingRect()
+                if item_bounds.isValid() and not item_bounds.isEmpty():
+                    molecule_bounds = molecule_bounds.united(item_bounds)
+            
+            if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
+                self.statusBar().showMessage("Error: Could not determine molecule bounds for copy.")
+                return
+
+            # Minimal padding (2px) - Consistent with PNG
+            rect_to_render = molecule_bounds.adjusted(-2, -2, 2, 2)
+            
+            # Use strictly transparent WHITE background
+            original_background = self.scene.backgroundBrush()
+            self.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
+
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+
+            generator = QSvgGenerator()
+            generator.setOutputDevice(buffer)
+            generator.setSize(QSize(int(rect_to_render.width()), int(rect_to_render.height())))
+            generator.setResolution(96) # Standard 96 DPI
+            generator.setViewBox(QRectF(0, 0, rect_to_render.width(), rect_to_render.height()))
+            
+            # Clear selection to avoid highlights
+            self.scene.clearSelection()
+            self.original_focus = self.scene.focusItem()
+            self.scene.setFocusItem(None)
+            
+            painter = QPainter()
+            if not painter.begin(generator):
+                 self.scene.setBackgroundBrush(original_background)
+                 for item in selected_items: item.setSelected(True)
+                 return
+            
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                target_rect = QRectF(0, 0, rect_to_render.width(), rect_to_render.height())
+                self.scene.render(painter, target_rect, rect_to_render)
+            finally:
+                painter.end()
+                self.scene.setBackgroundBrush(original_background)
+                for item in selected_items: item.setSelected(True)
+                if hasattr(self, 'original_focus') and self.original_focus:
+                     self.original_focus.setFocus()
+            
+            mime = QMimeData()
+            mime.setData("image/svg+xml", buffer.data())
+            # Also set text for compatibility
+            mime.setText(buffer.data().data().decode('utf-8'))
+            QApplication.clipboard().setMimeData(mime)
+            self.statusBar().showMessage("Reaction copied to clipboard (SVG)")
+
+        patch_core(MainWindowExport, 'copy_svg_to_clipboard', patched_copy_svg_to_clipboard)
+
         # Register Shortcut
         def patched_setup_copy_shortcut(self):
             # Try to find if shortcut already exists or just create a new action
@@ -1274,8 +1407,11 @@ def apply_core_patches(main_window):
                 # The original method adds SVG buttons at the end.
                 # We can add our PNG/Copy buttons there too.
                 self.property_toolbar.addSeparator()
-                self.property_toolbar.addAction("Export PNG", lambda: self.main_window.export_2d_png())
-                self.property_toolbar.addAction("Copy Image", lambda: self.main_window.copy_2d_image_to_clipboard())
+                # Use proper error handling to ensure functions exist
+                if hasattr(self.main_window, 'export_2d_png'):
+                    self.property_toolbar.addAction("Export PNG", lambda: self.main_window.export_2d_png())
+                if hasattr(self.main_window, 'copy_2d_image_to_clipboard'):
+                    self.property_toolbar.addAction("Copy PNG", lambda: self.main_window.copy_2d_image_to_clipboard())
                 
             patch_core(ModeManager, 'setup_property_toolbar', patched_setup_property_toolbar)
             
@@ -1286,9 +1422,22 @@ def apply_core_patches(main_window):
                 has_png = any(a.text() == "Export PNG" for a in rmm.property_toolbar.actions())
                 if not has_png:
                     rmm.property_toolbar.addSeparator()
-                    rmm.property_toolbar.addAction("Export PNG", lambda: main_window.export_2d_png())
-                    rmm.property_toolbar.addAction("Copy Image", lambda: main_window.copy_2d_image_to_clipboard())
+                    if hasattr(main_window, 'export_2d_png'):
+                        rmm.property_toolbar.addAction("Export PNG", lambda: main_window.export_2d_png())
+                    if hasattr(main_window, 'copy_2d_image_to_clipboard'):
+                        rmm.property_toolbar.addAction("Copy PNG", lambda: main_window.copy_2d_image_to_clipboard())
 
+
+    # Patch MainWindow to ensure copy_to_clipboard is available for standard calls
+    if MainWindowExport:
+        def forward_copy_clip(self):
+            # Forward to patched export logic
+            if hasattr(self, 'copy_2d_image_to_clipboard'):
+                 self.copy_2d_image_to_clipboard()
+            elif hasattr(MainWindowExport, 'copy_to_clipboard'):
+                MainWindowExport.copy_to_clipboard(self)
+            
+        patch_core(MainWindow, 'copy_to_clipboard', forward_copy_clip)
 
 def apply_interaction_patches(main_window):
     """Applies patches to View2D for mouse/key interactions. Active only in Reaction Mode."""
@@ -1305,56 +1454,59 @@ def apply_interaction_patches(main_window):
     # --- View2D Mouse/Key Events ---
     def patched_mousePressEvent(view, event):
         mw = view.window()
-        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
-            handler = mw.reaction_mode_manager.interaction_handler
+        if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
+            handler = mw._reaction_mode_manager.interaction_handler
             if handler and handler.handle_mouse_press(event):
                 return
         if (View2D, 'mousePressEvent') in _interaction_originals:
              _interaction_originals[(View2D, 'mousePressEvent')](view, event)
         else:
              # Fallback
-             from PyQt6.QtWidgets import QGraphicsView
              QGraphicsView.mousePressEvent(view, event)
 
     def patched_mouseMoveEvent(view, event):
         mw = view.window()
-        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
-            handler = mw.reaction_mode_manager.interaction_handler
+        if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
+            handler = mw._reaction_mode_manager.interaction_handler
             if handler and handler.handle_mouse_move(event):
                 return
         if (View2D, 'mouseMoveEvent') in _interaction_originals:
             _interaction_originals[(View2D, 'mouseMoveEvent')](view, event)
         else:
-            from PyQt6.QtWidgets import QGraphicsView
             QGraphicsView.mouseMoveEvent(view, event)
 
     def patched_mouseReleaseEvent(view, event):
         mw = view.window()
-        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
-            handler = mw.reaction_mode_manager.interaction_handler
+        if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
+            handler = mw._reaction_mode_manager.interaction_handler
             if handler and handler.handle_mouse_release(event):
                 return
         
         if (View2D, 'mouseReleaseEvent') in _interaction_originals:
             _interaction_originals[(View2D, 'mouseReleaseEvent')](view, event)
         else:
-            from PyQt6.QtWidgets import QGraphicsView
             QGraphicsView.mouseReleaseEvent(view, event)
 
     def patched_mouseDoubleClickEvent(view, event):
         mw = view.window()
-        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
-            handler = mw.reaction_mode_manager.interaction_handler
+        consumed = False
+        if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
+            handler = mw._reaction_mode_manager.interaction_handler
             if handler and hasattr(handler, "handle_mouse_double_click"):
                 if handler.handle_mouse_double_click(event):
-                    return
-        if (View2D, 'mouseDoubleClickEvent') in _interaction_originals:
-             _interaction_originals[(View2D, 'mouseDoubleClickEvent')](view, event)
+                    consumed = True
+        
+        if not consumed:
+             # Important: Pass to original to allow items to receive the event (e.g. Text Edit)
+             if (View2D, 'mouseDoubleClickEvent') in _interaction_originals:
+                  _interaction_originals[(View2D, 'mouseDoubleClickEvent')](view, event)
+             else:
+                  QGraphicsView.mouseDoubleClickEvent(view, event)
 
     def patched_keyPressEvent(view, event):
         mw = view.window()
-        if hasattr(mw, "reaction_mode_manager") and mw.reaction_mode_manager.is_reaction_mode:
-            handler = mw.reaction_mode_manager.interaction_handler
+        if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
+            handler = mw._reaction_mode_manager.interaction_handler
             if handler:
                 focus_item = view.scene().focusItem()
                 is_editing_text = (focus_item and hasattr(focus_item, "toPlainText") and hasattr(focus_item, "create_json_data") and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction))
@@ -1385,6 +1537,189 @@ def revert_interaction_patches():
 
 def revert_core_patches():
     _revert(_core_originals)
+
+# Additional Imports for Atom Logic
+try:
+    from modules.constants import ATOM_RADIUS, DESIRED_ATOM_PIXEL_RADIUS, FONT_FAMILY, FONT_WEIGHT_BOLD, CPK_COLORS
+except ImportError:
+    # Fallback or local definition if module path varies
+    ATOM_RADIUS = 20
+    DESIRED_ATOM_PIXEL_RADIUS = 15
+    FONT_FAMILY = "Arial"
+    FONT_WEIGHT_BOLD = 75
+    CPK_COLORS = {'Default': QColor("#000000")}
+
+def sip_isdeleted_safe(obj):
+    if obj is None: return True
+    try:
+        import sip
+        return sip.isdeleted(obj)
+    except: return True
+
+def patched_atom_paint(self, painter, option, widget):
+    # Cloned and Modified from AtomItem.paint to support (255,255,255,0) transparency
+    
+    # Color logic
+    color = CPK_COLORS.get(self.symbol, CPK_COLORS.get('DEFAULT', QColor(0,0,0)))
+    try:
+        if self.scene() and self.scene().views():
+            win = self.scene().views()[0].window()
+            if win and hasattr(win, 'settings'):
+                if self.symbol == 'H' or win.settings.get('atom_use_bond_color_2d', False):
+                    bond_col = win.settings.get('bond_color_2d', '#222222')
+                    color = QColor(bond_col)
+    except Exception: pass
+
+    if self.is_visible:
+        painter.setFont(self.font)
+        fm = painter.fontMetrics()
+
+        hydrogen_part = ""
+        if self.implicit_h_count > 0:
+            is_skeletal_carbon = (self.symbol == 'C' and self.charge == 0 and self.radical == 0 and len(self.bonds) > 0)
+            if not is_skeletal_carbon:
+                hydrogen_part = "H"
+                if self.implicit_h_count > 1:
+                    subscript_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+                    hydrogen_part += str(self.implicit_h_count).translate(subscript_map)
+
+        flip_text = False
+        if hydrogen_part and self.bonds:
+            my_pos_x = self.pos().x()
+            total_dx = 0.0
+            for bond in self.bonds:
+                try:
+                    other_atom = bond.atom1 if bond.atom2 is self else bond.atom2
+                    if not sip_isdeleted_safe(other_atom) and other_atom is not None:
+                         other_pos = other_atom.pos()
+                         total_dx += (other_pos.x() - my_pos_x)
+                except: pass
+            if total_dx > 0: flip_text = True
+
+        if flip_text:
+            display_text = hydrogen_part + self.symbol
+            alignment_flag = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        else:
+            display_text = self.symbol + hydrogen_part
+            alignment_flag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+
+        text_rect = fm.boundingRect(display_text)
+        text_rect.adjust(-2, -2, 2, 2)
+        symbol_rect = fm.boundingRect(self.symbol)
+
+        if not hydrogen_part:
+            alignment_flag = Qt.AlignmentFlag.AlignCenter
+            text_rect.moveCenter(QPointF(0, 0).toPoint())
+        elif flip_text:
+            offset_x = symbol_rect.width() // 2
+            text_rect.moveTo(offset_x - text_rect.width(), -text_rect.height() // 2)
+        else:
+            offset_x = -symbol_rect.width() // 2
+            text_rect.moveTo(offset_x, -text_rect.height() // 2)
+
+        # 2. Background Handling (THE FIX)
+        if self.scene():
+            bg_brush = self.scene().backgroundBrush()
+            bg_rect = text_rect.adjusted(-5, -8, 5, 8)
+            
+            # Check for NoBrush OR Transparent Alpha
+            is_transparent_mode = (bg_brush.style() == Qt.BrushStyle.NoBrush) or (bg_brush.color().alpha() == 0)
+
+            # Check if we are drawing to SVG (QPaintEngine.Type.SVG = 14)
+            # QSvgGenerator does NOT support PorterDuff composition modes (Clear/Source).
+            # If we try, it throws "PorterDuff modes not supported on device"
+            # However, paintEngine().type() might not be reliable or available.
+            # Safest is to try-except the composition mode call.
+            
+            should_use_composition = False
+            if is_transparent_mode:
+                # Try setting composition mode - if it fails (SVG), fallback
+                try:
+                     # Check type if available to avoid unnecessary exceptions
+                     if painter.paintEngine() and painter.paintEngine().type() != QPaintEngine.Type.SVG:
+                        painter.save()
+                        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                        should_use_composition = True
+                except:
+                     pass
+
+            if should_use_composition:
+                painter.setBrush(QColor(255, 255, 255, 0)) 
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(bg_rect)
+                painter.restore()
+            else:
+                # Fallback for SVG or Opaque Background
+                if not is_transparent_mode:
+                     painter.setBrush(bg_brush)
+                     painter.setPen(Qt.PenStyle.NoPen)
+                     painter.drawEllipse(bg_rect)
+                elif painter.paintEngine() and painter.paintEngine().type() == QPaintEngine.Type.SVG:
+                     # SVG + Transparent Mode requested.
+                     # User wants WHITE background for text in SVG to avoid "black" or transparency issues.
+                     # Since we can't use CompositionMode_Source to "erase" in SVG easily,
+                     # we paint a WHITE circle behind the text to mask bonds.
+                     painter.setBrush(QColor(255, 255, 255))
+                     painter.setPen(Qt.PenStyle.NoPen)
+                     painter.drawEllipse(bg_rect)
+                elif painter.paintEngine() and painter.paintEngine().type() == QPaintEngine.Type.SVG:
+                     # SVG + Transparent Mode requested.
+                     # User wants WHITE background for text in SVG to avoid "black" or transparency issues.
+                     # Since we can't use CompositionMode_Source to "erase" in SVG easily,
+                     # we paint a WHITE circle behind the text to mask bonds.
+                     painter.setBrush(QColor(255, 255, 255))
+                     painter.setPen(Qt.PenStyle.NoPen)
+                     painter.drawEllipse(bg_rect)
+        
+        # 3. Draw Text
+        painter.setPen(QPen(color))
+        painter.drawText(text_rect, int(alignment_flag), display_text)
+        
+        # Charge/Radical (Simplified for brevity, assuming original logic handles them via update/standard paint)
+        # Actually we need them. Let's add basic charge logic.
+        if self.charge != 0:
+            if self.charge == 1: charge_str = "+"
+            elif self.charge == -1: charge_str = "-"
+            else: charge_str = f"{abs(self.charge)}{'+' if self.charge>0 else '-'}"
+            charge_font = QFont("Arial", 12, QFont.Weight.Bold)
+            painter.setFont(charge_font)
+            charge_rect = painter.fontMetrics().boundingRect(charge_str)
+            if flip_text:
+                charge_pos = QPointF(text_rect.left() - charge_rect.width() -2, text_rect.top() + charge_rect.height() - 2)
+            else:
+                charge_pos = QPointF(text_rect.right() + 2, text_rect.top() + charge_rect.height() - 2)
+            painter.setPen(Qt.GlobalColor.black)
+            painter.drawText(charge_pos, charge_str)
+        
+        # Radical (Basic dots)
+        if self.radical > 0:
+            painter.setBrush(QBrush(Qt.GlobalColor.black))
+            painter.setPen(Qt.PenStyle.NoPen)
+            radical_pos_y = text_rect.top() - 5
+            c_x = text_rect.center().x()
+            if self.radical == 1:
+                painter.drawEllipse(QPointF(c_x, radical_pos_y), 3, 3)
+            elif self.radical == 2:
+                painter.drawEllipse(QPointF(c_x - 5, radical_pos_y), 3, 3)
+                painter.drawEllipse(QPointF(c_x + 5, radical_pos_y), 3, 3)
+
+
+    # Selection Highlight
+    if self.has_problem:
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
+        painter.drawRect(self.boundingRect())
+    elif self.isSelected():
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(0, 100, 255), 3))
+        painter.drawRect(self.boundingRect())
+    if (not self.isSelected()) and getattr(self, 'hovered', False):
+        pen = QPen(QColor(144, 238, 144, 200), 3)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        painter.drawRect(self.boundingRect())
+
 
 def revert_all_patches():
     _revert(_interaction_originals)

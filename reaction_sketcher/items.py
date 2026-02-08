@@ -3,7 +3,7 @@
 
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QStyleOptionGraphicsItem, QWidget, QStyle
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPainterPath
-from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent
+from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent, pyqtSignal
 import math
 
 def sip_isdeleted_safe(obj):
@@ -248,12 +248,7 @@ class ReactionArrowItem(QGraphicsItem):
         self.sync_handles()
         self.update()
 
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -422,12 +417,7 @@ class ReactionPlusItem(QGraphicsItem):
         self.size = size
         self.update()
 
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
 
     def create_json_data(self):
         return {
@@ -474,12 +464,7 @@ class ReactionMinusItem(QGraphicsItem):
         self.size = size
         self.update()
 
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
 
     def create_json_data(self):
         return {
@@ -1282,12 +1267,7 @@ class ReactionBracketItem(QGraphicsItem):
         self.sync_handles()
         self.update()
 
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -1469,12 +1449,7 @@ class ReactionCircleItem(QGraphicsItem):
         self.sync_handles()
         self.update()
 
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -1670,12 +1645,7 @@ class ReactionFreehandItem(QGraphicsItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(self.path)
 
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
         
     def create_json_data(self):
         # Save points relative to item pos
@@ -1697,6 +1667,9 @@ class ReactionFreehandItem(QGraphicsItem):
         self.setRotation(self.rotation() + angle_degrees)
 
 class ReactionTextItem(QGraphicsTextItem):
+    # Signal for UI updates
+    cursorChanged = pyqtSignal()
+
     def __init__(self, text, pos):
         super().__init__(text)
         self.setPos(pos)
@@ -1708,6 +1681,37 @@ class ReactionTextItem(QGraphicsTextItem):
         self.setFont(QFont("Arial", 25))
         self.setDefaultTextColor(QColor("#222222"))
         self.group_id = None
+        self.is_group_selected = False
+        
+        # Connect document cursor change to our signal
+        self.document().cursorPositionChanged.connect(self._on_cursor_changed)
+        
+    def _on_cursor_changed(self, cursor):
+        self.cursorChanged.emit()
+
+    def paint(self, painter, option, widget):
+        # Draw opaque white background requested by user ("only for text bkg")
+        # to mask underlying items (bonds, arrows)
+        rect = self.boundingRect()
+        
+        painter.save()
+        painter.setBrush(QColor(255, 255, 255))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(rect)
+        painter.restore()
+        
+        # Draw text on top
+        super().paint(painter, option, widget)
+
+    def mousePressEvent(self, event):
+        # If in edit mode, consume event to prevent scene drag
+        if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+            self.setFocus()
+            super().mousePressEvent(event)
+            event.accept() # STOP propagation
+        else:
+            # Not in edit mode - allow normal selection/movement
+            super().mousePressEvent(event)
         self.is_group_selected = False
 
     def shape(self):
@@ -1729,8 +1733,12 @@ class ReactionTextItem(QGraphicsTextItem):
         
     def mouseDoubleClickEvent(self, event):
         if self.textInteractionFlags() == Qt.TextInteractionFlag.NoTextInteraction:
-            self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+            # Enable BOTH TextEditorInteraction AND TextSelectableByMouse for proper mouse selection
+            self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction | Qt.TextInteractionFlag.TextSelectableByMouse)
             self.setFocus()
+            
+            # Disable Movable flag so we don't drag the item while selecting text
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             
             # Set cursor to click position
             # QGraphicsTextItem doesn't have cursorForPosition. Use document layout.
@@ -1743,31 +1751,65 @@ class ReactionTextItem(QGraphicsTextItem):
 
     def focusOutEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        # Restore Movable flag
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        
         # Verify selection state
         super().focusOutEvent(event)
 
     def keyPressEvent(self, event):
         # Handle shortcuts explicitly when in edit mode
         if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                if event.key() == Qt.Key.Key_B:
-                    # Toggle Bold
-                    fmt = self.textCursor().charFormat()
-                    fmt.setFontWeight(QFont.Weight.Bold if fmt.fontWeight() != QFont.Weight.Bold else QFont.Weight.Normal)
-                    self.textCursor().setCharFormat(fmt)
-                    return
-                elif event.key() == Qt.Key.Key_I:
-                    # Toggle Italic
-                    fmt = self.textCursor().charFormat()
-                    fmt.setFontItalic(not fmt.fontItalic())
-                    self.textCursor().setCharFormat(fmt)
-                    return
-                elif event.key() == Qt.Key.Key_U:
-                    # Toggle Underline
-                    fmt = self.textCursor().charFormat()
-                    fmt.setFontUnderline(not fmt.fontUnderline())
-                    self.textCursor().setCharFormat(fmt)
-                    return
+            if event.key() == Qt.Key.Key_B:
+                # Toggle Bold via ModeManager (Undo + Logic)
+                try:
+                    mw = get_main_window(self.scene())
+                    if mw and hasattr(mw, '_reaction_mode_manager'):
+                        mw._reaction_mode_manager.apply_text_style('bold')
+                    elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                        mw.ui_manager._reaction_mode_manager.apply_text_style('bold')
+                except: pass
+                event.accept()
+                return
+            elif event.key() == Qt.Key.Key_I:
+                # Toggle Italic
+                try:
+                    mw = get_main_window(self.scene())
+                    if mw and hasattr(mw, '_reaction_mode_manager'):
+                        mw._reaction_mode_manager.apply_text_style('italic')
+                    elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                        mw.ui_manager._reaction_mode_manager.apply_text_style('italic')
+                except: pass
+                event.accept()
+                return
+            elif event.key() == Qt.Key.Key_U:
+                # Toggle Underline
+                try:
+                    mw = get_main_window(self.scene())
+                    if mw and hasattr(mw, '_reaction_mode_manager'):
+                        mw._reaction_mode_manager.apply_text_style('underline')
+                    elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                        mw.ui_manager._reaction_mode_manager.apply_text_style('underline')
+                except: pass
+                event.accept()
+                return
+            elif event.key() == Qt.Key.Key_Equal or event.key() == Qt.Key.Key_Plus:
+                # Subscript/Superscript (Ctrl+= or Ctrl+Shift+=)
+                try:
+                    mw = get_main_window(self.scene())
+                    if mw and hasattr(mw, '_reaction_mode_manager'):
+                        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                            mw._reaction_mode_manager.toggle_superscript()
+                        else:
+                            mw._reaction_mode_manager.toggle_subscript()
+                    elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                            mw.ui_manager._reaction_mode_manager.toggle_superscript()
+                         else:
+                            mw.ui_manager._reaction_mode_manager.toggle_subscript()
+                except: pass
+                event.accept()
+                return
 
             if event.key() == Qt.Key.Key_Escape:
                 self.clearFocus()
@@ -1817,6 +1859,11 @@ class ReactionTextItem(QGraphicsTextItem):
                 cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
                 
                 fmt = cursor.charFormat()
+                
+                # USER REQUEST: "pass such cases" for underlined text (prevent defaulting to small)
+                if fmt.fontUnderline():
+                    continue
+                    
                 if format_type == 'sub':
                     fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
                 elif format_type == 'sup':
@@ -1824,13 +1871,62 @@ class ReactionTextItem(QGraphicsTextItem):
                 
                 cursor.setCharFormat(fmt)
 
-        # 1. Clear existing formatting (reset to Normal)
+        # 1. "Disable sub sup" (Clean up) 
+        # But respect "pass such cases" for underlined text.
+        # Strategy: 
+        #  a. Identify ranges that WILL be formatted by regex (below).
+        #  b. Iterate all other ranges: if NOT underlined, set to Normal.
+        
+        # Let's collect all indices that are "protected" (underlined) or "will be formatted"
+        text_len = len(self.toPlainText())
+        protected_indices = set()
+        
+        # Check for underline
+        # Iterating char by char is slow but safest for "pass such cases"
+        # Optimization: use ranges? For now, simple loop.
         cursor = self.textCursor()
-        cursor.select(QTextCursor.SelectionType.Document)
-        fmt = cursor.charFormat()
-        fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
-        cursor.setCharFormat(fmt)
-        cursor.clearSelection()
+        for i in range(text_len):
+            cursor.setPosition(i)
+            cursor.setPosition(i+1, QTextCursor.MoveMode.KeepAnchor)
+            if cursor.charFormat().fontUnderline():
+                protected_indices.add(i)
+
+        # 2. Apply Formats & Mark Indices
+        # We need to run regexes, apply formats, AND mark those indices as "touched"
+        # so we don't reset them later? 
+        # Actually, if we reset everything else first, it's cleaner.
+        
+        # Reset Pass:
+        # Reset any char that is NOT in protected_indices
+        cursor.setPosition(0)
+        for i in range(text_len):
+            if i not in protected_indices:
+                cursor.setPosition(i)
+                cursor.setPosition(i+1, QTextCursor.MoveMode.KeepAnchor)
+                fmt = cursor.charFormat()
+                if fmt.verticalAlignment() != QTextCharFormat.VerticalAlignment.AlignNormal:
+                     fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+                     cursor.setCharFormat(fmt)
+
+        # 3. Apply Subscripts (Digits)
+        # Matches: digits explicitly following letters/brackets
+        # ... (rest of regex logic) ...
+
+        # 2. Apply Subscripts (Digits)
+        # Matches: digits explicitly
+        # But we want to avoid coefficients like 2H2O.
+        # Simple heuristic: digit following a letter or closing bracket.
+        apply_format(r'(?<=[a-zA-Z\)])(\d+)', 'sub')
+
+        # 3. Apply Charges (Superscripts)
+        # Matches: +, -, 2+, 3-, etc. at the end or following atoms/brackets
+        # This is tricky. Let's look for explicitly patterns like Na+, Cl-, Fe2+, PO4 3-
+        # Regex: (digit?)[+-] 
+        # But be careful of hyphens in names. Assume mostly formula context.
+        apply_format(r'(?<=[a-zA-Z\d\)])(\d*[+-])(?=[\s]|$|[A-Z])', 'sup')
+        
+        # Restore selection/cursor if it was user-initiated? 
+        # Usually this is a "format all" action, so we leave cursor at end.
 
         # 2. Subscript Numbers (e.g. H2, C6)
         # Regex: Number immediately following a letter or closing parenthesis
@@ -1854,7 +1950,10 @@ class ReactionTextItem(QGraphicsTextItem):
         apply_format(r'(?<=[a-zA-Z0-9\)])([+-])(?=\s|$|[^a-zA-Z0-9])', 'sup')
 
     def focusInEvent(self, event):
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        # Enable BOTH TextEditorInteraction AND TextSelectableByMouse for mouse text selection
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction | Qt.TextInteractionFlag.TextSelectableByMouse)
+        # Disable Movable flag so we don't drag while selecting text
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         super().focusInEvent(event)
         # Disable main window shortcuts to prevent conflicts
         try:
@@ -1865,15 +1964,12 @@ class ReactionTextItem(QGraphicsTextItem):
                  mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
         except: pass
         
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        try:
-            mw = get_main_window(self.scene())
-            if mw: mw.push_undo_state()
-        except: pass
+
 
     def focusOutEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        # Restore Movable flag
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         
         # Auto-delete if empty
         if not self.toPlainText().strip():
@@ -1899,7 +1995,7 @@ class ReactionTextItem(QGraphicsTextItem):
     def paint(self, painter, option, widget):
         # Handle custom selection highlight
         is_selected = (option.state & QStyle.StateFlag.State_Selected)
-        if is_selected and not self.is_group_selected:
+        if is_selected and not getattr(self, 'is_group_selected', False):
             # Custom soft blue highlight
             painter.setPen(QPen(QColor(0, 100, 255, 150), 2, Qt.PenStyle.SolidLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -2064,11 +2160,7 @@ class ReactionGroupOverlay(QGraphicsItem):
                           item.size *= scale
                           item.update()
 
-            # Push undo
-            try:
-                mw = get_main_window(self.scene())
-                if mw: mw.push_undo_state()
-            except: pass
+
 
             # Force overlay update
             self.update_rect()
