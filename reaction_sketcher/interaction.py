@@ -224,10 +224,10 @@ class InteractionHandler(QObject):
         # DRAWING TOOLS (Arrow, etc.)
         # ... (Same as before) ...
         # Helper to select and add
-        def add_and_select(new_item):
-            # Apply defaults if available (generic arrow props for now)
-            if self.mode_manager and hasattr(self.mode_manager, "default_arrow_props"):
-                props = self.mode_manager.default_arrow_props
+        def add_and_select(new_item, item_type="general"):
+            # Apply defaults if available
+            if self.mode_manager and hasattr(self.mode_manager, "default_props"):
+                props = self.mode_manager.default_props.get(item_type, {})
                 if props:
                     if hasattr(new_item, "pen_color") and "color" in props:
                         new_item.pen_color = QColor(props["color"])
@@ -241,6 +241,13 @@ class InteractionHandler(QObject):
                         new_item.head_concavity = float(props["head_concavity"])
                     if hasattr(new_item, "curvature") and "curvature" in props:
                         new_item.curvature = float(props["curvature"])
+                    if hasattr(new_item, "double_arrow_offset") and "double_arrow_offset" in props:
+                        new_item.double_arrow_offset = float(props["double_arrow_offset"])
+                    if hasattr(new_item, "line_style") and "line_style" in props:
+                        new_item.line_style = props["line_style"]
+                    if hasattr(new_item, "cross_size") and "cross_size" in props:
+                        new_item.cross_size = float(props["cross_size"])
+
                     
             self.main_window.scene.addItem(new_item)
             self.main_window.scene.clearSelection()
@@ -251,28 +258,28 @@ class InteractionHandler(QObject):
             self.preview_item = ReactionArrowItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "arrow")
             return True
         elif self.active_tool == "arrow_res":
             self.start_pos = scene_pos
             self.preview_item = ReactionResonanceArrowItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_res", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "arrow_res")
             return True
         elif self.active_tool == "arrow_eq":
             self.start_pos = scene_pos
             self.preview_item = ReactionEquilibriumArrowItem(scene_pos, scene_pos)
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_eq", "harpoon")
             self.preview_item.double_arrow_offset = getattr(self.mode_manager, "default_double_arrow_offset", 4.0)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "arrow_eq")
             return True
         elif self.active_tool == "arrow_retro":
             self.start_pos = scene_pos
             self.preview_item = ReactionRetroArrowItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_retro", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "arrow_retro")
             return True
         elif self.active_tool == "arrow_no":
             self.start_pos = scene_pos
@@ -280,47 +287,47 @@ class InteractionHandler(QObject):
             self.preview_item.negation_style = self.mode_manager.default_no_arrow_style
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_no", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "arrow_no")
             return True
         elif self.active_tool == "curved_double":
             self.start_pos = scene_pos
             self.preview_item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("curved_double", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "curved_double")
             return True
         elif self.active_tool == "curved_fish":
             self.start_pos = scene_pos
             self.preview_item = ReactionCurvedArrowItem(QPointF(0,0), QPointF(0,0), is_fish_hook=True)
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("curved_fish", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "curved_fish")
             return True
         elif self.active_tool == "bracket":
             self.start_pos = scene_pos
             self.preview_item = ReactionBracketItem(scene_pos, scene_pos)
             self.preview_item.bracket_type = getattr(self.mode_manager, "default_bracket_type", "square")
             self.preview_item.line_style = getattr(self.mode_manager, "default_bracket_line_style", "solid")
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "bracket")
             return True
         elif self.active_tool == "circle":
             self.start_pos = scene_pos
             self.preview_item = ReactionCircleItem(scene_pos, scene_pos)
             self.preview_item.shape_type = getattr(self.mode_manager, "default_circle_shape_type", "circle")
             self.preview_item.line_style = getattr(self.mode_manager, "default_circle_line_style", "solid")
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "circle")
             return True
         elif self.active_tool == "plus":
             item = ReactionPlusItem(scene_pos)
-            add_and_select(item)
+            add_and_select(item, "plus")
             return True
         elif self.active_tool == "minus":
             item = ReactionMinusItem(scene_pos)
-            add_and_select(item)
+            add_and_select(item, "minus")
             return True
         elif self.active_tool == "text":
             item = ReactionTextItem("Text", scene_pos)
-            add_and_select(item)
+            add_and_select(item, "text")
             
             # Enable interaction FIRST, then focus, then select
             item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
@@ -337,35 +344,35 @@ class InteractionHandler(QObject):
             self.preview_item = ReactionDashedArrowItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.head_style = self.mode_manager.default_head_styles.get("arrow_dashed", "chevron")
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "arrow_dashed")
             return True
         elif self.active_tool == "line":
             self.start_pos = scene_pos
             self.preview_item = ReactionLineItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "line")
             return True
         elif self.active_tool == "line_dashed":
             self.start_pos = scene_pos
             self.preview_item = ReactionLineItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.line_style = "dashed"
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "line_dashed")
             return True
         elif self.active_tool == "line_curved":
             self.start_pos = scene_pos
             self.preview_item = ReactionCurvedLineItem(QPointF(0,0), QPointF(0,0))
             self.preview_item.setPos(self.start_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "line_curved")
             return True
         elif self.active_tool == "freehand":
             self.start_pos = scene_pos
             self.preview_item = ReactionFreehandItem(scene_pos)
-            add_and_select(self.preview_item)
+            add_and_select(self.preview_item, "freehand")
             # Special state for freehand
             self._freehand_drawing = True
             return True
-            
+        
         return False
 
     def handle_mouse_move(self, event):

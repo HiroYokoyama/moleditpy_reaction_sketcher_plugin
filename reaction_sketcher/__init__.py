@@ -26,18 +26,17 @@ from PyQt6.QtCore import QPointF
 
 from .mode_manager import ModeManager
 from .interaction import InteractionHandler
-from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem,
-                    ReactionMinusItem, ReactionResonanceArrowItem, 
-                    ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                    ReactionNoArrowItem, ReactionCurvedArrowItem,
-                    ReactionBracketItem, ReactionCircleItem,
-                    ReactionLineItem, ReactionCurvedLineItem,
-                    ReactionFreehandItem, ReactionDashedArrowItem)
+from .items import (
+    ReactionArrowItem, ReactionPlusItem, ReactionTextItem, ReactionMinusItem, 
+    ReactionResonanceArrowItem, ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
+    ReactionNoArrowItem, ReactionCurvedArrowItem, ReactionBracketItem, ReactionCircleItem,
+    ReactionLineItem, ReactionCurvedLineItem, ReactionFreehandItem, ReactionDashedArrowItem
+)
 from .utils import load_handler_core
 from .patcher import apply_patches
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "1.2.0"
+PLUGIN_VERSION = "1.3.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
@@ -107,10 +106,15 @@ def initialize(context):
         bcols = {f"{k[0]}-{k[1]}": d['item'].pen_color.name() for k, d in main_window.data.bonds.items() if getattr(d['item'], 'pen_color', None)}
 
         return {
+            "plugin_version": PLUGIN_VERSION,
             "items": reaction_items,
             "reaction_mode_active": mode_manager.is_reaction_mode or (len(reaction_items) > 0),
             "auto_start_pref": mode_manager.auto_start_pref,
-            "rs_colors": {"atoms": acols, "bonds": bcols}
+            "rs_colors": {"atoms": acols, "bonds": bcols},
+            "groups": {
+                "atoms": {str(aid): d['item'].group_id for aid, d in main_window.data.atoms.items() if hasattr(d['item'], 'group_id') and d['item'].group_id is not None},
+                "bonds": {f"{k[0]}-{k[1]}": d['item'].group_id for k, d in main_window.data.bonds.items() if hasattr(d['item'], 'group_id') and d['item'].group_id is not None}
+            }
         }
 
     def load_handler(data):
@@ -122,6 +126,11 @@ def initialize(context):
         if isinstance(data, list):
             reaction_items = data
         elif isinstance(data, dict):
+            # Log loaded plugin version for compatibility tracking
+            loaded_version = data.get("plugin_version", "unknown")
+            if loaded_version != PLUGIN_VERSION:
+                print(f"Reaction Sketcher: Loading project created with v{loaded_version} (current: v{PLUGIN_VERSION})")
+            
             reaction_items = data.get("items", [])
             mode_mgr_auto = data.get("auto_start_pref", False)
             mode_manager.auto_start_pref = mode_mgr_auto
@@ -152,6 +161,25 @@ def initialize(context):
                 elif (k[1], k[0]) in main_window.data.bonds:
                     main_window.data.bonds[(k[1], k[0])]['item'].pen_color = QColor(col)
                     main_window.data.bonds[(k[1], k[0])]['item'].update()
+            except: pass
+
+        # Restore groups
+        groups = data.get("groups", {})
+        ag_data = groups.get("atoms", {})
+        for aid_str, gid in ag_data.items():
+            aid = int(aid_str)
+            if aid in main_window.data.atoms:
+                main_window.data.atoms[aid]['item'].group_id = gid
+
+        bg_data = groups.get("bonds", {})
+        for key, gid in bg_data.items():
+            try:
+                id1_s, id2_s = key.split('-')
+                k = (int(id1_s), int(id2_s))
+                if k in main_window.data.bonds:
+                    main_window.data.bonds[k]['item'].group_id = gid
+                elif (k[1], k[0]) in main_window.data.bonds:
+                    main_window.data.bonds[(k[1], k[0])]['item'].group_id = gid
             except: pass
 
         if should_enter_mode and not mode_manager.is_reaction_mode:

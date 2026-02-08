@@ -5,23 +5,32 @@ import time
 import json
 import os
 import uuid
-from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy, 
-                             QComboBox, QSpinBox, QCheckBox, QHBoxLayout, QGridLayout, QWidget, QLabel, 
-                             QColorDialog, QFileDialog, QMessageBox, QMenu, QFrame)
-from PyQt6.QtGui import (QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, 
-                         QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, QFontDatabase,
-                         QCursor, QImage)
+from PyQt6.QtWidgets import (
+    QToolBar, QToolButton, QSizePolicy, QComboBox, QSpinBox, QCheckBox, 
+    QHBoxLayout, QGridLayout, QWidget, QLabel, QColorDialog, QFileDialog, 
+    QMessageBox, QMenu, QFrame
+)
+from PyQt6.QtGui import (
+    QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, 
+    QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, 
+    QFontDatabase, QCursor, QImage
+)
 from PyQt6.QtSvg import QSvgGenerator
-from PyQt6.QtCore import (Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, 
-                          QObject, QEvent, QTimer, QFile)
+from PyQt6.QtCore import (
+    Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, 
+    QObject, QEvent, QTimer, QFile
+)
+
 from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
-from .patcher import (apply_interaction_patches, revert_interaction_patches,
-                      apply_core_patches, revert_core_patches, revert_all_patches)
-from .items import (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, 
-                    ReactionCircleItem, ReactionPlusItem, ReactionMinusItem,
-                    ReactionDashedArrowItem, ReactionResonanceArrowItem, 
-                    ReactionEquilibriumArrowItem, ReactionRetroArrowItem, 
-                    ReactionCurvedArrowItem)
+from .patcher import (
+    apply_interaction_patches, revert_interaction_patches,
+    apply_core_patches, revert_core_patches, revert_all_patches
+)
+from .items import (
+    ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem, 
+    ReactionPlusItem, ReactionMinusItem, ReactionDashedArrowItem, ReactionResonanceArrowItem, 
+    ReactionEquilibriumArrowItem, ReactionRetroArrowItem, ReactionCurvedArrowItem
+)
 
 class ModeManager(QObject):
     def __init__(self, main_window):
@@ -65,6 +74,8 @@ class ModeManager(QObject):
 
     def load_defaults(self):
         """Load default settings from settings.json if available."""
+        self.default_props = {} # Store all type-specific defaults
+        
         settings_file = os.path.join(os.path.dirname(__file__), "settings.json")
         if os.path.exists(settings_file):
             try:
@@ -72,23 +83,60 @@ class ModeManager(QObject):
                     data = json.load(f)
                     templates = data.get("templates", {})
                     
-                    # Arrow Defaults
-                    if "Default_arrow" in templates:
-                        defs = templates["Default_arrow"]
-                        # Save whole dict for interaction.py to use
-                        self.default_arrow_props = defs
-                        
-                        style = defs.get("head_style")
-                        if style:
-                            self.default_head_styles["arrow"] = style
-                            self.default_head_styles["arrow_dashed"] = style
-                            self.default_head_styles["curved_double"] = style
-                            self.default_head_styles["curved_double"] = style
-                            self.default_head_styles["curved_fish"] = style
-                        
-                        if "double_arrow_offset" in defs:
-                             self.default_double_arrow_offset = float(defs["double_arrow_offset"])
-            except: pass
+                    # Iterate all keys to find Default_{type}
+                    for key, val in templates.items():
+                        if key.startswith("Default_"):
+                            item_type = key[len("Default_"):]
+                            self.default_props[item_type] = val
+
+                            # Legacy Support: Update individual properties where applicable
+                            if item_type == "arrow":
+                                style = val.get("head_style")
+                                if style:
+                                    self.default_head_styles["arrow"] = style
+                                    self.default_head_styles["arrow_dashed"] = style
+                                    self.default_head_styles["curved_double"] = style
+                                    self.default_head_styles["curved_fish"] = style
+                                
+                                # Also update specialized defaults
+                                if "double_arrow_offset" in val:
+                                    self.default_double_arrow_offset = float(val["double_arrow_offset"])
+                                    
+                            elif item_type == "arrow_eq":
+                                style = val.get("head_style")
+                                if style: self.default_head_styles["arrow_eq"] = style
+                                if "double_arrow_offset" in val:
+                                     self.default_double_arrow_offset = float(val["double_arrow_offset"])
+
+                            elif item_type == "arrow_res":
+                                style = val.get("head_style")
+                                if style: self.default_head_styles["arrow_res"] = style
+
+                            elif item_type == "arrow_retro":
+                                style = val.get("head_style")
+                                if style: self.default_head_styles["arrow_retro"] = style
+                                
+                            elif item_type == "arrow_no":
+                                style = val.get("head_style")
+                                if style: self.default_head_styles["arrow_no"] = style
+                                if "negation_style" in val:
+                                    self.default_no_arrow_style = val["negation_style"]
+                                if "cross_size" in val:
+                                    # We don't have a specific attribute for this in mode_manager
+                                    # but it will be in self.default_props["arrow_no"] automatically
+                                    # because we store 'val' into default_props.
+                                    pass
+
+                            elif item_type == "bracket":
+                                if "bracket_type" in val: self.default_bracket_type = val["bracket_type"]
+                                
+                            elif item_type == "circle":
+                                if "shape_type" in val: self.default_circle_shape_type = val["shape_type"]
+                                if "line_style" in val: self.default_circle_line_style = val["line_style"]
+                                
+            except Exception as e:
+                # print(f"Error loading defaults: {e}")
+                pass
 
     def setup_shortcuts(self):
         """Setup keyboard shortcuts for grouping etc."""
@@ -270,6 +318,15 @@ class ModeManager(QObject):
         
         self.reaction_toolbar.addWidget(container)
         
+        # --- About Button (Side Toolbar) ---
+        self.reaction_toolbar.addSeparator()
+        from .icons import create_about_icon
+        about_action = QAction("About", self.main_window)
+        about_action.setIcon(create_about_icon())
+        about_action.setToolTip("About Reaction Sketcher")
+        about_action.triggered.connect(self.show_about_dialog)
+        self.reaction_toolbar.addAction(about_action)
+        
         # Select default
         for action in self.action_group.actions():
             if action.property("tool_name") == "select":
@@ -393,12 +450,7 @@ class ModeManager(QObject):
         self.property_toolbar.addWidget(self.font_size_spin)
         
         # Item Size (Plus / Minus)
-        self.lbl_item_size = QLabel(" Size: ")
-        self.property_toolbar.addWidget(self.lbl_item_size)
-        self.size_spin = QSpinBox()
-        self.size_spin.setRange(5, 200)
-        self.size_spin.valueChanged.connect(self.apply_properties)
-        self.property_toolbar.addWidget(self.size_spin)
+        # Size control removed - now only in settings dialog
         
         self.property_toolbar.addSeparator()
         
@@ -421,6 +473,7 @@ class ModeManager(QObject):
         
         self.property_toolbar.addSeparator()
 
+        
         self.property_toolbar.addSeparator()
         
         # Advanced Settings Button
@@ -886,8 +939,7 @@ class ModeManager(QObject):
             # Reset Toolbar to Default (No Selection)
             self.lbl_font_size.hide()
             self.font_size_spin.hide()
-            self.lbl_item_size.hide()
-            self.size_spin.hide()
+            # Size control removed
             
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
@@ -896,7 +948,7 @@ class ModeManager(QObject):
             self.sub_action.setEnabled(False)
             self.sup_action.setEnabled(False)
             self.chem_action.setEnabled(False)
-            self.width_spin.setEnabled(False)
+            self.width_spin.setEnabled(False)  # Disable width when no items selected
             
             # Reset color button to default logic or keep last used? 
             # Usually keep last used color for next drawing action is preferred.
@@ -914,8 +966,7 @@ class ModeManager(QObject):
         # Sync size (for text or signs)
         self.lbl_font_size.hide()
         self.font_size_spin.hide()
-        self.lbl_item_size.hide()
-        self.size_spin.hide()
+        # Size control removed
         
         if isinstance(first, ReactionTextItem):
             # Get font from actual content (Rich Text)
@@ -989,21 +1040,10 @@ class ModeManager(QObject):
             self.chem_action.setEnabled(True)
 
             self.font_size_spin.setEnabled(True)
-        elif hasattr(first, "size"):
-            self.lbl_item_size.show()
-            self.size_spin.show()
-            self.size_spin.setValue(int(first.size))
-            self.size_spin.setEnabled(True)
-            
-            self.font_combo.setEnabled(False)
-            self.bold_action.setEnabled(False)
-            self.italic_action.setEnabled(False)
-            self.underline_action.setEnabled(False)
-            self.sub_action.setEnabled(False)
-            self.sup_action.setEnabled(False)
-            self.chem_action.setEnabled(False)
         else:
+            # Non-text items - disable all text controls and font size
             self.font_combo.setEnabled(False)
+            self.font_size_spin.setEnabled(False)  # Disable font size for non-text items
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
             self.underline_action.setEnabled(False)
@@ -1274,10 +1314,21 @@ class ModeManager(QObject):
 
     def on_tool_clicked(self, button, action):
         # If the tool WAS already active before we clicked it -> Show Menu (Toggle options)
+        # MacOS Fix: check if it WAS active. If so, ensure it REMAINS active (checked) and show menu.
         if getattr(self, '_was_active_before_click', False):
+            # Force checked state back on if the click toggled it off
+            if not action.isChecked():
+                action.setChecked(True)
+            
             # Toggle menu
             tool_name = action.property("tool_name")
             if tool_name:
+                # Check for rapid re-click after menu close (allow 300ms cooldown)
+                import time
+                last_close = getattr(self, '_last_menu_close_time', 0)
+                if time.time() - last_close < 0.3:
+                    return
+
                 self.show_tool_context_menu(button, tool_name, QPoint(0, button.height()))
 
     def activate_select_tool(self):
@@ -1293,13 +1344,16 @@ class ModeManager(QObject):
     def show_tool_context_menu(self, button, tool_name, pos):
         menu = self.create_tool_style_menu(tool_name)
         if menu:
-            if button:
-                menu.exec(button.mapToGlobal(pos))
+            # Execute menu
             if button:
                 menu.exec(button.mapToGlobal(pos))
             else:
-                menu.exec(QCursor.pos())
+                menu.exec(pos)
+                
+            # Record close time to prevent immediate re-opening
+            import time
             self._last_menu_close_time = time.time()
+
 
     def create_tool_style_menu(self, tool_name):
         """Create a context menu for selecting tool styles (arrowheads, negation marks, etc.)."""
@@ -1408,16 +1462,46 @@ class ModeManager(QObject):
             act_sq.setCheckable(True)
             act_sq.setChecked(curr_type == "square")
             act_sq.triggered.connect(lambda: self.set_bracket_type("square"))
+            
+            act_sq_l = menu.addAction("Square Left [")
+            act_sq_l.setCheckable(True)
+            act_sq_l.setChecked(curr_type == "square_left")
+            act_sq_l.triggered.connect(lambda: self.set_bracket_type("square_left"))
+            
+            act_sq_r = menu.addAction("Square Right ]")
+            act_sq_r.setCheckable(True)
+            act_sq_r.setChecked(curr_type == "square_right")
+            act_sq_r.triggered.connect(lambda: self.set_bracket_type("square_right"))
 
             act_rd = menu.addAction("Round ( )")
             act_rd.setCheckable(True)
             act_rd.setChecked(curr_type == "round")
             act_rd.triggered.connect(lambda: self.set_bracket_type("round"))
+            
+            act_rd_l = menu.addAction("Round Left (")
+            act_rd_l.setCheckable(True)
+            act_rd_l.setChecked(curr_type == "round_left")
+            act_rd_l.triggered.connect(lambda: self.set_bracket_type("round_left"))
+            
+            act_rd_r = menu.addAction("Round Right )")
+            act_rd_r.setCheckable(True)
+            act_rd_r.setChecked(curr_type == "round_right")
+            act_rd_r.triggered.connect(lambda: self.set_bracket_type("round_right"))
 
             act_cur = menu.addAction("Curly { }")
             act_cur.setCheckable(True)
             act_cur.setChecked(curr_type == "curly")
             act_cur.triggered.connect(lambda: self.set_bracket_type("curly"))
+            
+            act_cur_l = menu.addAction("Curly Left {")
+            act_cur_l.setCheckable(True)
+            act_cur_l.setChecked(curr_type == "curly_left")
+            act_cur_l.triggered.connect(lambda: self.set_bracket_type("curly_left"))
+            
+            act_cur_r = menu.addAction("Curly Right }")
+            act_cur_r.setCheckable(True)
+            act_cur_r.setChecked(curr_type == "curly_right")
+            act_cur_r.triggered.connect(lambda: self.set_bracket_type("curly_right"))
             
         elif tool_name == "circle":
             # 4 Options: Solid Rect, Dashed Rect, Solid Circle, Dashed Circle
@@ -1616,6 +1700,19 @@ class ModeManager(QObject):
             
         self._shortcuts_disabled = False
 
+    def show_about_dialog(self):
+        """Display About dialog with plugin version and information."""
+        from PyQt6.QtWidgets import QMessageBox
+        from . import PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR, PLUGIN_DESCRIPTION
+        
+        about_text = f"""<h2>{PLUGIN_NAME}</h2>
+<p><b>Version:</b> {PLUGIN_VERSION}</p>
+<p><b>Author:</b> {PLUGIN_AUTHOR}</p>
+<p>{PLUGIN_DESCRIPTION}</p>
+"""
+        
+        QMessageBox.about(self.main_window, f"About {PLUGIN_NAME}", about_text)
+
     def open_advanced_settings(self, tool_name=None):
         """Open the advanced settings dialog for the selected item or current tool defaults."""
         from .settings_dialog import AdvancedSettingsDialog
@@ -1653,12 +1750,30 @@ class ModeManager(QObject):
                         item.pen_width = settings["width"]
                     if "head_size" in settings and hasattr(item, "head_size"):
                         item.head_size = settings["head_size"]
-                    if "head_angle" in settings and hasattr(item, "head_angle"):
-                        item.head_angle = settings["head_angle"]
-                    if "head_concavity" in settings and hasattr(item, "head_concavity"):
-                         item.head_concavity = settings["head_concavity"]
-                    if "curvature" in settings and hasattr(item, "curvature"):
-                         item.curvature = settings["curvature"]
+                    if "head_angle" in settings:
+                        if hasattr(item, "head_angle"): item.head_angle = settings["head_angle"]
+                    if "head_concavity" in settings:
+                        if hasattr(item, "head_concavity"): item.head_concavity = settings["head_concavity"]
+                    if "curvature" in settings:
+                        if hasattr(item, "curvature"): item.curvature = settings["curvature"]
+                        
+                    if "control_p" in settings and hasattr(item, "control_p"):
+                        # Restore manual control point
+                        cp_data = settings["control_p"]
+                        from PyQt5.QtCore import QPointF
+                        item.control_p = QPointF(cp_data[0], cp_data[1])
+                        # We must force update handles or internal state
+                        if hasattr(item, "sync_handles"):
+                            item.sync_handles()
+
+                    if "double_arrow_offset" in settings:
+                        if hasattr(item, "double_arrow_offset"): item.double_arrow_offset = settings["double_arrow_offset"]
+                    if "cross_size" in settings:
+                        if hasattr(item, "cross_size"):
+                            item.cross_size = settings["cross_size"]
+                    if "size" in settings:
+                        if hasattr(item, "size"):
+                            item.size = settings["size"]
                     if "bracket_type" in settings and hasattr(item, "bracket_type"):
                          item.bracket_type = settings["bracket_type"]
                     
@@ -1718,44 +1833,56 @@ class ModeManager(QObject):
                     should_convert = True
             
             if should_convert:
-                # Create new item
-                old_state = item.create_json_data()
-                
-                # Pass fish hook parameter if applicable
-                kwargs = {}
-                if tool_name == "curved_fish":
-                    kwargs["is_fish_hook"] = True
-                
-                new_item = target_class(item.start_p, item.end_p, **kwargs)
-                
-                # Copy properties
-                if hasattr(new_item, "pen_color") and "color" in old_state:
-                     new_item.pen_color = QColor(old_state["color"])
-                if hasattr(new_item, "pen_width") and "width" in old_state:
-                     new_item.pen_width = old_state["width"]
-                if hasattr(new_item, "head_size") and "head_size" in old_state:
-                     new_item.head_size = old_state["head_size"]
-                if hasattr(new_item, "head_angle") and "head_angle" in old_state:
-                     new_item.head_angle = old_state["head_angle"]
-                if hasattr(new_item, "head_concavity") and "head_concavity" in old_state:
-                     new_item.head_concavity = old_state["head_concavity"]
-                
-                # Special handling for curved
-                if isinstance(new_item, ReactionCurvedArrowItem):
-                     if "cp_x" in old_state:
-                         # Try to preserve curve?
-                         # If converting Straight -> Curved, start/end is fine. Control point needs default.
-                         # If Curved -> Curved (e.g. Double -> Fish?), not hitting this block usually (same class)
-                         pass
-                
-                # Set new style
-                new_item.head_style = style
-                
-                # Replace in scene
-                scene.addItem(new_item)
-                scene.removeItem(item)
-                new_item.setSelected(True)
-                modified = True
+                try:
+                    # Create new item
+                    old_state = item.create_json_data()
+                    
+                    # Pass fish hook parameter if applicable
+                    kwargs = {}
+                    if tool_name == "curved_fish":
+                        kwargs["is_fish_hook"] = True
+                    
+                    # Safety check: Ensure we don't pass kwargs to straight arrows if they don't support them
+                    # ReactionCurvedArrowItem supports **kwargs in our logic above (start, end, is_fish_hook)
+                    # But strictly it is __init__(start, end, is_fish_hook=False)
+                    
+                    if target_class == ReactionCurvedArrowItem:
+                        new_item = target_class(item.start_p, item.end_p, **kwargs)
+                    else:
+                        new_item = target_class(item.start_p, item.end_p)
+                    
+                    # Copy properties
+                    if hasattr(new_item, "pen_color") and "color" in old_state:
+                         new_item.pen_color = QColor(old_state["color"])
+                    if hasattr(new_item, "pen_width") and "width" in old_state:
+                         new_item.pen_width = old_state["width"]
+                    if hasattr(new_item, "head_size") and "head_size" in old_state:
+                         new_item.head_size = old_state["head_size"]
+                    if hasattr(new_item, "head_angle") and "head_angle" in old_state:
+                         new_item.head_angle = old_state["head_angle"]
+                    if hasattr(new_item, "head_concavity") and "head_concavity" in old_state:
+                         new_item.head_concavity = old_state["head_concavity"]
+                    
+                    # Special handling for curved
+                    if isinstance(new_item, ReactionCurvedArrowItem):
+                         if "cp_x" in old_state:
+                             # Try to preserve curve?
+                             # For now, let it reset to straight-ish curve default or we can try to map it.
+                             pass
+                    
+                    # Set new style
+                    new_item.head_style = style
+                    
+                    # Replace in scene
+                    scene.addItem(new_item)
+                    scene.removeItem(item)
+                    new_item.setSelected(True)
+                    modified = True
+                    
+                except Exception as e:
+                    print(f"Error converting item: {e}")
+                    # Do NOT remove the old item if creation failed
+                    pass
                 
             else:
                 # Same type, just update style
@@ -2224,6 +2351,27 @@ class ModeManager(QObject):
                 "rect": rect,
                 "center": rect.center()
             })
+            
+            # Calculate COG (Average of Atom Centers for Molecules, or Center for others)
+            cog_x = 0
+            cog_y = 0
+            count = 0
+            
+            # Prioritize Atoms for COG
+            atom_members = [m for m in unit_members if hasattr(m, 'atom_id')]
+            target_members = atom_members if atom_members else unit_members
+            
+            for m in target_members:
+                # Use sceneBoundingRect center as proxy for item center
+                c = m.sceneBoundingRect().center()
+                cog_x += c.x()
+                cog_y += c.y()
+                count += 1
+            
+            if count > 0:
+                units[-1]["cog"] = QPointF(cog_x / count, cog_y / count)
+            else:
+                units[-1]["cog"] = rect.center()
         
         return units
 
@@ -2305,102 +2453,96 @@ class ModeManager(QObject):
         if not self.main_window or not self.main_window.scene: return
         
         items = self.main_window.scene.selectedItems()
+        # 3つ未満なら「間」がないので均等配置の必要なし
         if len(items) < 3: return
         
         units = self.get_logical_units(items)
         if len(units) < 3: return
         
         moved_atoms = []
-        
+
+        # ---------------------------------------------------------
+        # データモデル更新用の内部関数 (原子座標データの書き換え)
+        # ---------------------------------------------------------
+        def update_atom_data_model(item, delta, axis_char):
+            if not hasattr(self.main_window, 'data'): return
+            mol_data = self.main_window.data
+            if not hasattr(mol_data, 'atoms'): return
+            
+            aid = getattr(item, 'atom_id', None)
+            if aid in mol_data.atoms:
+                atom_obj = mol_data.atoms[aid].get('atom')
+                # axis_char ('x' or 'y') に応じて座標を更新
+                if atom_obj and hasattr(atom_obj, axis_char):
+                    current_val = getattr(atom_obj, axis_char)
+                    setattr(atom_obj, axis_char, current_val + delta)
+
+        # ---------------------------------------------------------
+        # 水平方向 (Horizontal) の処理
+        # ---------------------------------------------------------
         if axis == "horizontal":
-            # Sort by X position (center)
-            units.sort(key=lambda u: u["center"].x())
+            # 【修正】Leftではなく「中心(center.x)」でソートする
+            # これにより「計算上の最も左」と「最も右」がリストの両端に確実に配置されます
+            units.sort(key=lambda u: (u["rect"].center().x(), u["rect"].top()))
             
-            # Keep first and last fixed, distribute middle objects by center
-            start_center_x = units[0]["center"].x()
-            end_center_x = units[-1]["center"].x()
-            total_span = end_center_x - start_center_x
+            # ソート後の最初と最後を「動かないアンカー」とする
+            start_val = units[0]["rect"].center().x()
+            end_val = units[-1]["rect"].center().x()
             
-            # Distribute middle objects evenly between edges
-            if len(units) > 2:
-                gap = total_span / (len(units) - 1)
+            # 全体の距離を (個数 - 1) で割って1つあたりの間隔(gap)を算出
+            gap = (end_val - start_val) / (len(units) - 1)
+            
+            for i, u in enumerate(units):
+                # 両端（0番目と最後）は固定なのでスキップ
+                if i == 0 or i == len(units) - 1:
+                    continue
                 
-                # Only move middle items (skip first and last)
-                for i, u in enumerate(units):
-                    if i == 0 or i == len(units) - 1:
-                        # Skip edge objects
-                        continue
-                    
-                    target_center_x = start_center_x + (i * gap)
-                    dx = target_center_x - u["center"].x()
-                    
-                    if abs(dx) > 0.1:
-                        for item in u["members"]:
-                            # Only move atoms
-                            if hasattr(item, 'atom_id'):
-                                # Update core data
-                                if hasattr(self.main_window, 'data'):
-                                    mol_data = self.main_window.data
-                                    if hasattr(mol_data, 'atoms'):
-                                        aid = item.atom_id
-                                        if aid in mol_data.atoms:
-                                            atom_obj = mol_data.atoms[aid].get('atom')
-                                            if atom_obj and hasattr(atom_obj, 'x'):
-                                                atom_obj.x += dx
-                                
-                                # Move visual item
-                                item.moveBy(dx, 0)
-                                moved_atoms.append(item)
-                            
-                            # Move reaction items
-                            elif not hasattr(item, 'atom1'):
-                                item.moveBy(dx, 0)
-                    
+                # 理想の中心位置を計算
+                target_val = start_val + (i * gap)
+                # 現在の中心位置との差分 (移動量)
+                dx = target_val - u["rect"].center().x()
+                
+                if abs(dx) > 0.1: # 微小なズレは無視
+                    for item in u["members"]:
+                        if hasattr(item, 'atom_id'):
+                            update_atom_data_model(item, dx, 'x')
+                            item.moveBy(dx, 0)
+                            moved_atoms.append(item)
+                        elif not hasattr(item, 'atom1'): # Bond以外
+                            item.moveBy(dx, 0)
+
+        # ---------------------------------------------------------
+        # 垂直方向 (Vertical) の処理
+        # ---------------------------------------------------------
         elif axis == "vertical":
-            # Sort by Y position (center)
-            units.sort(key=lambda u: u["center"].y())
+            # 【修正】Topではなく「中心(center.y)」でソートする
+            units.sort(key=lambda u: (u["rect"].center().y(), u["rect"].left()))
             
-            # Keep first and last fixed, distribute middle objects by center
-            start_center_y = units[0]["center"].y()
-            end_center_y = units[-1]["center"].y()
-            total_span = end_center_y - start_center_y
+            start_val = units[0]["rect"].center().y()
+            end_val = units[-1]["rect"].center().y()
             
-            # Distribute middle objects evenly between edges
-            if len(units) > 2:
-                gap = total_span / (len(units) - 1)
+            gap = (end_val - start_val) / (len(units) - 1)
+            
+            for i, u in enumerate(units):
+                # 両端は固定
+                if i == 0 or i == len(units) - 1:
+                    continue
                 
-                # Only move middle items (skip first and last)
-                for i, u in enumerate(units):
-                    if i == 0 or i == len(units) - 1:
-                        # Skip edge objects
-                        continue
-                    
-                    target_center_y = start_center_y + (i * gap)
-                    dy = target_center_y - u["center"].y()
-                    
-                    if abs(dy) > 0.1:
-                        for item in u["members"]:
-                            # Only move atoms
-                            if hasattr(item, 'atom_id'):
-                                # Update core data
-                                if hasattr(self.main_window, 'data'):
-                                    mol_data = self.main_window.data
-                                    if hasattr(mol_data, 'atoms'):
-                                        aid = item.atom_id
-                                        if aid in mol_data.atoms:
-                                            atom_obj = mol_data.atoms[aid].get('atom')
-                                            if atom_obj and hasattr(atom_obj, 'y'):
-                                                atom_obj.y += dy
-                                
-                                # Move visual item
-                                item.moveBy(0, dy)
-                                moved_atoms.append(item)
-                            
-                            # Move reaction items
-                            elif not hasattr(item, 'atom1'):
-                                item.moveBy(0, dy)
+                target_val = start_val + (i * gap)
+                dy = target_val - u["rect"].center().y()
+                
+                if abs(dy) > 0.1:
+                    for item in u["members"]:
+                        if hasattr(item, 'atom_id'):
+                            update_atom_data_model(item, dy, 'y')
+                            item.moveBy(0, dy)
+                            moved_atoms.append(item)
+                        elif not hasattr(item, 'atom1'): # Bond以外
+                            item.moveBy(0, dy)
         
-        # Update bond positions
+        # ---------------------------------------------------------
+        # 結合(Bond)と画面の更新
+        # ---------------------------------------------------------
         if moved_atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
             self.main_window.scene.update_connected_bonds(moved_atoms)
                     

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtGui import QIcon, QPainter, QPixmap, QPen, QColor, QFont, QPolygonF, QPainterPath
+from PyQt6.QtGui import QIcon, QPainter, QPixmap, QPen, QColor, QFont, QPolygonF, QPainterPath, QBrush
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 def create_reaction_icon(tool_name, size=32):
@@ -483,5 +483,38 @@ def create_alignment_icon(tool_name, size=32):
         painter.drawLine(x1, int(h/2), x2, int(h/2))
         painter.drawLine(x1, h-m-2, x2, h-m-2)
 
+    painter.end()
+    return QIcon(pixmap)
+
+def create_about_icon(size=32):
+    """Create About/Info icon (ⓘ)."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    
+    # Background
+    margin = 2
+    r_rect = QRectF(margin, margin, size - 2*margin, size - 2*margin)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(240, 240, 240, 255))
+    painter.drawRoundedRect(r_rect, 6, 6)
+    
+    # Draw circle
+    painter.setPen(QPen(QColor(50, 120, 200), 2))
+    painter.setBrush(QBrush(QColor(80, 150, 230, 100)))
+    painter.drawEllipse(6, 6, 20, 20)
+    
+    # Draw "i" letter
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(QColor(50, 120, 200)))
+    
+    # Dot above i
+    painter.drawEllipse(14, 10, 4, 4)
+    
+    # Vertical line of i
+    painter.drawRect(14, 17, 4, 9)
+    
     painter.end()
     return QIcon(pixmap)

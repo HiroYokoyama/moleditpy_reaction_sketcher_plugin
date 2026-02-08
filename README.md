@@ -2,10 +2,6 @@
 
 ![Reaction Sketcher](img/main.png)
 
-> [!Warning]
-> ### **Warning: Early Development**
-> This project is currently in early development. It is likely to contain **bugs** and **breaking changes**. Use at your own risk!
-
 A comprehensive chemical reaction sketching tool for MoleditPy, allowing users to draw reaction text, arrows, brackets, and annotations directly in the 2D workspace.
 
 ## Features

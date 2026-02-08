@@ -99,10 +99,28 @@ class AdvancedSettingsDialog(QDialog):
             self.spacing_spin.setValue(float(self.item.double_arrow_offset))
             props_layout.addRow("Double Arrow Spacing:", self.spacing_spin)
 
+        # Cross Size (No Reaction)
+        if hasattr(self.item, "cross_size"):
+             self.cross_size_spin = QDoubleSpinBox()
+             self.cross_size_spin.setRange(5.0, 100.0)
+             self.cross_size_spin.setValue(float(self.item.cross_size))
+             props_layout.addRow("Cross/Slash Size:", self.cross_size_spin)
+        
+         # Item Size (Plus, Minus, etc.)
+        if hasattr(self.item, "size"):
+             self.item_size_spin = QDoubleSpinBox()
+             self.item_size_spin.setRange(5.0, 100.0)
+             self.item_size_spin.setValue(float(self.item.size))
+             props_layout.addRow("Item Size:", self.item_size_spin)
+
         # Bracket Type
         if hasattr(self.item, "bracket_type"):
             self.bracket_combo = QComboBox()
-            self.bracket_combo.addItems(["square", "round", "curly"])
+            self.bracket_combo.addItems([
+                "square", "square_left", "square_right",
+                "round", "round_left", "round_right",
+                "curly", "curly_left", "curly_right"
+            ])
             self.bracket_combo.setCurrentText(self.item.bracket_type)
             props_layout.addRow("Bracket Style:", self.bracket_combo)
 
@@ -182,6 +200,8 @@ class AdvancedSettingsDialog(QDialog):
         if hasattr(self, "concavity_spin"): vals["head_concavity"] = self.concavity_spin.value()
         if hasattr(self, "curvature_spin"): vals["curvature"] = self.curvature_spin.value()
         if hasattr(self, "spacing_spin"): vals["double_arrow_offset"] = self.spacing_spin.value()
+        if hasattr(self, "cross_size_spin"): vals["cross_size"] = self.cross_size_spin.value()
+        if hasattr(self, "item_size_spin"): vals["size"] = self.item_size_spin.value()
         if hasattr(self, "bracket_combo"): vals["bracket_type"] = self.bracket_combo.currentText()
         if hasattr(self, "head_style_combo"): vals["head_style"] = self.head_style_combo.currentText()
         return vals
@@ -203,12 +223,20 @@ class AdvancedSettingsDialog(QDialog):
             self.item.curvature = float(vals["curvature"])
         if "double_arrow_offset" in vals and hasattr(self.item, "double_arrow_offset"):
             self.item.double_arrow_offset = float(vals["double_arrow_offset"])
+        if "cross_size" in vals and hasattr(self.item, "cross_size"):
+             self.item.cross_size = float(vals["cross_size"])
+        if "cross_size" in vals and hasattr(self, "cross_size_spin"):
+             self.cross_size_spin.setValue(float(vals["cross_size"]))
         if "bracket_type" in vals and hasattr(self.item, "bracket_type"):
-            self.item.bracket_type = vals["bracket_type"](float(vals["double_arrow_offset"]))
+            self.item.bracket_type = vals["bracket_type"]
         if "bracket_type" in vals and hasattr(self, "bracket_combo"):
              self.bracket_combo.setCurrentText(vals["bracket_type"])
         if "head_style" in vals and hasattr(self, "head_style_combo"):
              self.head_style_combo.setCurrentText(vals["head_style"])
+        if "size" in vals and hasattr(self.item, "size"):
+             self.item.size = float(vals["size"])
+        if "size" in vals and hasattr(self, "item_size_spin"):
+             self.item_size_spin.setValue(float(vals["size"]))
              
         self.update_ui_state()
 
@@ -227,9 +255,16 @@ class AdvancedSettingsDialog(QDialog):
         self.default_key = f"Default_{self.item_kind}"
         
         # If the file had a saved default for this kind, load it into "Default" entry
+        # AND keep it in self.templates so we don't lose it if we don't save "Default" back?
+        # Actually, we map it to "Default" for display using a separate dict or filtering?
+        # The current implementation modifies self.templates.
+        
         if self.default_key in self.templates:
              self.templates["Default"] = self.templates[self.default_key]
-             del self.templates[self.default_key] # Remove raw key from display
+             # We should NOT delete the original key immediately if we want to preserve it,
+             # but for display purposes we want "Default".
+             # let's del it, and when saving, we map "Default" back to self.default_key
+             del self.templates[self.default_key] 
         else:
              # Factory Defaults
              self.templates["Default"] = self.get_factory_defaults()
@@ -241,9 +276,16 @@ class AdvancedSettingsDialog(QDialog):
         defaults = {"color": "#000000", "width": 2}
         if "arrow" in self.item_kind:
             defaults.update({
-                "head_size": 15.0, "head_angle": 25.0, "head_concavity": 0.5,
+                "head_size": 25.0, # Updated default
+                "head_angle": 25.0, "head_concavity": 0.5,
                 "head_style": "chevron", "width": 2
             })
+            if "no" in self.item_kind:
+                 defaults["cross_size"] = 15.0 # Keep small for X? User said "adjustable", maybe 15 is fine as base? 
+                 # User said "adjustment possible". Default size wasn't specified but "other arrows 3x". 
+                 # Let's keep 15 or 20 for cross.
+                 defaults["cross_size"] = 15.0
+                 
         if "bracket" in self.item_kind:
              defaults.update({"bracket_type": "square", "width": 2})
         return defaults
@@ -256,14 +298,17 @@ class AdvancedSettingsDialog(QDialog):
         self.tmpl_combo.addItem("Default")
         
         # Then others
+        # Filter: Only show "Default" and Custom templates.
+        # Hide "Default_{other_kind}" keys.
         for name in sorted(self.templates.keys()):
             if name == "Default": continue
+            if name.startswith("Default_"): continue # Hide other defaults
             self.tmpl_combo.addItem(name)
             
         if current_text in self.templates:
             self.tmpl_combo.setCurrentText(current_text)
-        else:
-            self.tmpl_combo.setCurrentText("Default")
+        elif self.templates.get("Default"):
+             self.tmpl_combo.setCurrentText("Default")
 
     def on_template_selected(self, text):
         pass # No checkbox anymore
@@ -303,7 +348,13 @@ class AdvancedSettingsDialog(QDialog):
 
     def save_to_file(self):
         # Prepare data for saving
-        # transform "Default" back to "Default_{kind}"
+        # We need to reconstruct the full list including other defaults we might have hidden.
+        
+        # 1. Reload existing from file to get "other" defaults/templates we didn't load/touch?
+        # Actually load_templates loaded EVERYTHING into self.templates.
+        # Then we deleted self.default_key. 
+        # We also ignored other "Default_" keys in update_combo, but they are still in self.templates.
+        
         to_save = {}
         for k, v in self.templates.items():
             if k == "Default":
@@ -311,54 +362,8 @@ class AdvancedSettingsDialog(QDialog):
             else:
                 to_save[k] = v
                 
-        # Merge with existing data in file (to preserve other kinds)
-        existing_templates = {}
-        if os.path.exists(SETTINGS_FILE):
-             try:
-                 with open(SETTINGS_FILE, "r") as f:
-                     data = json.load(f)
-                     existing_templates = data.get("templates", {})
-             except: pass
-        
-        # Update existing with ours
-        # We need to be careful not to overwrite other kinds' Defaults if we cleared them?
-        # No, we only loaded OUR default_key into "Default".
-        # So we update existing_templates with our "Default" -> "Default_{kind}"
-        # And our other custom templates. 
-        # Custom templates might collide if names are generic. 
-        # Ideally custom templates should also be kind-namespaced or global.
-        # Let's assume global for custom, specific for Default.
-        
-        existing_templates.update(to_save)
-        
-        # If we "deleted" a template that was providing a Default_{kind}, we must ensure it's removed?
-        # We just updated existing with ours. If 'Default' was reset to factory, we write the factory values to Default_{kind}.
-        # Wait, if we delete a custom template, we need to remove it from existing_templates too.
-        # But we don't know which ones were "ours" vs "others" (e.g. Brackets vs Arrows) unless we namespace them all.
-        # For this task, let's assume we maintain the whole list we loaded + what we added/removed.
-        # Currently load_templates loads ALL templates. So self.templates contains everything.
-        # So it's safe to overwrite "templates" with self.templates (plus the Default key swap).
-        
-        # Reconstruct full dict
-        full_templates = {}
-        for k, v in self.templates.items():
-             if k == "Default":
-                 full_templates[self.default_key] = v
-             else:
-                 full_templates[k] = v
-                 
-        # But wait, self.templates initially loaded ALL templates.
-        # And we mapped "Default_{kind}" to "Default".
-        # What about "Default_{other_kind}"?
-        # They are in self.templates as raw keys "Default_bracket" etc. unless we filtered.
-        # load_templates line: self.templates = all_templates.
-        # Then we did: self.templates["Default"] = ... and del self.templates[key].
-        # So self.templates contains "Default_bracket" (if we are Arrow), and "Default" (our arrow default).
-        # So when we save, we swap our "Default" back to "Default_arrow".
-        # "Default_bracket" remains untouched.
-        # So this logic holds!
-        
-        data = {"templates": full_templates}
+        # Write to file
+        data = {"templates": to_save}
         try:
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
