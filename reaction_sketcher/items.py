@@ -1690,16 +1690,6 @@ class ReactionTextItem(QGraphicsTextItem):
         self.cursorChanged.emit()
 
     def paint(self, painter, option, widget):
-        # Draw opaque white background requested by user ("only for text bkg")
-        # to mask underlying items (bonds, arrows)
-        rect = self.boundingRect()
-        
-        painter.save()
-        painter.setBrush(QColor(255, 255, 255))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRect(rect)
-        painter.restore()
-        
         # Draw text on top
         super().paint(painter, option, widget)
 
@@ -1746,6 +1736,10 @@ class ReactionTextItem(QGraphicsTextItem):
             cursor = self.textCursor()
             cursor.setPosition(cursor_pos)
             self.setTextCursor(cursor)
+            
+            # FIX: Accept event and return to prevent default selection (word/sentence)
+            event.accept()
+            return
             
         super().mouseDoubleClickEvent(event)
 
@@ -1871,77 +1865,13 @@ class ReactionTextItem(QGraphicsTextItem):
                 
                 cursor.setCharFormat(fmt)
 
-        # 1. "Disable sub sup" (Clean up) 
-        # But respect "pass such cases" for underlined text.
-        # Strategy: 
-        #  a. Identify ranges that WILL be formatted by regex (below).
-        #  b. Iterate all other ranges: if NOT underlined, set to Normal.
+        # 1. "Disable sub sup" (Clean up) - REMOVED per user feedback in earlier task to "remove reset"
         
-        # Let's collect all indices that are "protected" (underlined) or "will be formatted"
-        text_len = len(self.toPlainText())
-        protected_indices = set()
-        
-        # Check for underline
-        # Iterating char by char is slow but safest for "pass such cases"
-        # Optimization: use ranges? For now, simple loop.
-        cursor = self.textCursor()
-        for i in range(text_len):
-            cursor.setPosition(i)
-            cursor.setPosition(i+1, QTextCursor.MoveMode.KeepAnchor)
-            if cursor.charFormat().fontUnderline():
-                protected_indices.add(i)
-
-        # 2. Apply Formats & Mark Indices
-        # We need to run regexes, apply formats, AND mark those indices as "touched"
-        # so we don't reset them later? 
-        # Actually, if we reset everything else first, it's cleaner.
-        
-        # Reset Pass:
-        # Reset any char that is NOT in protected_indices
-        cursor.setPosition(0)
-        for i in range(text_len):
-            if i not in protected_indices:
-                cursor.setPosition(i)
-                cursor.setPosition(i+1, QTextCursor.MoveMode.KeepAnchor)
-                fmt = cursor.charFormat()
-                if fmt.verticalAlignment() != QTextCharFormat.VerticalAlignment.AlignNormal:
-                     fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
-                     cursor.setCharFormat(fmt)
-
-        # 3. Apply Subscripts (Digits)
-        # Matches: digits explicitly following letters/brackets
-        # ... (rest of regex logic) ...
-
-        # 2. Apply Subscripts (Digits)
-        # Matches: digits explicitly
-        # But we want to avoid coefficients like 2H2O.
-        # Simple heuristic: digit following a letter or closing bracket.
-        apply_format(r'(?<=[a-zA-Z\)])(\d+)', 'sub')
-
-        # 3. Apply Charges (Superscripts)
-        # Matches: +, -, 2+, 3-, etc. at the end or following atoms/brackets
-        # This is tricky. Let's look for explicitly patterns like Na+, Cl-, Fe2+, PO4 3-
-        # Regex: (digit?)[+-] 
-        # But be careful of hyphens in names. Assume mostly formula context.
-        apply_format(r'(?<=[a-zA-Z\d\)])(\d*[+-])(?=[\s]|$|[A-Z])', 'sup')
-        
-        # Restore selection/cursor if it was user-initiated? 
-        # Usually this is a "format all" action, so we leave cursor at end.
-
         # 2. Subscript Numbers (e.g. H2, C6)
         # Regex: Number immediately following a letter or closing parenthesis
         apply_format(r'(?<=[a-zA-Z\)])(\d+)', 'sub')
         
         # 3. Superscript Charges (e.g. 2+, 3-, +, -)
-        # Logic: A number followed by +/- OR just +/-
-        # We need to be careful not to double-process.
-        # This regex looks for:
-        #  - A number (optional) followed by + or -
-        #  - Ensuring it follows a letter, number, or closing paren
-        #  - Ensuring it's at end of word/token
-        
-        # Handle "2+", "3-" where the number was previously subscripted in step 2.
-        # We need to overwrite that range with Superscript.
         
         # Regex A: Number + Sign (e.g. Ca2+)
         apply_format(r'(?<=[a-zA-Z\)])(\d+[+-])', 'sup')

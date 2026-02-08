@@ -561,23 +561,28 @@ class InteractionHandler(QObject):
         for item in items:
             from .items import ReactionTextItem
             if isinstance(item, ReactionTextItem):
-                # If already editing, pass through for standard "Select Word" behavior
+                # Exit edit mode on any other text item FIRST
+                focus_item = self.main_window.scene.focusItem()
+                if focus_item and focus_item != item:
+                    if isinstance(focus_item, ReactionTextItem):
+                        # Exit edit mode on the previous text item
+                        focus_item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+                        focus_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                        focus_item.setSelected(False)
+                        # Clear text selection highlight
+                        cursor = focus_item.textCursor()
+                        cursor.clearSelection()
+                        focus_item.setTextCursor(cursor)
+                        focus_item.clearFocus()
+                
+                # Now check if THIS item is already in edit mode
                 if item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                    # Already editing, pass through for standard "Select Word" behavior
                     return False
-                    
-                # Force focus and edit mode with mouse selection enabled
-                item.setFocus()
-                item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction | Qt.TextInteractionFlag.TextSelectableByMouse)
                 
-                # Disable Movable flag to prevent dragging while selecting text
-                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-                
-                # Select all text
-                cursor = item.textCursor()
-                cursor.select(cursor.SelectionType.Document)
-                item.setTextCursor(cursor)
-                
-                return True
+                # Enter edit mode on this item
+                # let the item handle the double click event to enter edit mode
+                return False
         
         # If no text item, check for Atom/Bond to select whole molecule
         # Reuse logic from main_window? Or implement BFS here.

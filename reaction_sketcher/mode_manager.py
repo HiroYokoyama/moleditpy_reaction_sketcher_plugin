@@ -10,10 +10,10 @@ from PyQt6.QtWidgets import (QToolBar, QToolButton, QSizePolicy,
                              QColorDialog, QFileDialog, QMessageBox, QMenu, QFrame)
 from PyQt6.QtGui import (QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, 
                          QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, QFontDatabase,
-                         QCursor)
+                         QCursor, QImage)
 from PyQt6.QtSvg import QSvgGenerator
 from PyQt6.QtCore import (Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, 
-                          QObject, QEvent, QTimer)
+                          QObject, QEvent, QTimer, QFile)
 from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
 from .patcher import (apply_interaction_patches, revert_interaction_patches,
                       apply_core_patches, revert_core_patches, revert_all_patches)
@@ -372,12 +372,10 @@ class ModeManager(QObject):
         self.property_toolbar.addSeparator()
         
         self.sub_action = self.property_toolbar.addAction(create_reaction_icon("sub", 24), "Sub")
-        self.sub_action.setCheckable(True)
         self.sub_action.setToolTip("Subscript")
         self.sub_action.triggered.connect(self.toggle_subscript)
         
         self.sup_action = self.property_toolbar.addAction(create_reaction_icon("sup", 24), "Sup")
-        self.sup_action.setCheckable(True)
         self.sup_action.setToolTip("Superscript")
         self.sup_action.triggered.connect(self.toggle_superscript)
         
@@ -437,11 +435,13 @@ class ModeManager(QObject):
         self.property_toolbar.addSeparator()
 
         # Export/Copy Actions at the end
+        # Reordered per user request: Export PNG -> Export SVG
+        self.property_toolbar.addAction("Export PNG", self.export_image)
         self.property_toolbar.addAction("Export SVG", self.export_svg)
         self.property_toolbar.addAction("Copy SVG", self.copy_svg_to_clipboard)
 
-        self.property_toolbar.addAction("Export PNG", self.export_image)
-        self.property_toolbar.addAction("Copy PNG", self.copy_to_clipboard)
+        # Commented out per user request "comment out copy png logic"
+        # self.property_toolbar.addAction("Copy PNG", self.copy_to_clipboard)
         
         self.main_window.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.property_toolbar)
         self.property_toolbar.hide()
@@ -450,37 +450,339 @@ class ModeManager(QObject):
         self.main_window.scene.selectionChanged.connect(self.sync_property_toolbar)
 
 
+    def _is_content_item(self, item):
+        # Reliable check for Reaction Items
+        if hasattr(item, "create_json_data"): return True
+        # Check for Molecule Items (Atom/Bond)
+        if hasattr(item, "atom_id") or hasattr(item, "atom1"): return True
+        return False
 
-    def export_image(self):
-        if hasattr(self.main_window, 'export_2d_png'):
-            self.main_window.export_2d_png()
-        else:
-            self.main_window.statusBar().showMessage("Export function not available.")
+# ... (skip to copy_to_clipboard)
 
     def copy_to_clipboard(self):
-        if hasattr(self.main_window, 'copy_to_clipboard'):
-            self.main_window.copy_to_clipboard()
-        else:
-            self.main_window.statusBar().showMessage("Copy function not available.")
+        # Synchronize logic with SVG export/copy to ensure consistency.
+        # Use shared _generate_png_data
+        
+        # Logic disabled per user request
+        pass
+        # Reliable check for Reaction Items
+        if hasattr(item, "create_json_data"): return True
+        # Check for Molecule Items (Atom/Bond)
+        if hasattr(item, "atom_id") or hasattr(item, "atom1"): return True
+        return False
 
-    def export_svg(self, items=None, filename=None):
-        if hasattr(self.main_window, 'export_2d_svg'):
-            self.main_window.export_2d_svg()
+    def _generate_png_data(self, items_to_render):
+        """Generate PNG data (bytes) for the given items using scene render (Hide/Restore pattern)."""
+        if not items_to_render:
+            return b""
+            
+        # 1. Bounds
+        bounds = self.get_reaction_bounds(items_to_render)
+        if bounds.isEmpty():
+             bounds = self.main_window.scene.itemsBoundingRect()
+        
+        # Add padding (match original: 20px)
+        bounds.adjust(-20, -20, 20, 20)
+        
+        # 2. Hide unrelated items
+        items_to_restore = {}
+        # We need to hide everything that is NOT in items_to_render
+        # But we only care about top-level items usually? 
+        # Safest is to iterate all items in scene.
+        all_scene_items = self.main_window.scene.items()
+        
+        # Create a set for fast lookup
+        render_set = set(items_to_render)
+        
+        for item in all_scene_items:
+            if item.isVisible() and item not in render_set:
+                # Check if it's a child of something we are rendering? 
+                # If parent is in render_set, we shouldn't hide child?
+                # GraphicsItems hide children if parent is hidden.
+                # If parent is visible and we hide child, child is hidden.
+                # If we render parent, children usually render.
+                # But here we are rendering SCENE with source rect.
+                # So we must ensure only desired items are visible.
+                
+                # Optimization context: simple flat list usually.
+                # If item is child of an item in render_set, we should NOT hide it.
+                top = item.topLevelItem()
+                if top in render_set:
+                    continue
+                
+                items_to_restore[item] = True
+                item.hide()
+
+        # 3. Setup Image
+        w = max(1, int(bounds.width()))
+        h = max(1, int(bounds.height()))
+        
+        # Use Format_ARGB32 (Unpremultiplied) so that (255, 255, 255, 0) is stored as White (but transparent).
+        # Premultiplied would convert it to (0, 0, 0, 0) -> Black.
+        image = QImage(w, h, QImage.Format.Format_ARGB32)
+        # Fill with Transparent White (0x00FFFFFF). 
+        # (A=00, R=FF, G=FF, B=FF)
+        image.fill(0x00FFFFFF)
+        
+        # 4. Background
+        old_bg = self.main_window.scene.backgroundBrush()
+        # Use Transparent White with Explicit SOLID Pattern
+        self.main_window.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0), Qt.BrushStyle.SolidPattern))
+        
+        # PATCH: AtomItem paint logic needs to "erase" bonds to Transparent WHITE (00FFFFFF).
+        
+        from moleditpy.modules.atom_item import AtomItem
+        original_paint = AtomItem.paint
+        
+        def png_atom_paint_patch(atom_self, painter, option, widget):
+            # Skip invisible atoms (e.g. skeletal carbons) to avoid erasing bonds
+            if not atom_self.is_visible:
+                return
+
+            # 1. Erase background to Transparent White (0x00FFFFFF)
+            painter.setFont(atom_self.font)
+            fm = painter.fontMetrics()
+            
+            # (Simplified rect calculation logic - matching AtomItem.py roughly)
+            display_text = atom_self.symbol
+            if atom_self.implicit_h_count > 0:
+
+                 pass
+            
+            path = atom_self.shape()
+            
+            painter.save()
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            # Fill with Transparent White (00FFFFFF)
+            painter.setBrush(QColor(255, 255, 255, 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawPath(path) 
+            painter.restore()
+            
+            # 2. Call original paint
+            original_paint(atom_self, painter, option, widget)
+
+        AtomItem.paint = png_atom_paint_patch
+
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        try:
+            # Clear selection during render to avoid selection highlights
+            selected_items = self.main_window.scene.selectedItems()
+            self.main_window.scene.clearSelection()
+
+            target = QRectF(0, 0, w, h)
+            # Render whole scene (masked by visibility) from source 'bounds' to 'target'
+            self.main_window.scene.render(painter, target, bounds)
+        finally:
+            painter.end()
+            self.main_window.scene.setBackgroundBrush(old_bg)
+            AtomItem.paint = original_paint
+            
+            # Restore visibility
+            for item in items_to_restore:
+                item.show()
+                
+            # Restore selection
+            for item in selected_items:
+                item.setSelected(True)
+            
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        buffer.close()
+        return buffer.data()
+
+    def _generate_svg_data(self, items_to_render):
+        """Generate SVG data (bytes) using scene render (Hide/Restore pattern)."""
+        if not items_to_render:
+             return b""
+
+        # 1. Bounds
+        bounds = self.get_reaction_bounds(items_to_render)
+        if bounds.isEmpty():
+             bounds = self.main_window.scene.itemsBoundingRect()
+        
+        # Add padding (match original: 20px)
+        bounds.adjust(-20, -20, 20, 20)
+
+        # 2. Hide unrelated items
+        items_to_restore = {}
+        all_scene_items = self.main_window.scene.items()
+        render_set = set(items_to_render)
+        
+        for item in all_scene_items:
+            if item.isVisible() and item not in render_set:
+                top = item.topLevelItem()
+                if top in render_set:
+                    continue
+                items_to_restore[item] = True
+                item.hide()
+                
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        
+        generator = QSvgGenerator()
+        generator.setOutputDevice(buffer)
+        
+        # Determine DPI to match screen
+        dpi = QGuiApplication.primaryScreen().logicalDotsPerInch()
+        generator.setResolution(int(dpi))
+        
+        generator.setSize(QSize(int(bounds.width()), int(bounds.height())))
+        generator.setViewBox(bounds)
+        generator.setTitle("Reaction Sketch")
+
+        # Patch AtomItem.paint to force white background labels while keeping global SVG background transparent.
+
+        from moleditpy.modules.atom_item import AtomItem
+        
+        # Save original
+        original_paint = AtomItem.paint
+
+        def white_bg_atom_paint(atom_self, painter, option, widget):
+            # 1. Force White Mask logic
+            # Calculate rects (same as original)
+            painter.setFont(atom_self.font)
+            fm = painter.fontMetrics()
+            
+            pass
+        
+        def export_atom_paint(self, painter, option, widget):
+             # Force scene BG to White temporarily for this paint call so AtomItem draws White BG.
+             old_brush = self.scene().backgroundBrush()
+             self.scene().setBackgroundBrush(QBrush(QColor(255, 255, 255))) # Fake White
+             try:
+                 original_paint(self, painter, option, widget)
+             finally:
+                 self.scene().setBackgroundBrush(old_brush) # Restore Transparent
+        
+        AtomItem.paint = export_atom_paint
+        
+        # Initialize painter
+        painter = QPainter()
+        painter.begin(generator)
+        
+        # Save current background to restore later
+        old_bg = self.main_window.scene.backgroundBrush()
+        
+        try:
+            # Clear selection during render to avoid selection highlights
+            selected_items = self.main_window.scene.selectedItems()
+            self.main_window.scene.clearSelection()
+
+            # Render scene
+            # Ensure Scene BG is Transparent for the Global SVG
+            self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
+            
+            self.main_window.scene.render(painter, bounds, bounds)
+        finally:
+            painter.end()
+            AtomItem.paint = original_paint
+            # Restore scene background
+            self.main_window.scene.setBackgroundBrush(old_bg)
+            
+            # Restore visibility
+            for item in items_to_restore:
+                item.show()
+                
+            # Restore selection
+            for item in selected_items:
+                item.setSelected(True)
+        
+        buffer.close()
+        return buffer.data()
+
+    def export_image(self):
+        # Override main window export to ensure consistent background (transparent white)
+        # User requested "for png" fix specifically.
+        
+        if self.main_window and self.main_window.scene:
+            # Check for selection first
+            selected = self.main_window.scene.selectedItems()
+            if selected:
+                items = [i for i in selected if self._is_content_item(i)]
+            else:
+                items = [i for i in self.main_window.scene.items() if self._is_content_item(i)]
+        else:
+            items = []
+            
+        if not items:
+            self.main_window.statusBar().showMessage("No reaction items to export.")
             return
 
+        from PyQt6.QtWidgets import QFileDialog
+        folder = os.getcwd()
+        if hasattr(self.main_window, 'last_open_path'):
+                folder = self.main_window.last_open_path
+        filename, _ = QFileDialog.getSaveFileName(self.main_window, "Export PNG", folder, "PNG Files (*.png)")
+        if not filename:
+            return
+
+        data = self._generate_png_data(items)
+        
+        f = QFile(filename)
+        if f.open(QIODevice.OpenModeFlag.WriteOnly):
+            f.write(data)
+            f.close()
+            self.main_window.statusBar().showMessage(f"Reaction exported to {filename}", 3000)
+        else:
+            self.main_window.statusBar().showMessage(f"Failed to write to {filename}")
+
+    def copy_to_clipboard(self):
+        # Synchronize logic with SVG export/copy to ensure consistency.
+        # Use shared _generate_png_data
+        
+        selected = self.main_window.scene.selectedItems()
+        
+        if not selected:
+             items = [i for i in self.main_window.scene.items() if self._is_content_item(i)]
+        else:
+             items = [i for i in selected if self._is_content_item(i)]
+
+        if not items:
+            self.main_window.statusBar().showMessage("No content items to copy.")
+            return
+
+        data = self._generate_png_data(items)
+        
+        mime = QMimeData()
+        # 1. Set "image/png" for apps that support it (Exact match)
+        mime.setData("image/png", data)
+        
+        # 2. Set standard Image data (Bitmap) for general compatibility (Windows, etc.)
+        # We reconstruct QImage from the exact bytes to ensure visual fidelity.
+        img_from_data = QImage.fromData(data)
+        mime.setImageData(img_from_data)
+        
+        QGuiApplication.clipboard().setMimeData(mime)
+        self.main_window.statusBar().showMessage("Reaction copied as Image", 3000)
+
+    def export_svg(self, items=None, filename=None):
+        if hasattr(self.main_window, 'export_2d_svg') and not items:
+             # If main window has it and we are exporting everything, use it?
+             # BUT user says inconsistent. Maybe main window logic is different?
+             # Safest to use OUR logic if we are in reaction mode/plugin.
+             pass
+
         if items is None:
-             # Default to all content items similar to copy_svg
-             # Helper to decide if an item is a "Content" item
-            def is_content_item(itm):
-                name = itm.__class__.__name__
-                if any(x in name for x in ["ReactionArrow", "ReactionBracket", "ReactionText", "ReactionFreehand"]):
-                    return True
-                return name not in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]
-            
             if self.main_window and self.main_window.scene:
-                items = [i for i in self.main_window.scene.items() if is_content_item(i)]
+                # Check for selection first
+                selected = self.main_window.scene.selectedItems()
+                if selected:
+                    items = [i for i in selected if self._is_content_item(i)]
+                else:
+                    items = [i for i in self.main_window.scene.items() if self._is_content_item(i)]
             else:
                 items = []
+        
+        # Filter items using our shared helper just in case
+        items = [i for i in items if self._is_content_item(i)]
+
+        if not items:
+            self.main_window.statusBar().showMessage("No reaction items to export.")
+            return
 
         if filename is None:
             from PyQt6.QtWidgets import QFileDialog
@@ -490,147 +792,36 @@ class ModeManager(QObject):
             filename, _ = QFileDialog.getSaveFileName(self.main_window, "Export SVG", folder, "SVG Files (*.svg)")
             if not filename:
                 return
-        # Helper to decide if an item is a "Content" item (Reaction or Molecule)
-        def is_content_item(itm):
-            name = itm.__class__.__name__
-            if any(x in name for x in ["ReactionArrow", "ReactionBracket", "ReactionText", "ReactionFreehand"]):
-                return True
-            # They might not have a specific tag, but they are definitely NOT Handles or Overlays
-            return name not in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]
         
-        # Use all content items since export usually exports the whole scene (or bounds of it)
-        content_items = [i for i in items if is_content_item(i)]
-        if not content_items:
-            self.main_window.statusBar().showMessage("No reaction items to export.")
-            return
+        data = self._generate_svg_data(items)
         
-        bounds = self.get_reaction_bounds(content_items)
-        if bounds.isEmpty() or not bounds.isValid():
-            self.main_window.statusBar().showMessage("Could not calculate reaction bounds.")
-            return
-        
-        from PyQt6.QtSvg import QSvgGenerator
-        from PyQt6.QtCore import QSize
-        from PyQt6.QtGui import QPainter, QBrush
-        from PyQt6.QtCore import Qt
-        
-        generator = QSvgGenerator()
-        generator.setFileName(filename)
-        w = int(bounds.width())
-        h = int(bounds.height())
-        generator.setSize(QSize(w, h))
-        generator.setViewBox(bounds)
-        generator.setTitle("Reaction Sketch")
-        
-        old_bg = self.main_window.scene.backgroundBrush()
-        self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
-        
-        # Clear selection to avoid highlights
-        selected_items = self.main_window.scene.selectedItems()
-        self.main_window.scene.clearSelection()
-
-        painter = QPainter()
-        painter.begin(generator)
-        try:
-            self.main_window.scene.render(painter, bounds, bounds)
-        finally:
-            painter.end()
-            self.main_window.scene.setBackgroundBrush(old_bg)
-            # Restore selection
-            for item in selected_items:
-                item.setSelected(True)
-        
-        self.main_window.statusBar().showMessage(f"Reaction exported to {filename}")
+        f = QFile(filename)
+        if f.open(QIODevice.OpenModeFlag.WriteOnly):
+            f.write(data)
+            f.close()
+            self.main_window.statusBar().showMessage(f"Reaction exported to {filename}")
+        else:
+             self.main_window.statusBar().showMessage(f"Failed to write to {filename}")
 
     def copy_svg_to_clipboard(self):
-        if hasattr(self.main_window, 'copy_svg_to_clipboard'):
-            self.main_window.copy_svg_to_clipboard()
-            return
-            
+        # Determine items to copy: Selected OR All content
         selected = self.main_window.scene.selectedItems()
         
-        # Helper to decide if an item is a "Content" item (Reaction or Molecule)
-        def is_content_item(item):
-            # Check for Reaction Items
-            if hasattr(item, "create_json_data"): return True
-            # Check for Molecule Items (Atom/Bond)
-            # They might not have a specific tag, but they are definitely NOT Handles or Overlays
-            name = item.__class__.__name__
-            if name in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
-                return False
-            return True
-
-        # If nothing selected, copy everything content-related
         if not selected:
-             items = [i for i in self.main_window.scene.items() if is_content_item(i)]
+             items = [i for i in self.main_window.scene.items() if self._is_content_item(i)]
         else:
-             items = [i for i in selected if is_content_item(i)]
+             items = [i for i in selected if self._is_content_item(i)]
 
         if not items:
-            self.main_window.statusBar().showMessage("No content items selected to copy.")
+            self.main_window.statusBar().showMessage("No content items to copy.")
             return
 
-        bounds = self.get_reaction_bounds(items)
-        if bounds.isEmpty(): return
-
-        buffer = QBuffer()
-        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-        
-        generator = QSvgGenerator()
-        generator.setOutputDevice(buffer)
-        generator.setSize(QSize(int(bounds.width()), int(bounds.height())))
-        generator.setViewBox(bounds)
-        
-        # Temporarily clear selection to avoid highlights in SVG
-        self.main_window.scene.clearSelection()
-
-        painter = QPainter()
-        # Prepare items to hide (Non-content items or unselected items)
-        to_hide = []
-        all_items = self.main_window.scene.items()
-        
-        if selected:
-            # Hide anything that is NOT selected AND is visible
-            # But wait, if we have a molecule, and we select only one part, we might want to hide the rest?
-            # Yes, standard "Copy Selection" behavior.
-            for i in all_items:
-                if i.isVisible() and i not in selected:
-                    to_hide.append(i)
-        else:
-            # Hide only "Helper" items (Handles, Overlays)
-            for i in all_items:
-                if i.isVisible() and not is_content_item(i):
-                    to_hide.append(i)
-
-        for i in to_hide: i.hide()
-
-        # Render
-        painter = QPainter()
-        painter.begin(generator)
-        
-        # Transparency Fix
-        old_bg = self.main_window.scene.backgroundBrush()
-        self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
-        
-        self.main_window.scene.render(painter, bounds, bounds)
-        
-        self.main_window.scene.setBackgroundBrush(old_bg)
-        painter.end()
-        
-        # Restore visibility
-        for i in to_hide: i.show()
-            
-        painter.end()
-        
-        # Restore selection
-        for item in selected:
-            item.setSelected(True)
+        data = self._generate_svg_data(items)
             
         mime = QMimeData()
-        mime.setData("image/svg+xml", buffer.data())
-        # Also set text for compatibility
-        mime.setText(buffer.data().data().decode('utf-8'))
-        self.main_window.statusBar().showMessage("Selected reaction items copied as SVG", 3000)
+        mime.setData("image/svg+xml", data)
+        mime.setText(data.data().decode('utf-8'))
+        self.main_window.statusBar().showMessage("Reaction copied as SVG", 3000)
         QGuiApplication.clipboard().setMimeData(mime)
 
     def get_reaction_bounds(self, items):
@@ -692,6 +883,23 @@ class ModeManager(QObject):
                                                               AtomItem, BondItem))]
         
         if not reaction_items:
+            # Reset Toolbar to Default (No Selection)
+            self.lbl_font_size.hide()
+            self.font_size_spin.hide()
+            self.lbl_item_size.hide()
+            self.size_spin.hide()
+            
+            self.font_combo.setEnabled(False)
+            self.bold_action.setEnabled(False)
+            self.italic_action.setEnabled(False)
+            self.underline_action.setEnabled(False)
+            self.sub_action.setEnabled(False)
+            self.sup_action.setEnabled(False)
+            self.chem_action.setEnabled(False)
+            self.width_spin.setEnabled(False)
+            
+            # Reset color button to default logic or keep last used? 
+            # Usually keep last used color for next drawing action is preferred.
             return
 
         self._updating_props = True
@@ -751,10 +959,7 @@ class ModeManager(QObject):
                      cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
                      align = cursor.charFormat().verticalAlignment()
                 
-                if hasattr(self, 'sub_action'): 
-                    self.sub_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSubScript)
-                if hasattr(self, 'sup_action'): 
-                    self.sup_action.setChecked(align == QTextCharFormat.VerticalAlignment.AlignSuperScript)
+                # No need to sync button state - buttons are not checkable
             except Exception as e:
                 pass
             self.blockSignals(False)
@@ -779,6 +984,10 @@ class ModeManager(QObject):
             self.bold_action.setEnabled(True)
             self.italic_action.setEnabled(True)
             self.underline_action.setEnabled(True)
+            self.sub_action.setEnabled(True)
+            self.sup_action.setEnabled(True)
+            self.chem_action.setEnabled(True)
+
             self.font_size_spin.setEnabled(True)
         elif hasattr(first, "size"):
             self.lbl_item_size.show()
@@ -790,11 +999,17 @@ class ModeManager(QObject):
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
             self.underline_action.setEnabled(False)
+            self.sub_action.setEnabled(False)
+            self.sup_action.setEnabled(False)
+            self.chem_action.setEnabled(False)
         else:
             self.font_combo.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
             self.underline_action.setEnabled(False)
+            self.sub_action.setEnabled(False)
+            self.sup_action.setEnabled(False)
+            self.chem_action.setEnabled(False)
 
         # Sync width if arrow/bracket/signs
         if hasattr(first, "pen_width"):
@@ -807,22 +1022,10 @@ class ModeManager(QObject):
 
     def toggle_subscript(self):
         if not self.is_reaction_mode: return
-        
-        # When sub is active (Qt already toggled it), deactivate sup
-        if hasattr(self, 'sub_action') and hasattr(self, 'sup_action'):
-            if self.sub_action.isChecked():  # If sub is now active
-                self.sup_action.setChecked(False)  # Deactivate sup
-        
         self._apply_text_format_property("sub")
 
     def toggle_superscript(self):
         if not self.is_reaction_mode: return
-        
-        # When sup is active (Qt already toggled it), deactivate sub
-        if hasattr(self, 'sup_action') and hasattr(self, 'sub_action'):
-            if self.sup_action.isChecked():  # If sup is now active
-                self.sub_action.setChecked(False)  # Deactivate sub
-        
         self._apply_text_format_property("sup")
 
     def apply_chem_style(self):
@@ -881,21 +1084,19 @@ class ModeManager(QObject):
                 elif property_name == "underline":
                     fmt.setFontUnderline(not fmt.fontUnderline())
                 elif property_name == "sub":
+                    # Toggle subscript: if already subscript, remove it; otherwise apply it
                     current_align = fmt.verticalAlignment()
                     if current_align == QTextCharFormat.VerticalAlignment.AlignSubScript:
-                        # Toggle Off -> Normal
                         fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
                     else:
-                        # Toggle On (Overwrites Sup if present)
                         fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
                         
                 elif property_name == "sup":
+                    # Toggle superscript: if already superscript, remove it; otherwise apply it
                     current_align = fmt.verticalAlignment()
                     if current_align == QTextCharFormat.VerticalAlignment.AlignSuperScript:
-                         # Toggle Off -> Normal
                         fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
                     else:
-                        # Toggle On (Overwrites Sub if present)
                         fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
                 
                 cursor.mergeCharFormat(fmt)
@@ -1072,11 +1273,12 @@ class ModeManager(QObject):
         self._was_active_before_click = action.isChecked()
 
     def on_tool_clicked(self, button, action):
-        # If the tool WAS already active before we clicked it -> Disable (Switch to Select)
+        # If the tool WAS already active before we clicked it -> Show Menu (Toggle options)
         if getattr(self, '_was_active_before_click', False):
-            # We prioritize disabling over showing the menu on second click.
-            # The menu is still available via Right-Click.
-            self.activate_select_tool()
+            # Toggle menu
+            tool_name = action.property("tool_name")
+            if tool_name:
+                self.show_tool_context_menu(button, tool_name, QPoint(0, button.height()))
 
     def activate_select_tool(self):
         if self.interaction_handler:
@@ -1863,15 +2065,6 @@ class ModeManager(QObject):
                 if not enabled:
                     self.main_window.optimize_3d_button.setEnabled(False)
                 else:
-                    # When re-enabling, we should respect its check_enable_3d_features logic?
-                    # For now just let the main window handle its state, or leave it disabled specific to reaction mode.
-                    # The main window usually manages this button's state based on molecule existence.
-                    # A safe bet is to only explicitly DISABLE it. Re-enabling might be tricky if it should remain disabled.
-                    # Let's just trigger a UI update if possible, or do nothing.
-                    # Actually, if we disable it, we must be able to re-enable it if valid.
-                    # Let's trust the main window's update loop to re-enable it if needed, 
-                    # OR just set it enabled=True if there is a molecule? 
-                    # Simpler: Just target convert_button as requested.
                     pass
 
         # 2. Try to find other actions (menus)
