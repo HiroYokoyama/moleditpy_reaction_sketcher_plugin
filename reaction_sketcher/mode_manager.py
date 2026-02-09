@@ -52,9 +52,9 @@ class ModeManager(QObject):
         self._updating_props = False
         self.default_head_styles = {
             "arrow": "chevron",
-            "arrow_eq": "harpoon", 
+            "arrow_eq": "chevron", 
             "arrow_res": "chevron",
-            "arrow_retro": "barb", 
+            "arrow_retro": "chevron", 
             "arrow_no": "chevron",
             "curved_double": "chevron",
             "curved_fish": "chevron",
@@ -703,9 +703,18 @@ class ModeManager(QObject):
             pass
         
         def export_atom_paint(self, painter, option, widget):
-             # Force scene BG to White temporarily for this paint call so AtomItem draws White BG.
+             # Use configured background color from settings for atom label backgrounds
              old_brush = self.scene().backgroundBrush()
-             self.scene().setBackgroundBrush(QBrush(QColor(255, 255, 255))) # Fake White
+             bg_color = QColor(255, 255, 255)  # Default white
+             try:
+                 if self.scene() and self.scene().views():
+                     win = self.scene().views()[0].window()
+                     if win and hasattr(win, 'settings'):
+                         bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
+                         bg_color = QColor(bg_color_str)
+             except:
+                 pass
+             self.scene().setBackgroundBrush(QBrush(bg_color))
              try:
                  original_paint(self, painter, option, widget)
              finally:
@@ -1729,63 +1738,106 @@ class ModeManager(QObject):
         # For now, let's require selection or create a dummy item of that type.
         if not target_item:
            # Create dummy item for default editing? 
-           # Actually, simpler to just edit selected item.
+            # Actually, simpler to just edit selected item.
            pass
 
         if target_item:
             dlg = AdvancedSettingsDialog(self.main_window, target_item)
-            if dlg.exec():
-                settings = dlg.get_settings()
-                self._updating_props = True
-                
-                # Apply settings to all selected items
-                for item in self.main_window.scene.selectedItems():
-                    if "color" in settings:
-                        if hasattr(item, "pen_color"):
-                            item.pen_color = QColor(settings["color"])
-                        if hasattr(item, "setDefaultTextColor"):
-                            item.setDefaultTextColor(QColor(settings["color"]))
-                            
-                    if "width" in settings and hasattr(item, "pen_width"):
-                        item.pen_width = settings["width"]
-                    if "head_size" in settings and hasattr(item, "head_size"):
-                        item.head_size = settings["head_size"]
-                    if "head_angle" in settings:
-                        if hasattr(item, "head_angle"): item.head_angle = settings["head_angle"]
-                    if "head_concavity" in settings:
-                        if hasattr(item, "head_concavity"): item.head_concavity = settings["head_concavity"]
-                    if "curvature" in settings:
-                        if hasattr(item, "curvature"): item.curvature = settings["curvature"]
-                        
-                    if "control_p" in settings and hasattr(item, "control_p"):
-                        # Restore manual control point
-                        cp_data = settings["control_p"]
-                        from PyQt5.QtCore import QPointF
-                        item.control_p = QPointF(cp_data[0], cp_data[1])
-                        # We must force update handles or internal state
-                        if hasattr(item, "sync_handles"):
-                            item.sync_handles()
-
-                    if "double_arrow_offset" in settings:
-                        if hasattr(item, "double_arrow_offset"): item.double_arrow_offset = settings["double_arrow_offset"]
-                    if "cross_size" in settings:
-                        if hasattr(item, "cross_size"):
-                            item.cross_size = settings["cross_size"]
-                    if "size" in settings:
-                        if hasattr(item, "size"):
-                            item.size = settings["size"]
-                    if "bracket_type" in settings and hasattr(item, "bracket_type"):
-                         item.bracket_type = settings["bracket_type"]
-                    
-                    if hasattr(item, "sync_handles"):
-                        item.sync_handles()
-                    item.update()
-                
-                self._updating_props = False
-                self.sync_property_toolbar()
-                
+            
+            def on_apply():
+                s = dlg.get_settings()
+                self.apply_settings_to_selection(s)
                 if self.main_window:
                     self.main_window.push_undo_state()
+                self.sync_property_toolbar() # Sync toolbar after applying settings
+
+            dlg.applyRequested.connect(on_apply)
+            
+            if dlg.exec():
+                # If dialog was accepted (OK button), apply settings and push undo state
+                settings = dlg.get_settings()
+                self.apply_settings_to_selection(settings)
+                if self.main_window:
+                    self.main_window.push_undo_state()
+                self.sync_property_toolbar() # Sync toolbar after applying settings
+
+    def apply_settings_to_selection(self, settings):
+        """Apply a settings dictionary to all selected items."""
+        if not self.main_window or not self.main_window.scene:
+            return
+            
+        self._updating_props = True
+        try:
+            # Apply settings to all selected items
+            for item in self.main_window.scene.selectedItems():
+                if "color" in settings:
+                    if hasattr(item, "pen_color"):
+                        item.pen_color = QColor(settings["color"])
+                    if hasattr(item, "setDefaultTextColor"):
+                        item.setDefaultTextColor(QColor(settings["color"]))
+                        
+                if "width" in settings and hasattr(item, "pen_width"):
+                    item.pen_width = settings["width"]
+                if "head_size" in settings and hasattr(item, "head_size"):
+                    item.head_size = settings["head_size"]
+                if "head_angle" in settings:
+                    if hasattr(item, "head_angle"): item.head_angle = settings["head_angle"]
+                if "head_concavity" in settings:
+                    if hasattr(item, "head_concavity"): item.head_concavity = settings["head_concavity"]
+                if "curvature" in settings:
+                    if hasattr(item, "curvature"): item.curvature = settings["curvature"]
+                    
+                if "control_p" in settings and hasattr(item, "control_p"):
+                    # Restore manual control point
+                    cp_data = settings["control_p"]
+                    from PyQt6.QtCore import QPointF
+                    item.control_p = QPointF(cp_data[0], cp_data[1])
+                    # We must force update handles or internal state
+                    if hasattr(item, "sync_handles"):
+                        item.sync_handles()
+
+                if "head_side" in settings and hasattr(item, "head_side"):
+                    item.head_side = settings["head_side"]
+                    if hasattr(item, "sync_handles"):
+                        item.sync_handles()
+
+                if "double_arrow_offset" in settings:
+                    if hasattr(item, "double_arrow_offset"): item.double_arrow_offset = settings["double_arrow_offset"]
+                
+                if "cross_size" in settings:
+                    if hasattr(item, "cross_size"): item.cross_size = settings["cross_size"]
+
+                # Apply Width/Height for Rect items (Arrows, Brackets, Circles, Freehand)
+                if "rect_width" in settings and "rect_height" in settings:
+                    if hasattr(item, "set_rect_size"):
+                        item.set_rect_size(settings["rect_width"], settings["rect_height"])
+
+                # Apply Size for Plus/Minus/Text items
+                if "size" in settings:
+                    if hasattr(item, "set_size"):
+                        item.set_size(settings["size"])
+                    elif hasattr(item, "size"):
+                         # Fallback if no specific setter
+                         item.prepareGeometryChange()
+                         item.size = settings["size"]
+                         item.update()
+                
+                if "bracket_type" in settings and hasattr(item, "bracket_type"):
+                     item.bracket_type = settings["bracket_type"]
+                
+                if "head_style" in settings and hasattr(item, "head_style"):
+                     item.head_style = settings["head_style"]
+
+                # if "head_at" in settings and hasattr(item, "head_at"):
+                #      item.head_at = settings["head_at"]
+                #      if hasattr(item, "sync_handles"):
+                #          item.sync_handles()
+
+                # Force item to update geometry and visuals
+                if hasattr(item, "update"): item.update()
+        finally:
+            self._updating_props = False
+            self.sync_property_toolbar()
 
 
     def set_head_style(self, tool_name, style):
@@ -2146,8 +2198,8 @@ class ModeManager(QObject):
         self.main_window.scene.update()
         self.is_reaction_mode = True
             
-        # Delay disabling 3D actions to ensure it overrides any file-load enabling logic
-        QTimer.singleShot(100, lambda: self.set_3d_action_state(False))
+        # Disable 3D actions immediately when entering reaction mode
+        self.set_3d_action_state(False)
         self.main_window.statusBar().showMessage("Reaction Sketching Mode Active", 3000)
 
     def exit_reaction_mode(self):
@@ -2231,6 +2283,7 @@ class ModeManager(QObject):
         
         if self.interaction_handler:
             self.interaction_handler.update_group_overlay(groupable)
+        self._sync_selection_visuals()
             
     def ungroup_selected_items(self):
         """Ungroup selected items."""
@@ -2258,6 +2311,72 @@ class ModeManager(QObject):
         
         if self.interaction_handler:
             self.interaction_handler.update_group_overlay([])
+        self._sync_selection_visuals()
+
+    def _sync_selection_visuals(self):
+        """Centralized synchronization of the group selection flags and overlay."""
+        if not self.main_window or not self.main_window.scene:
+            return
+            
+        selected_items = self.main_window.scene.selectedItems()
+        if not selected_items:
+            # Clear all
+            for item in self.main_window.scene.items():
+                if hasattr(item, "is_group_selected") and item.is_group_selected:
+                    item.is_group_selected = False
+                    item.update()
+            return
+
+        # Identify items that belong to a logical group (Explicit Group or Molecule)
+        # We use get_logical_units to find blocks. 
+        # Any unit with > 1 item is a candidate for purple highlight if selected.
+        units = self.get_logical_units(selected_items)
+        purple_items = set()
+        
+        for unit_dict in units:
+            members = unit_dict["members"]
+            unit_selected = [i for i in members if i.isSelected()]
+            selected_count = len(unit_selected)
+            unit_type = unit_dict.get("type", "item")
+            
+            # Highlight purple ONLY if it's an explicit Group OR a multi-item selection that is NOT a Molecule
+            # Molecules should stay blue as per user request.
+            if selected_count > 1:
+                if unit_type == "group":
+                    for item in unit_selected:
+                        purple_items.add(item)
+                # If it's a molecule, we stay blue (don't add to purple_items)
+            elif selected_count == 1:
+                # Single item from unit selected. 
+                # Only highlight purple if it has an explicit group_id (part of a group)
+                item = unit_selected[0]
+                if hasattr(item, "group_id") and item.group_id:
+                    purple_items.add(item)
+        # Update flags for ALL items in the scene that have the attribute
+        for item in self.main_window.scene.items():
+            if hasattr(item, "is_group_selected"):
+                old_val = item.is_group_selected
+                new_val = (item in purple_items)
+                if old_val != new_val:
+                    item.is_group_selected = new_val
+                    # Note: we don't reset show_handles_in_group here anymore to allow 
+                    # it to persist during re-selection (drill-down).
+                    
+                    if hasattr(item, "update_handle_visibility"):
+                        item.update_handle_visibility()
+                    item.update()
+            
+            # Reset handle flag if item is not the SINGLE selection
+            # (Allows switching back to group selection or other items to clear the drill-down state)
+            if hasattr(item, "show_handles_in_group") and item.show_handles_in_group:
+                if not item.isSelected() or len(selected_items) > 1:
+                    item.show_handles_in_group = False
+                    if hasattr(item, "update_handle_visibility"):
+                        item.update_handle_visibility()
+                    item.update()
+                     
+        # If logical grouping is being used, we should also update the overlay
+        # (This is already handled by individual tool logic usually, but keep it in mind)
 
     def get_logical_units(self, items):
         """
@@ -2321,15 +2440,18 @@ class ModeManager(QObject):
             if hasattr(item, "group_id") and item.group_id:
                 gid = item.group_id
                 unit_members = [i for i in scene.items() if hasattr(i, "group_id") and i.group_id == gid]
+                unit_type = "group"
                 
             # 2. Molecule atom/bond - get connected fragment
-            elif hasattr(item, "atom_id") or hasattr(item, "bonds"):
+            elif hasattr(item, "atom_id") or hasattr(item, "bonds") or hasattr(item, "atom1"):
                 fragment = get_connected_molecule_fragment(item)
                 unit_members = list(fragment) if fragment else [item]
+                unit_type = "molecule"
                 
             # 3. Reaction Items
             else:
                 unit_members = [item]
+                unit_type = "item"
             
             # Mark as visited
             for m in unit_members:
@@ -2348,24 +2470,30 @@ class ModeManager(QObject):
             
             units.append({
                 "members": unit_members,
+                "type": unit_type,
                 "rect": rect,
                 "center": rect.center()
             })
             
-            # Calculate COG (Average of Atom Centers for Molecules, or Center for others)
+            # Calculate COG (Average of Atom positions for Molecules, or Center for others)
             cog_x = 0
             cog_y = 0
             count = 0
             
-            # Prioritize Atoms for COG
+            # Prioritize Atoms for COG - use actual atom position, not boundingRect
             atom_members = [m for m in unit_members if hasattr(m, 'atom_id')]
             target_members = atom_members if atom_members else unit_members
             
             for m in target_members:
-                # Use sceneBoundingRect center as proxy for item center
-                c = m.sceneBoundingRect().center()
-                cog_x += c.x()
-                cog_y += c.y()
+                # Use scenePos for atoms (actual position), sceneBoundingRect for others
+                if hasattr(m, 'atom_id'):
+                    pos = m.scenePos()
+                    cog_x += pos.x()
+                    cog_y += pos.y()
+                else:
+                    c = m.sceneBoundingRect().center()
+                    cog_x += c.x()
+                    cog_y += c.y()
                 count += 1
             
             if count > 0:
@@ -2453,7 +2581,6 @@ class ModeManager(QObject):
         if not self.main_window or not self.main_window.scene: return
         
         items = self.main_window.scene.selectedItems()
-        # 3つ未満なら「間」がないので均等配置の必要なし
         if len(items) < 3: return
         
         units = self.get_logical_units(items)
@@ -2461,9 +2588,6 @@ class ModeManager(QObject):
         
         moved_atoms = []
 
-        # ---------------------------------------------------------
-        # データモデル更新用の内部関数 (原子座標データの書き換え)
-        # ---------------------------------------------------------
         def update_atom_data_model(item, delta, axis_char):
             if not hasattr(self.main_window, 'data'): return
             mol_data = self.main_window.data
@@ -2472,85 +2596,62 @@ class ModeManager(QObject):
             aid = getattr(item, 'atom_id', None)
             if aid in mol_data.atoms:
                 atom_obj = mol_data.atoms[aid].get('atom')
-                # axis_char ('x' or 'y') に応じて座標を更新
                 if atom_obj and hasattr(atom_obj, axis_char):
                     current_val = getattr(atom_obj, axis_char)
                     setattr(atom_obj, axis_char, current_val + delta)
 
-        # ---------------------------------------------------------
-        # 水平方向 (Horizontal) の処理
-        # ---------------------------------------------------------
         if axis == "horizontal":
-            # 【修正】Leftではなく「中心(center.x)」でソートする
-            # これにより「計算上の最も左」と「最も右」がリストの両端に確実に配置されます
-            units.sort(key=lambda u: (u["rect"].center().x(), u["rect"].top()))
-            
-            # ソート後の最初と最後を「動かないアンカー」とする
-            start_val = units[0]["rect"].center().x()
-            end_val = units[-1]["rect"].center().x()
-            
-            # 全体の距離を (個数 - 1) で割って1つあたりの間隔(gap)を算出
+            units.sort(key=lambda u: (u["cog"].x(), u["cog"].y()))
+            current_centers = [u["cog"].x() for u in units]
+            start_val, end_val = current_centers[0], current_centers[-1]
             gap = (end_val - start_val) / (len(units) - 1)
             
-            for i, u in enumerate(units):
-                # 両端（0番目と最後）は固定なのでスキップ
-                if i == 0 or i == len(units) - 1:
+            for i in range(1, len(units) - 1):
+                if abs(current_centers[i] - start_val) < 1.0 or abs(current_centers[i] - end_val) < 1.0:
                     continue
-                
-                # 理想の中心位置を計算
-                target_val = start_val + (i * gap)
-                # 現在の中心位置との差分 (移動量)
-                dx = target_val - u["rect"].center().x()
-                
-                if abs(dx) > 0.1: # 微小なズレは無視
-                    for item in u["members"]:
+                dx = start_val + (i * gap) - current_centers[i]
+                if abs(dx) > 0.1:
+                    for item in units[i]["members"]:
                         if hasattr(item, 'atom_id'):
                             update_atom_data_model(item, dx, 'x')
                             item.moveBy(dx, 0)
                             moved_atoms.append(item)
-                        elif not hasattr(item, 'atom1'): # Bond以外
+                        elif not hasattr(item, 'atom1'):
                             item.moveBy(dx, 0)
 
-        # ---------------------------------------------------------
-        # 垂直方向 (Vertical) の処理
-        # ---------------------------------------------------------
         elif axis == "vertical":
-            # 【修正】Topではなく「中心(center.y)」でソートする
-            units.sort(key=lambda u: (u["rect"].center().y(), u["rect"].left()))
-            
-            start_val = units[0]["rect"].center().y()
-            end_val = units[-1]["rect"].center().y()
-            
+            units.sort(key=lambda u: (u["cog"].y(), u["cog"].x()))
+            current_centers = [u["cog"].y() for u in units]
+            start_val, end_val = current_centers[0], current_centers[-1]
             gap = (end_val - start_val) / (len(units) - 1)
             
-            for i, u in enumerate(units):
-                # 両端は固定
-                if i == 0 or i == len(units) - 1:
+            for i in range(1, len(units) - 1):
+                if abs(current_centers[i] - start_val) < 1.0 or abs(current_centers[i] - end_val) < 1.0:
                     continue
-                
-                target_val = start_val + (i * gap)
-                dy = target_val - u["rect"].center().y()
-                
+                dy = start_val + (i * gap) - current_centers[i]
                 if abs(dy) > 0.1:
-                    for item in u["members"]:
+                    for item in units[i]["members"]:
                         if hasattr(item, 'atom_id'):
                             update_atom_data_model(item, dy, 'y')
                             item.moveBy(0, dy)
                             moved_atoms.append(item)
-                        elif not hasattr(item, 'atom1'): # Bond以外
+                        elif not hasattr(item, 'atom1'):
                             item.moveBy(0, dy)
         
+    
         # ---------------------------------------------------------
         # 結合(Bond)と画面の更新
         # ---------------------------------------------------------
         if moved_atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
             self.main_window.scene.update_connected_bonds(moved_atoms)
                     
-        self.main_window.update_2d_measurement_labels()
+        if hasattr(self.main_window, 'update_2d_measurement_labels'):
+            self.main_window.update_2d_measurement_labels()
+            
         self.main_window.scene.update()
         
-        self.main_window.push_undo_state()
-
+        if hasattr(self.main_window, 'push_undo_state'):
+            self.main_window.push_undo_state()
 
             
     def toggle_subscript(self):
@@ -2757,19 +2858,76 @@ class ModeManager(QObject):
         """
         Duplicate a list of items immediately (for Ctrl+Drag).
         Returns the list of new items.
+        Supports both Reaction Items and native Atoms/Bonds.
         """
         if not items: return []
         
-        # 1. Serialize
+        new_items = []
+        scene = self.main_window.scene
+        
+        # === 1. Handle Molecules (Atoms + Bonds) ===
+        atom_items = [i for i in items if hasattr(i, 'atom_id') and not hasattr(i, 'atom1')]
+        bond_items = [i for i in items if hasattr(i, 'atom1') and hasattr(i, 'atom2')]
+        
+        if atom_items:
+            try:
+                # Build set of selected atom IDs
+                selected_atom_ids = {a.atom_id for a in atom_items}
+                
+                # Create mapping: old_atom_id -> new_atom_item
+                old_to_new_atom = {}
+                
+                for atom_item in atom_items:
+                    try:
+                        # Get atom data from main data structure
+                        atom_id = atom_item.atom_id
+                        if atom_id not in self.main_window.data.atoms:
+                            continue
+                        
+                        atom_data = self.main_window.data.atoms[atom_id]
+                        atom_obj = atom_data.get('atom')
+                        
+                        symbol = atom_data.get('symbol', 'C')
+                        pos = atom_item.pos()
+                        charge = getattr(atom_obj, 'charge', 0) if atom_obj else 0
+                        radical = getattr(atom_obj, 'radical', 0) if atom_obj else 0
+                        
+                        # Create new atom using scene's API
+                        new_id = scene.create_atom(
+                            symbol, pos,
+                            charge=charge,
+                            radical=radical
+                        )
+                        if new_id and new_id in self.main_window.data.atoms:
+                            new_atom_item = self.main_window.data.atoms[new_id]['item']
+                            old_to_new_atom[atom_id] = new_atom_item
+                            new_items.append(new_atom_item)
+                    except Exception:
+                        pass
+                
+                # Create bonds between the new atoms
+                for (id1, id2), bond_data in list(self.main_window.data.bonds.items()):
+                    if id1 in selected_atom_ids and id2 in selected_atom_ids:
+                        if id1 in old_to_new_atom and id2 in old_to_new_atom:
+                            try:
+                                new_atom1 = old_to_new_atom[id1]
+                                new_atom2 = old_to_new_atom[id2]
+                                order = bond_data.get('order', 1)
+                                stereo = bond_data.get('stereo', 0)
+                                scene.create_bond(new_atom1, new_atom2, bond_order=order, bond_stereo=stereo)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+        
+        # === 2. Handle Reaction Items ===
         snapshot = []
         for item in items:
             if hasattr(item, "create_json_data"):
                 snapshot.append(item.create_json_data())
-            # Note: We are currently only handling Reaction Items for Ctrl+Drag cloning
-            # Native Atoms/Bonds need complex cloning (splitting molecules etc) which is handled by
-            # the main application's copy/paste usually. We skip them here for safety.
-            
-        if not snapshot: return []
+        
+        if not snapshot and not new_items:
+            return []
         
         # 2. Remap Group IDs
         import uuid
@@ -2781,9 +2939,7 @@ class ModeManager(QObject):
                     old_to_new_group[gid] = str(uuid.uuid4())
                 data["group_id"] = old_to_new_group[gid]
         
-        # 3. Create New Items
-        new_items = []
-        scene = self.main_window.scene
+        # 3. Create New Reaction Items (append to new_items, don't reset)
         
         # Import Item Classes locally to avoid circular dependency issues
         from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 

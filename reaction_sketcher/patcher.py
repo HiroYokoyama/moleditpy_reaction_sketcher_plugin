@@ -161,6 +161,26 @@ def apply_core_patches(main_window):
 
     patch_core(MainWindowUiManager, 'set_mode', patched_set_mode)
 
+    # --- Connection to Selection Signal ---
+    if MoleculeScene:
+        def patched_scene_init(self, *args, **kwargs):
+            # Capture the original init if we haven't already
+            # Wait, MoleculeScene might already be initialized when we apply patches.
+            # Safest to connect it to the ACTIVE scene in apply_core_patches.
+            pass
+
+        # Connect to active scene
+        if hasattr(main_window, 'scene') and main_window.scene:
+            try:
+                # Disconnect if already connected (to avoid duplicates on re-patch)
+                try: main_window.scene.selectionChanged.disconnect()
+                except: pass
+                
+                rmm = getattr(main_window, '_reaction_mode_manager', None)
+                if rmm and hasattr(rmm, '_sync_selection_visuals'):
+                     main_window.scene.selectionChanged.connect(rmm._sync_selection_visuals)
+            except Exception: pass
+
     def patched_bond_bounding_rect(self):
         line = self.get_line_in_local_coords()
         bond_offset = 3.5
@@ -465,7 +485,8 @@ def apply_core_patches(main_window):
             if self.isSelected():
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(QColor(0, 100, 255), 3))
+                highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
+                painter.setPen(QPen(highlight_color, 5)) 
                 painter.drawRect(self.boundingRect())
                 painter.restore()
             elif getattr(self, 'hovered', False):
@@ -537,8 +558,17 @@ def apply_core_patches(main_window):
             except: pass
 
             if is_svg:
-                # [FIX] SVG: Force White Background to hide bonds (Clear mode fails in SVG)
-                painter.setBrush(QColor(255, 255, 255))
+                # SVG: Use background color from settings to hide bonds (Clear mode fails in SVG)
+                bg_color = QColor(255, 255, 255)  # Default white
+                try:
+                    if self.scene() and self.scene().views():
+                        win = self.scene().views()[0].window()
+                        if win and hasattr(win, 'settings'):
+                            bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
+                            bg_color = QColor(bg_color_str)
+                except:
+                    pass
+                painter.setBrush(bg_color)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(bg_rect)
             else:
@@ -558,8 +588,9 @@ def apply_core_patches(main_window):
 
             if self.isSelected():
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                # Use solid blue with thickness 3 for selected atom highlight
-                painter.setPen(QPen(QColor(0, 100, 255), 3))
+                # Use thinner purple/blue highlight
+                highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
+                painter.setPen(QPen(highlight_color, 5))
                 painter.drawRect(self.boundingRect())
             elif getattr(self, 'hovered', False):
                 painter.setPen(QPen(QColor(144, 238, 144, 200), 3))
@@ -621,6 +652,44 @@ def apply_core_patches(main_window):
             painter.restore()
 
     patch_core(AtomItem, 'paint', patched_atom_paint)
+
+    # --- AtomItem Init ---
+    def patched_atom_item_init(self, *args, **kwargs):
+        # We might not be able to easily patch __init__ if it's already created, 
+        # but for NEW atoms, this will work. 
+        # For existing atoms, we rely on getattr(self, 'is_group_selected', False).
+        if (AtomItem, '__init__') in _core_originals:
+             _core_originals[(AtomItem, '__init__')](self, *args, **kwargs)
+        self.group_id = None
+        self.is_group_selected = False
+
+    patch_core(AtomItem, '__init__', patched_atom_item_init)
+
+    def patched_bond_paint(self, painter, option, widget):
+        line = self.get_line_in_local_coords()
+        if line.length() == 0: return
+        
+        # Selection Highlight (Glow effect)
+        if self.isSelected():
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            # Soft thinner purple/blue glow
+            highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
+            painter.setPen(QPen(highlight_color, 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawLine(line)
+            painter.restore()
+            
+            # Change state of option so base class doesn't draw default selection (if any)
+            # option.state &= ~QStyle.StateFlag.State_Selected
+
+        # Call original or use existing logic
+        # Since we want to control everything, let's implement the rest of paint here
+        # (or call original if we can access it from _core_originals)
+        orig = _core_originals.get((BondItem, 'paint'))
+        if orig:
+             return orig(self, painter, option, widget)
+        
+    patch_core(BondItem, 'paint', patched_bond_paint)
 
 
     # --- Delete Items (Global) ---
@@ -1711,10 +1780,10 @@ def patched_atom_paint(self, painter, option, widget):
         painter.drawRect(self.boundingRect())
     elif self.isSelected():
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(0, 100, 255), 3))
+        painter.setPen(QPen(QColor(0, 120, 255, 120), 10))
         painter.drawRect(self.boundingRect())
     if (not self.isSelected()) and getattr(self, 'hovered', False):
-        pen = QPen(QColor(144, 238, 144, 200), 3)
+        pen = QPen(QColor(144, 238, 144, 200), 5)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(pen)

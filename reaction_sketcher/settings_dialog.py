@@ -6,13 +6,14 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QGroupBox, QComboBox, QMessageBox, QWidget, QCheckBox,
                              QFormLayout)
 from PyQt6.QtGui import QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 import json
 import os
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 class AdvancedSettingsDialog(QDialog):
+    applyRequested = pyqtSignal()
     def __init__(self, parent=None, item=None):
         super().__init__(parent)
         self.item = item
@@ -90,6 +91,22 @@ class AdvancedSettingsDialog(QDialog):
             self.head_style_combo.setCurrentText(self.item.head_style)
             self.head_style_combo.currentTextChanged.connect(self.update_ui_state)
             props_layout.addRow("Head Style:", self.head_style_combo)
+            
+        # Head Position (Start/End) - Disabled by user request
+        # if hasattr(self.item, "head_at"):
+        #     self.head_at_combo = QComboBox()
+        #     self.head_at_combo.addItems(["start", "end"])
+        #     self.head_at_combo.setCurrentText(str(self.item.head_at))
+        #     props_layout.addRow("Arrow Position:", self.head_at_combo)
+            
+        # Head Side (Up/Down) - For single-headed curved arrows
+        if hasattr(self.item, "head_side"):
+            self.head_side_label = QLabel("Head Side (Up/Down):")
+            self.head_side_combo = QComboBox()
+            self.head_side_combo.addItems(["Up", "Down"])
+            # [Reversed mapping based on user feedback]
+            self.head_side_combo.setCurrentText("Up" if self.item.head_side < 0 else "Down")
+            props_layout.addRow(self.head_side_label, self.head_side_combo)
 
         # Double Arrow Spacing
         if hasattr(self.item, "double_arrow_offset"):
@@ -106,12 +123,32 @@ class AdvancedSettingsDialog(QDialog):
              self.cross_size_spin.setValue(float(self.item.cross_size))
              props_layout.addRow("Cross/Slash Size:", self.cross_size_spin)
         
+         # Rect Size (Bracket, Circle, Arrow, Line, Freehand, etc.)
+        if hasattr(self.item, "rect") or hasattr(self.item, "set_rect_size"):
+             w_val, h_val = 100.0, 100.0
+             if hasattr(self.item, "rect"):
+                 w_val = float(self.item.rect.width())
+                 h_val = float(self.item.rect.height())
+             elif hasattr(self.item, "start_p") and hasattr(self.item, "end_p"):
+                 w_val = float(abs(self.item.end_p.x() - self.item.start_p.x()))
+                 h_val = float(abs(self.item.end_p.y() - self.item.start_p.y()))
+             
+             self.rect_w_spin = QDoubleSpinBox()
+             self.rect_w_spin.setRange(1.0, 5000.0)
+             self.rect_w_spin.setValue(w_val)
+             props_layout.addRow("Width:", self.rect_w_spin)
+             
+             self.rect_h_spin = QDoubleSpinBox()
+             self.rect_h_spin.setRange(1.0, 5000.0)
+             self.rect_h_spin.setValue(h_val)
+             props_layout.addRow("Height:", self.rect_h_spin)
+
          # Item Size (Plus, Minus, etc.)
         if hasattr(self.item, "size"):
              self.item_size_spin = QDoubleSpinBox()
-             self.item_size_spin.setRange(5.0, 100.0)
+             self.item_size_spin.setRange(5.0, 1000.0)
              self.item_size_spin.setValue(float(self.item.size))
-             props_layout.addRow("Item Size:", self.item_size_spin)
+             props_layout.addRow("Size:", self.item_size_spin)
 
         # Bracket Type
         if hasattr(self.item, "bracket_type"):
@@ -161,8 +198,12 @@ class AdvancedSettingsDialog(QDialog):
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
         
+        btn_apply = QPushButton("Apply")
+        btn_apply.clicked.connect(self.applyRequested.emit)
+        
         btn_box.addStretch()
         btn_box.addWidget(btn_ok)
+        btn_box.addWidget(btn_apply)
         btn_box.addWidget(btn_cancel)
         main_layout.addLayout(btn_box)
 
@@ -179,6 +220,20 @@ class AdvancedSettingsDialog(QDialog):
             elif hasattr(self.item, "head_style"):
                 is_chevron = (self.item.head_style == "chevron")
             self.concavity_spin.setEnabled(is_chevron)
+            
+        if hasattr(self, "head_side_combo"):
+            # Show for harpoon style OR if it's a curved arrow (where it's always relevant for fish-hooks)
+            is_harpoon = False
+            if hasattr(self, "head_style_combo"):
+                is_harpoon = (self.head_style_combo.currentText() == "harpoon")
+            elif hasattr(self.item, "head_style"):
+                is_harpoon = (self.item.head_style == "harpoon")
+                
+            is_curved = "curved" in self.item_kind
+            visible = is_harpoon or is_curved
+            self.head_side_combo.setVisible(visible)
+            if hasattr(self, "head_side_label"):
+                self.head_side_label.setVisible(visible)
         
     def choose_color(self):
         color = QColorDialog.getColor(self.current_color, self, "Choose Color")
@@ -202,8 +257,12 @@ class AdvancedSettingsDialog(QDialog):
         if hasattr(self, "spacing_spin"): vals["double_arrow_offset"] = self.spacing_spin.value()
         if hasattr(self, "cross_size_spin"): vals["cross_size"] = self.cross_size_spin.value()
         if hasattr(self, "item_size_spin"): vals["size"] = self.item_size_spin.value()
+        if hasattr(self, "rect_w_spin"): vals["rect_width"] = self.rect_w_spin.value()
+        if hasattr(self, "rect_h_spin"): vals["rect_height"] = self.rect_h_spin.value()
         if hasattr(self, "bracket_combo"): vals["bracket_type"] = self.bracket_combo.currentText()
         if hasattr(self, "head_style_combo"): vals["head_style"] = self.head_style_combo.currentText()
+        # if hasattr(self, "head_at_combo"): vals["head_at"] = self.head_at_combo.currentText()
+        if hasattr(self, "head_side_combo"): vals["head_side"] = -1 if self.head_side_combo.currentText() == "Up" else 1
         return vals
 
     def set_ui_values(self, vals):
@@ -233,10 +292,22 @@ class AdvancedSettingsDialog(QDialog):
              self.bracket_combo.setCurrentText(vals["bracket_type"])
         if "head_style" in vals and hasattr(self, "head_style_combo"):
              self.head_style_combo.setCurrentText(vals["head_style"])
+        # if "head_at" in vals and hasattr(self.item, "head_at"):
+        #      self.item.head_at = vals["head_at"]
+        # if "head_at" in vals and hasattr(self, "head_at_combo"):
+        #      self.head_at_combo.setCurrentText(vals["head_at"])
+        if "head_side" in vals and hasattr(self.item, "head_side"):
+             self.item.head_side = int(vals["head_side"])
+        if "head_side" in vals and hasattr(self, "head_side_combo"):
+             self.head_side_combo.setCurrentText("Up" if int(vals["head_side"]) < 0 else "Down")
         if "size" in vals and hasattr(self.item, "size"):
              self.item.size = float(vals["size"])
         if "size" in vals and hasattr(self, "item_size_spin"):
              self.item_size_spin.setValue(float(vals["size"]))
+        if "rect_width" in vals and hasattr(self, "rect_w_spin"):
+             self.rect_w_spin.setValue(float(vals["rect_width"]))
+        if "rect_height" in vals and hasattr(self, "rect_h_spin"):
+             self.rect_h_spin.setValue(float(vals["rect_height"]))
              
         self.update_ui_state()
 
@@ -273,18 +344,20 @@ class AdvancedSettingsDialog(QDialog):
 
     def get_factory_defaults(self):
         # Return hardcoded defaults based on item kind
-        defaults = {"color": "#000000", "width": 2}
+        # width=3 is standard in items.py
+        defaults = {"color": "#000000", "width": 3}
         if "arrow" in self.item_kind:
             defaults.update({
                 "head_size": 25.0, # Updated default
-                "head_angle": 25.0, "head_concavity": 0.5,
-                "head_style": "chevron", "width": 2
+                "head_style": "chevron", "width": 2,
+                "head_at": "end", "head_side": -1
             })
+            if "curved" in self.item_kind:
+                defaults["curvature"] = 0.4
+                defaults["head_style"] = "chevron"
+            
             if "no" in self.item_kind:
-                 defaults["cross_size"] = 15.0 # Keep small for X? User said "adjustable", maybe 15 is fine as base? 
-                 # User said "adjustment possible". Default size wasn't specified but "other arrows 3x". 
-                 # Let's keep 15 or 20 for cross.
-                 defaults["cross_size"] = 15.0
+                 defaults["cross_size"] = 15.0 
                  
         if "bracket" in self.item_kind:
              defaults.update({"bracket_type": "square", "width": 2})

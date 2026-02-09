@@ -26,8 +26,10 @@ class InteractionHandler(QObject):
         self._is_dragging = False
         self._drag_start_pos = None
         self._drag_items = []
-        self._drag_initial_positions = {}
+        self._drag_initial_positions = {}  # For tracking movement delta
+        self._drag_original_positions = {}  # For restoring originals on Ctrl+Drag clone
         self._did_move = False
+        self._has_cloned = False  # Track if we already cloned during this drag
 
     def set_tool(self, tool_name):
         self.active_tool = tool_name
@@ -168,41 +170,42 @@ class InteractionHandler(QObject):
                 self._is_dragging = True
                 self._drag_start_pos = scene_pos
                 self._did_move = False
+                self._drag_start_item_was_selected = top_item.isSelected()
                 
                 # Identify Target Group
                 # If selection is empty or top_item not in selection, select it (and its group)
+                modifiers = QApplication.keyboardModifiers()
+                is_shift = modifiers.value & Qt.KeyboardModifier.ShiftModifier.value
+                is_ctrl = modifiers.value & Qt.KeyboardModifier.ControlModifier.value
+                
                 if not top_item.isSelected():
-                     modifiers = QApplication.keyboardModifiers()
-                     if not (modifiers.value & Qt.KeyboardModifier.ControlModifier.value): # If Ctrl, we will handle separately
+                    # Item not selected - add to selection (with Shift/Ctrl) or replace selection
+                    if not (is_shift or is_ctrl):
                         self.main_window.scene.clearSelection()
                      
-                     # Group Selection Logic (Simplified)
-                     group_items = [top_item]
-                     if hasattr(top_item, "group_id") and top_item.group_id:
-                         gid = top_item.group_id
-                         group_items = [x for x in self.main_window.scene.items() if hasattr(x, "group_id") and x.group_id == gid]
+                    # Group Selection Logic (Simplified)
+                    group_items = [top_item]
+                    if hasattr(top_item, "group_id") and top_item.group_id:
+                        gid = top_item.group_id
+                        group_items = [x for x in self.main_window.scene.items() if hasattr(x, "group_id") and x.group_id == gid]
                      
-                     for g in group_items:
-                         g.setSelected(True)
+                    for g in group_items:
+                        g.setSelected(True)
+                # else: Item is already selected - proceed to drag (no toggle on drag start)
                 
                 # Get all movable selected items
                 selected_items = self.main_window.scene.selectedItems()
                 movable_items = [i for i in selected_items if (i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable) or hasattr(i, "atom_id") or hasattr(i, "atom1")]
                 
-                # Check Modifier for Clone (Ctrl)
-                modifiers = QApplication.keyboardModifiers()
-                if modifiers.value & Qt.KeyboardModifier.ControlModifier.value:
-                    # Clone Mode: Duplicate items and drag the COPIES
-                    if self.mode_manager:
-                        clones = self.mode_manager.duplicate_items_immediate(movable_items)
-                        if clones:
-                            self.main_window.scene.clearSelection()
-                            for c in clones:
-                                c.setSelected(True)
-                            movable_items = clones
-                
+                # Store original positions for potential Ctrl+Drag clone during move
                 self._drag_items = movable_items
                 self._drag_initial_positions = {i: i.pos() for i in movable_items}
+                self._drag_original_positions = {i: i.pos() for i in movable_items}  # For clone restore
+                self._has_cloned = False
+                
+                # Store initial modifier state for immediate action on first move
+                self._drag_start_with_ctrl = is_ctrl
+                self._drag_start_with_shift = is_shift
                 
                 return True # We handle the drag
 
@@ -391,15 +394,46 @@ class InteractionHandler(QObject):
         if self._is_dragging and self._drag_items:
             delta = scene_pos - self._drag_start_pos
             
-            # Constrain Movement (Shift)
+            # Implementation of movement threshold (e.g., 3 pixels) to prevent accidental moves on clicks
+            if not self._did_move and delta.manhattanLength() < 3:
+                return True # Swallowing until threshold is met
+            
             modifiers = QApplication.keyboardModifiers()
-            if modifiers.value & Qt.KeyboardModifier.ShiftModifier.value:
+            # Use either the modifier at start of drag or the current modifier
+            active_ctrl = self._drag_start_with_ctrl or (modifiers.value & Qt.KeyboardModifier.ControlModifier.value)
+            active_shift = self._drag_start_with_shift or (modifiers.value & Qt.KeyboardModifier.ShiftModifier.value)
+            
+            # Ctrl+Drag Clone: Clone items once during drag, originals stay in place
+            if active_ctrl and not self._has_cloned:
+                if self.mode_manager:
+                    # Reset originals to their starting positions
+                    for item in self._drag_items:
+                        if item in self._drag_original_positions:
+                            item.setPos(self._drag_original_positions[item])
+                    
+                    # Create clones
+                    clones = self.mode_manager.duplicate_items_immediate(self._drag_items)
+                    if clones:
+                        self.main_window.scene.clearSelection()
+                        for c in clones:
+                            c.setSelected(True)
+                        
+                        # Switch to dragging the clones
+                        self._drag_items = clones
+                        # Clones start at original positions, so use those
+                        self._drag_initial_positions = {c: c.pos() for c in clones}
+                        self._has_cloned = True
+            
+            # Shift = Constrain movement to horizontal or vertical
+            if active_shift:
+                # Recalculate delta if cloned to ensure constraint works from start
+                delta = scene_pos - self._drag_start_pos
                 if abs(delta.x()) > abs(delta.y()):
                     delta.setY(0)
                 else:
                     delta.setX(0)
             
-            # Apply to all items
+            # Apply movement delta to current drag items
             for item in self._drag_items:
                 if item in self._drag_initial_positions:
                     new_pos = self._drag_initial_positions[item] + delta
@@ -453,10 +487,53 @@ class InteractionHandler(QObject):
             self._drag_start_pos = None
             self._drag_items = []
             self._drag_initial_positions = {}
+            self._drag_original_positions = {}
+            self._has_cloned = False
+            self._drag_start_with_ctrl = False
+            self._drag_start_with_shift = False
             
             if self._did_move:
                 self.main_window.push_undo_state()
                 self._did_move = False
+            else:
+                # No move happened. 
+                scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+                item = self.main_window.scene.itemAt(scene_pos, self.main_window.view_2d.transform())
+                
+                # If Shift/Ctrl was used on an already selected item, 
+                # we should toggle it OFF now (logic was deferred from mouse_press to allow drag)
+                if self._drag_start_with_ctrl or self._drag_start_with_shift:
+                    if item and item.isSelected():
+                        # Toggle off this item and its group
+                        group_items = [item]
+                        if hasattr(item, "group_id") and item.group_id:
+                            gid = item.group_id
+                            group_items = [x for x in self.main_window.scene.items() if hasattr(x, "group_id") and x.group_id == gid]
+                        for g in group_items:
+                            g.setSelected(False)
+                elif item and item.isSelected() and getattr(item, "is_group_selected", False) and getattr(self, "_drag_start_item_was_selected", False):
+                    # Pure click on a group member, and it was ALREADY selected before the press
+                    selected_items = self.main_window.scene.selectedItems()
+                    
+                    if len(selected_items) > 1:
+                        # SECOND CLICK DRILL-DOWN:
+                        # Item is already selected as part of a group. 
+                        # Clicking it again selects ONLY this item and shows handles.
+                        self.main_window.scene.clearSelection()
+                        item.setSelected(True)
+                        # Sync will run, but we set flag AFTER
+                        if hasattr(item, "show_handles_in_group"):
+                            item.show_handles_in_group = True
+                            if hasattr(item, "update_handle_visibility"):
+                                item.update_handle_visibility()
+                    elif len(selected_items) == 1:
+                        # Already single selected, but handle might be hidden. Force it.
+                        if hasattr(item, "show_handles_in_group"):
+                            item.show_handles_in_group = True
+                            if hasattr(item, "update_handle_visibility"):
+                                item.update_handle_visibility()
+                    
+                    item.update()
             
             return True
 
