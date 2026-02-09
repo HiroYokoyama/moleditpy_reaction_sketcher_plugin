@@ -31,7 +31,7 @@ A comprehensive chemical reaction sketching tool for MoleditPy, allowing users t
 
 ## Installation
 
-1. Download the zip file from [Plugin Explorer](https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=Reaction+Sketcher)
+1. Download the zip file from [Plugin Explorer](https://hiroyokoyama.github.io/moleditpy-plugins/explorer/?q=Reaction+Sketcher).
 2. Copy the `reaction_sketcher` folder into the `plugins` directory of your MoleditPy installation.
 3. Restart MoleditPy.
 
@@ -66,6 +66,7 @@ The side toolbar provides categorized tools:
 
 ## License
 This project is licensed under the GNU General Public License v3.0 (GPLv3).
+
 
 
 
