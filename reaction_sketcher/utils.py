@@ -1,12 +1,25 @@
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor
-from .items import (ReactionArrowItem, ReactionResonanceArrowItem, 
-                    ReactionEquilibriumArrowItem, ReactionRetroArrowItem, 
-                    ReactionNoArrowItem, ReactionCurvedArrowItem,
-                    ReactionDashedArrowItem, ReactionLineItem, 
-                    ReactionCurvedLineItem, ReactionFreehandItem,
-                    ReactionPlusItem, ReactionMinusItem, 
-                    ReactionBracketItem, ReactionCircleItem, ReactionTextItem)
+def sip_isdeleted_safe(obj):
+    """Check if a PyQt object has been deleted at the C++ level."""
+    if obj is None: return True
+    
+    # Try PyQt6.sip (Standard for modern PyQt6 environments)
+    try:
+        from PyQt6 import sip
+        return sip.isdeleted(obj)
+    except ImportError:
+        pass
+        
+    # Try top-level sip (Legacy or specific environments)
+    try:
+        import sip
+        return sip.isdeleted(obj)
+    except:
+        pass
+        
+    # If we truly cannot check, assume it is NOT deleted to allow functionality.
+    # The RuntimeError is worse than a potential crash in some cases, 
+    # but False prevents total failure of the plugin if sip is missing.
+    return False
 
 def get_main_window(scene):
     """Helper to get the main window from a scene."""
@@ -22,6 +35,15 @@ def load_handler_core(main_window, reaction_items):
     Core function to load reaction items from a list of dictionaries.
     Moved here to avoid circular imports between __init__.py and patcher.py.
     """
+    from .items import (ReactionArrowItem, ReactionResonanceArrowItem, 
+                        ReactionEquilibriumArrowItem, ReactionRetroArrowItem, 
+                        ReactionNoArrowItem, ReactionCurvedArrowItem,
+                        ReactionDashedArrowItem, ReactionLineItem, 
+                        ReactionCurvedLineItem, ReactionFreehandItem,
+                        ReactionPlusItem, ReactionMinusItem, 
+                        ReactionBracketItem, ReactionCircleItem, ReactionTextItem)
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QColor
     if not reaction_items:
         return
 
@@ -159,3 +181,4 @@ def load_handler_core(main_window, reaction_items):
         if item:
             if "group_id" in item_data: item.group_id = item_data["group_id"]
             main_window.scene.addItem(item)
+

@@ -13,6 +13,8 @@ try:
 except ImportError:
     QSvgGenerator = None
 
+from .utils import sip_isdeleted_safe
+
 # Storage for original methods
 _core_originals = {}
 _interaction_originals = {}
@@ -216,7 +218,7 @@ def apply_core_patches(main_window):
     def patched_close_event(self, event):
         """Override close to check for unsaved reaction items."""
         # Check if there are reaction items in the scene
-        reaction_items = [i for i in self.scene.items() if hasattr(i, "create_json_data")]
+        reaction_items = [i for i in self.scene.items() if not sip_isdeleted_safe(i) and hasattr(i, "create_json_data")]
         
         # Use the existing has_unsaved_changes flag from the undo system
         if reaction_items and getattr(self, 'has_unsaved_changes', False):
@@ -306,8 +308,9 @@ def apply_core_patches(main_window):
             from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
                                 ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
             
-            selected_atoms = [item for item in self.scene.selectedItems() if hasattr(item, 'atom_id')]
-            selected_rs_items_raw = [item for item in self.scene.selectedItems() if hasattr(item, 'create_json_data')]
+            selected_items = [i for i in self.scene.selectedItems() if not sip_isdeleted_safe(i)]
+            selected_atoms = [item for item in selected_items if hasattr(item, 'atom_id')]
+            selected_rs_items_raw = [item for item in selected_items if hasattr(item, 'create_json_data')]
             
             if not selected_atoms and not selected_rs_items_raw:
                 return
@@ -430,10 +433,16 @@ def apply_core_patches(main_window):
         from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
                             ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
         for item in self.scene.items():
+            if sip_isdeleted_safe(item):
+                continue
             if hasattr(item, "create_json_data") or isinstance(item, (AtomItem, BondItem)):
                 item.setSelected(True)
 
     patch_core(MainWindowEditActions, 'select_all', patched_select_all)
+
+    # Delegate to EditActions from MainWindow
+    patch_core(MainWindow, 'select_all', lambda self: self.main_window_edit_actions.select_all())
+    patch_core(MainWindow, 'delete_selection', lambda self: self.main_window_edit_actions.delete_selection())
 
     # --- Scene Delete Items ---
     def patched_scene_delete_items(self, items_to_delete):
@@ -448,6 +457,8 @@ def apply_core_patches(main_window):
         core_items_to_delete = []
 
         for item in items_to_delete:
+            if sip_isdeleted_safe(item):
+                continue
             if isinstance(item, (AtomItem, BondItem)):
                 core_items_to_delete.append(item)
             else:
@@ -482,7 +493,13 @@ def apply_core_patches(main_window):
         
         if not self.is_visible:
             # Still draw selection highlight even if atom is central to a bond (skeletal carbon)
-            if self.isSelected():
+            if getattr(self, 'has_problem', False):
+                painter.save()
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
+                painter.drawRect(self.boundingRect())
+                painter.restore()
+            elif self.isSelected():
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
@@ -586,7 +603,11 @@ def apply_core_patches(main_window):
                     painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawEllipse(bg_rect)
 
-            if self.isSelected():
+            if getattr(self, 'has_problem', False):
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
+                painter.drawRect(self.boundingRect())
+            elif self.isSelected():
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 # Use thinner purple/blue highlight
                 highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
@@ -669,8 +690,13 @@ def apply_core_patches(main_window):
         line = self.get_line_in_local_coords()
         if line.length() == 0: return
         
-        # Selection Highlight (Glow effect)
-        if self.isSelected():
+        if getattr(self, 'has_problem', False):
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(QColor(255, 0, 0, 200), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawLine(line)
+            painter.restore()
+        elif self.isSelected():
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             # Soft thinner purple/blue glow
@@ -747,7 +773,7 @@ def apply_core_patches(main_window):
     def patched_rotate_molecule_2d(self, angle_degrees):
         try:
             import math
-            selected_items = self.scene.selectedItems()
+            selected_items = [i for i in self.scene.selectedItems() if not sip_isdeleted_safe(i)]
             
             # Identify targets
             target_atoms = [i for i in selected_items if isinstance(i, AtomItem)]
@@ -761,6 +787,8 @@ def apply_core_patches(main_window):
                 
                 # Gather reaction items from scene
                 for item in self.scene.items():
+                    if sip_isdeleted_safe(item):
+                        continue
                     if hasattr(item, "rotate_around"):
                         target_reaction_items.append(item)
             
@@ -1618,176 +1646,9 @@ except ImportError:
     FONT_WEIGHT_BOLD = 75
     CPK_COLORS = {'Default': QColor("#000000")}
 
-def sip_isdeleted_safe(obj):
-    if obj is None: return True
-    try:
-        import sip
-        return sip.isdeleted(obj)
-    except: return True
+# Removed shadowed sip_isdeleted_safe - using the version from .utils instead
 
-def patched_atom_paint(self, painter, option, widget):
-    # Cloned and Modified from AtomItem.paint to support (255,255,255,0) transparency
-    
-    # Color logic
-    color = CPK_COLORS.get(self.symbol, CPK_COLORS.get('DEFAULT', QColor(0,0,0)))
-    try:
-        if self.scene() and self.scene().views():
-            win = self.scene().views()[0].window()
-            if win and hasattr(win, 'settings'):
-                if self.symbol == 'H' or win.settings.get('atom_use_bond_color_2d', False):
-                    bond_col = win.settings.get('bond_color_2d', '#222222')
-                    color = QColor(bond_col)
-    except Exception: pass
-
-    if self.is_visible:
-        painter.setFont(self.font)
-        fm = painter.fontMetrics()
-
-        hydrogen_part = ""
-        if self.implicit_h_count > 0:
-            is_skeletal_carbon = (self.symbol == 'C' and self.charge == 0 and self.radical == 0 and len(self.bonds) > 0)
-            if not is_skeletal_carbon:
-                hydrogen_part = "H"
-                if self.implicit_h_count > 1:
-                    subscript_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
-                    hydrogen_part += str(self.implicit_h_count).translate(subscript_map)
-
-        flip_text = False
-        if hydrogen_part and self.bonds:
-            my_pos_x = self.pos().x()
-            total_dx = 0.0
-            for bond in self.bonds:
-                try:
-                    other_atom = bond.atom1 if bond.atom2 is self else bond.atom2
-                    if not sip_isdeleted_safe(other_atom) and other_atom is not None:
-                         other_pos = other_atom.pos()
-                         total_dx += (other_pos.x() - my_pos_x)
-                except: pass
-            if total_dx > 0: flip_text = True
-
-        if flip_text:
-            display_text = hydrogen_part + self.symbol
-            alignment_flag = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        else:
-            display_text = self.symbol + hydrogen_part
-            alignment_flag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-
-        text_rect = fm.boundingRect(display_text)
-        text_rect.adjust(-2, -2, 2, 2)
-        symbol_rect = fm.boundingRect(self.symbol)
-
-        if not hydrogen_part:
-            alignment_flag = Qt.AlignmentFlag.AlignCenter
-            text_rect.moveCenter(QPointF(0, 0).toPoint())
-        elif flip_text:
-            offset_x = symbol_rect.width() // 2
-            text_rect.moveTo(offset_x - text_rect.width(), -text_rect.height() // 2)
-        else:
-            offset_x = -symbol_rect.width() // 2
-            text_rect.moveTo(offset_x, -text_rect.height() // 2)
-
-        # 2. Background Handling (THE FIX)
-        if self.scene():
-            bg_brush = self.scene().backgroundBrush()
-            bg_rect = text_rect.adjusted(-5, -8, 5, 8)
-            
-            # Check for NoBrush OR Transparent Alpha
-            is_transparent_mode = (bg_brush.style() == Qt.BrushStyle.NoBrush) or (bg_brush.color().alpha() == 0)
-
-            # Check if we are drawing to SVG (QPaintEngine.Type.SVG = 14)
-            # QSvgGenerator does NOT support PorterDuff composition modes (Clear/Source).
-            # If we try, it throws "PorterDuff modes not supported on device"
-            # However, paintEngine().type() might not be reliable or available.
-            # Safest is to try-except the composition mode call.
-            
-            should_use_composition = False
-            if is_transparent_mode:
-                # Try setting composition mode - if it fails (SVG), fallback
-                try:
-                     # Check type if available to avoid unnecessary exceptions
-                     if painter.paintEngine() and painter.paintEngine().type() != QPaintEngine.Type.SVG:
-                        painter.save()
-                        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-                        should_use_composition = True
-                except:
-                     pass
-
-            if should_use_composition:
-                painter.setBrush(QColor(255, 255, 255, 0)) 
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(bg_rect)
-                painter.restore()
-            else:
-                # Fallback for SVG or Opaque Background
-                if not is_transparent_mode:
-                     painter.setBrush(bg_brush)
-                     painter.setPen(Qt.PenStyle.NoPen)
-                     painter.drawEllipse(bg_rect)
-                elif painter.paintEngine() and painter.paintEngine().type() == QPaintEngine.Type.SVG:
-                     # SVG + Transparent Mode requested.
-                     # User wants WHITE background for text in SVG to avoid "black" or transparency issues.
-                     # Since we can't use CompositionMode_Source to "erase" in SVG easily,
-                     # we paint a WHITE circle behind the text to mask bonds.
-                     painter.setBrush(QColor(255, 255, 255))
-                     painter.setPen(Qt.PenStyle.NoPen)
-                     painter.drawEllipse(bg_rect)
-                elif painter.paintEngine() and painter.paintEngine().type() == QPaintEngine.Type.SVG:
-                     # SVG + Transparent Mode requested.
-                     # User wants WHITE background for text in SVG to avoid "black" or transparency issues.
-                     # Since we can't use CompositionMode_Source to "erase" in SVG easily,
-                     # we paint a WHITE circle behind the text to mask bonds.
-                     painter.setBrush(QColor(255, 255, 255))
-                     painter.setPen(Qt.PenStyle.NoPen)
-                     painter.drawEllipse(bg_rect)
-        
-        # 3. Draw Text
-        painter.setPen(QPen(color))
-        painter.drawText(text_rect, int(alignment_flag), display_text)
-        
-        # Charge/Radical (Simplified for brevity, assuming original logic handles them via update/standard paint)
-        # Actually we need them. Let's add basic charge logic.
-        if self.charge != 0:
-            if self.charge == 1: charge_str = "+"
-            elif self.charge == -1: charge_str = "-"
-            else: charge_str = f"{abs(self.charge)}{'+' if self.charge>0 else '-'}"
-            charge_font = QFont("Arial", 12, QFont.Weight.Bold)
-            painter.setFont(charge_font)
-            charge_rect = painter.fontMetrics().boundingRect(charge_str)
-            if flip_text:
-                charge_pos = QPointF(text_rect.left() - charge_rect.width() -2, text_rect.top() + charge_rect.height() - 2)
-            else:
-                charge_pos = QPointF(text_rect.right() + 2, text_rect.top() + charge_rect.height() - 2)
-            painter.setPen(Qt.GlobalColor.black)
-            painter.drawText(charge_pos, charge_str)
-        
-        # Radical (Basic dots)
-        if self.radical > 0:
-            painter.setBrush(QBrush(Qt.GlobalColor.black))
-            painter.setPen(Qt.PenStyle.NoPen)
-            radical_pos_y = text_rect.top() - 5
-            c_x = text_rect.center().x()
-            if self.radical == 1:
-                painter.drawEllipse(QPointF(c_x, radical_pos_y), 3, 3)
-            elif self.radical == 2:
-                painter.drawEllipse(QPointF(c_x - 5, radical_pos_y), 3, 3)
-                painter.drawEllipse(QPointF(c_x + 5, radical_pos_y), 3, 3)
-
-
-    # Selection Highlight
-    if self.has_problem:
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
-        painter.drawRect(self.boundingRect())
-    elif self.isSelected():
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(0, 120, 255, 120), 10))
-        painter.drawRect(self.boundingRect())
-    if (not self.isSelected()) and getattr(self, 'hovered', False):
-        pen = QPen(QColor(144, 238, 144, 200), 5)
-        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(pen)
-        painter.drawRect(self.boundingRect())
+# Removed redundant top-level patched_atom_paint - nested version inside apply_core_patches is used instead.
 
 
 def revert_all_patches():

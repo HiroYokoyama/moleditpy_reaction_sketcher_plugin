@@ -36,7 +36,7 @@ from .utils import load_handler_core
 from .patcher import apply_patches
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "1.4.0"
+PLUGIN_VERSION = "1.4.1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 

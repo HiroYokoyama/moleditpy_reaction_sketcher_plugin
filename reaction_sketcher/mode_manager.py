@@ -21,6 +21,7 @@ from PyQt6.QtCore import (
     QObject, QEvent, QTimer, QFile
 )
 
+from .utils import sip_isdeleted_safe
 from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
 from .patcher import (
     apply_interaction_patches, revert_interaction_patches,
@@ -52,7 +53,7 @@ class ModeManager(QObject):
         self._updating_props = False
         self.default_head_styles = {
             "arrow": "chevron",
-            "arrow_eq": "chevron", 
+            "arrow_eq": "harpoon", 
             "arrow_res": "chevron",
             "arrow_retro": "chevron", 
             "arrow_no": "chevron",
@@ -940,9 +941,9 @@ class ModeManager(QObject):
                  AtomItem = type('AtomItem', (), {})
                  BondItem = type('BondItem', (), {})
         
-        reaction_items = [i for i in items if isinstance(i, (ReactionTextItem, ReactionArrowItem, ReactionBracketItem, 
-                                                              ReactionCircleItem, ReactionPlusItem, ReactionMinusItem, 
-                                                              AtomItem, BondItem))]
+        # Filter valid items
+        reaction_items = [i for i in items if not sip_isdeleted_safe(i) and 
+                          (hasattr(i, "create_json_data") or isinstance(i, (AtomItem, BondItem)))]
         
         if not reaction_items:
             # Reset Toolbar to Default (No Selection)
@@ -977,17 +978,30 @@ class ModeManager(QObject):
         self.font_size_spin.hide()
         # Size control removed
         
-        if isinstance(first, ReactionTextItem):
-            # Get font from actual content (Rich Text)
-            f = first.font() # Default fallback
+        # Sub/Sup/Chem buttons should be enabled if ANY selected item is a text item
+        has_text = any(isinstance(i, ReactionTextItem) for i in reaction_items)
+        self.sub_action.setEnabled(has_text)
+        self.sup_action.setEnabled(has_text)
+        self.chem_action.setEnabled(has_text)
+        
+        if has_text:
             try:
-                cursor = first.textCursor()
-                if first.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-                    # If editing, use cursor style
+                from PyQt6.QtGui import QTextCursor
+            except ImportError:
+                pass
+
+            # Sync text-specific properties from the first text item
+            text_items = [i for i in reaction_items if isinstance(i, ReactionTextItem)]
+            first_text = text_items[0]
+            
+            # Get font from actual content (Rich Text)
+            f = first_text.font() # Default fallback
+            try:
+                cursor = first_text.textCursor()
+                if first_text.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
                     f = cursor.charFormat().font()
-                elif not first.document().isEmpty():
-                     # If just selected, use style of first character
-                     c = QTextCursor(first.document())
+                elif not first_text.document().isEmpty():
+                     c = QTextCursor(first_text.document())
                      c.setPosition(0)
                      c.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
                      f = c.charFormat().font()
@@ -1000,65 +1014,34 @@ class ModeManager(QObject):
             self.bold_action.setChecked(f.bold())
             self.italic_action.setChecked(f.italic())
             self.underline_action.setChecked(f.underline())
-            
-            # Check vertical alignment for Sub/Sup
-            try:
-                align = QTextCharFormat.VerticalAlignment.AlignNormal
-                if first.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-                    # In Edit Mode: Use current cursor format
-                    align = first.textCursor().charFormat().verticalAlignment()
-                else:
-                     # In Object Mode: Check the first character's format or default
-                     cursor = first.textCursor()
-                     if not cursor.hasSelection():
-                        cursor.select(QTextCursor.SelectionType.Document)
-                     
-                     # If mixed, we might default to Normal, or check first char
-                     # Let's check the char format of the beginning of selection
-                     cursor.setPosition(cursor.selectionStart())
-                     cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
-                     align = cursor.charFormat().verticalAlignment()
-                
-                # No need to sync button state - buttons are not checkable
-            except Exception as e:
-                pass
             self.blockSignals(False)
-            
-            # Ensure we are listening to cursor changes for live updates
-            try:
-                first.cursorChanged.disconnect(self.sync_property_toolbar)
-            except: pass
-            first.cursorChanged.connect(self.sync_property_toolbar)
-            
+
             self.lbl_font_size.show()
             self.font_size_spin.show()
-            
             size = f.pointSize()
-            if size <= 0:
-                size = f.pixelSize()
-            if size <= 0: size = 12 # Default fallback
-            
+            if size <= 0: size = f.pixelSize()
+            if size <= 0: size = 12
             self.font_size_spin.setValue(int(size))
             
             self.font_combo.setEnabled(True)
             self.bold_action.setEnabled(True)
             self.italic_action.setEnabled(True)
             self.underline_action.setEnabled(True)
-            self.sub_action.setEnabled(True)
-            self.sup_action.setEnabled(True)
-            self.chem_action.setEnabled(True)
-
             self.font_size_spin.setEnabled(True)
+            
+            # Ensure we are listening to cursor changes for live updates
+            try:
+                first_text.cursorChanged.disconnect(self.sync_property_toolbar)
+            except: pass
+            first_text.cursorChanged.connect(self.sync_property_toolbar)
         else:
-            # Non-text items - disable all text controls and font size
             self.font_combo.setEnabled(False)
-            self.font_size_spin.setEnabled(False)  # Disable font size for non-text items
+            self.font_size_spin.setEnabled(False)
             self.bold_action.setEnabled(False)
             self.italic_action.setEnabled(False)
             self.underline_action.setEnabled(False)
-            self.sub_action.setEnabled(False)
-            self.sup_action.setEnabled(False)
-            self.chem_action.setEnabled(False)
+            self.lbl_font_size.hide()
+            self.font_size_spin.hide()
 
         # Sync width if arrow/bracket/signs
         if hasattr(first, "pen_width"):
@@ -2330,7 +2313,8 @@ class ModeManager(QObject):
         # Identify items that belong to a logical group (Explicit Group or Molecule)
         # We use get_logical_units to find blocks. 
         # Any unit with > 1 item is a candidate for purple highlight if selected.
-        units = self.get_logical_units(selected_items)
+        valid_selected = [i for i in selected_items if not sip_isdeleted_safe(i)]
+        units = self.get_logical_units(valid_selected)
         purple_items = set()
         
         for unit_dict in units:
@@ -2354,6 +2338,8 @@ class ModeManager(QObject):
                     purple_items.add(item)
         # Update flags for ALL items in the scene that have the attribute
         for item in self.main_window.scene.items():
+            if sip_isdeleted_safe(item):
+                continue
             if hasattr(item, "is_group_selected"):
                 old_val = item.is_group_selected
                 new_val = (item in purple_items)
@@ -2431,7 +2417,7 @@ class ModeManager(QObject):
             return fragment
         
         for item in items:
-            if item in visited:
+            if sip_isdeleted_safe(item) or item in visited:
                 continue
             
             unit_members = []
@@ -2457,6 +2443,11 @@ class ModeManager(QObject):
             for m in unit_members:
                 visited.add(m)
             
+            if not unit_members:
+                continue
+
+            # Filter out deleted members before calculating bounds
+            unit_members = [m for m in unit_members if not sip_isdeleted_safe(m)]
             if not unit_members:
                 continue
 
@@ -2545,6 +2536,8 @@ class ModeManager(QObject):
             # Apply delta
             if abs(dx) > 0.1 or abs(dy) > 0.1:
                 for item in u["members"]:
+                    if sip_isdeleted_safe(item):
+                        continue
                     # Only move atoms, bonds update automatically
                     if hasattr(item, 'atom_id'):
                         # Update core data
@@ -2612,6 +2605,8 @@ class ModeManager(QObject):
                 dx = start_val + (i * gap) - current_centers[i]
                 if abs(dx) > 0.1:
                     for item in units[i]["members"]:
+                        if sip_isdeleted_safe(item):
+                            continue
                         if hasattr(item, 'atom_id'):
                             update_atom_data_model(item, dx, 'x')
                             item.moveBy(dx, 0)
@@ -2631,6 +2626,8 @@ class ModeManager(QObject):
                 dy = start_val + (i * gap) - current_centers[i]
                 if abs(dy) > 0.1:
                     for item in units[i]["members"]:
+                        if sip_isdeleted_safe(item):
+                            continue
                         if hasattr(item, 'atom_id'):
                             update_atom_data_model(item, dy, 'y')
                             item.moveBy(0, dy)

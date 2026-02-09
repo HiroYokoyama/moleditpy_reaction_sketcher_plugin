@@ -6,17 +6,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPaint
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent, pyqtSignal
 import math
 
-def sip_isdeleted_safe(obj):
-    """Check if a PyQt object has been deleted at the C++ level."""
-    if obj is None: return True
-    try:
-        from PyQt6.QtCore import Qt # Just any property to check validity
-        # hasattr check on something that requires C++ bond can trigger RuntimeError if deleted
-        # But actually, 'sip' is the direct way.
-        import sip
-        return sip.isdeleted(obj)
-    except:
-        return True
+from .utils import sip_isdeleted_safe
 
 def rotate_point(point, center, angle_degrees):
     """Rotate a QPointF around a center QPointF."""
@@ -33,7 +23,10 @@ def get_main_window(scene):
     """Helper to get MainWindow from a QGraphicsScene."""
     if not scene: return None
     # Return immediately if view doesn't exist (e.g. during shutdown)
-    views = scene.views()
+    try:
+        views = scene.views()
+    except (RuntimeError, AttributeError):
+        return None
     if not views: return None
     
     # Get window from the first view
@@ -695,7 +688,9 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
     def __init__(self, start_pos, end_pos):
         self.double_arrow_offset = 10.0
         super().__init__(start_pos, end_pos)
-        self.head_size = 25.0 # Updated default
+        self.head_size = 25.0
+        self.head_style = "harpoon"
+        self.head_side = 1 # Barb side: 1=Outward, -1=Inward
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -933,12 +928,6 @@ class ReactionRetroArrowItem(ReactionArrowItem):
              c_pos = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
              self.h_concavity.setPos(self.end_p + c_pos)
              self.h_concavity.setVisible(self.isSelected() and self.head_style == "chevron")
-
-    def create_json_data(self):
-        data = super().create_json_data()
-        data["type"] = "arrow_retro"
-        data["double_arrow_offset"] = getattr(self, "double_arrow_offset", 4.0)
-        return data
 
     def on_handle_moved(self, handle):
         if self._initializing: return
@@ -2187,6 +2176,10 @@ class ReactionTextItem(QGraphicsTextItem):
                 
                 # USER REQUEST: "pass such cases" for underlined text (prevent defaulting to small)
                 if fmt.fontUnderline():
+                    if not self.scene(): return
+                    
+                    # Detect atoms nearby
+                    other_atoms = [i for i in self.scene().items() if not sip_isdeleted_safe(i) and hasattr(i, "atom_id") and i != self]
                     continue
                     
                 if format_type == 'sub':
@@ -2227,20 +2220,6 @@ class ReactionTextItem(QGraphicsTextItem):
         
 
 
-    def focusOutEvent(self, event):
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self.setTextCursor(cursor)
-        
-        super().focusOutEvent(event)
-        try:
-             mw = get_main_window(self.scene())
-             if mw: 
-                 mw.push_undo_state()
-                 if hasattr(mw, '_reaction_mode_manager'):
-                     mw._reaction_mode_manager.enable_main_window_shortcuts()
-                 elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
-                     mw.ui_manager._reaction_mode_manager.enable_main_window_shortcuts()
-        except: pass
 
     def paint(self, painter, option, widget):
         # Handle custom selection highlight

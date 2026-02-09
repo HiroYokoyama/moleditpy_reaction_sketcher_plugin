@@ -9,7 +9,8 @@ from .items import (ReactionArrowItem, ReactionResonanceArrowItem, ReactionEquil
                     ReactionPlusItem, ReactionMinusItem, ReactionNoArrowItem, 
                     ReactionDashedArrowItem, ReactionLineItem, ReactionCurvedLineItem,
                     ReactionFreehandItem, ReactionBracketItem, ReactionCircleItem, ReactionHandle,
-                    ReactionGroupOverlay, sip_isdeleted_safe)
+                    ReactionGroupOverlay)
+from .utils import sip_isdeleted_safe, get_main_window
 from .icons import create_style_icon, create_shape_variant_icon
 
 class InteractionHandler(QObject):
@@ -138,6 +139,8 @@ class InteractionHandler(QObject):
         
         # Check for Handles first (Resize/Reshape)
         for item in items_under:
+            if sip_isdeleted_safe(item):
+                continue
             if hasattr(item, "handle_type"):
                 # Pass to standard handler for handles, but ensure we are in select tool
                 if self.active_tool != "select":
@@ -159,6 +162,8 @@ class InteractionHandler(QObject):
             
             # Filter for our items or Atoms/Bonds
             for i in items_under:
+                if sip_isdeleted_safe(i):
+                    continue
                 if hasattr(i, "create_json_data") or hasattr(i, "atom_id") or hasattr(i, "atom1"):
                     top_item = i
                     break
@@ -187,14 +192,14 @@ class InteractionHandler(QObject):
                     group_items = [top_item]
                     if hasattr(top_item, "group_id") and top_item.group_id:
                         gid = top_item.group_id
-                        group_items = [x for x in self.main_window.scene.items() if hasattr(x, "group_id") and x.group_id == gid]
+                        group_items = [x for x in self.main_window.scene.items() if not sip_isdeleted_safe(x) and hasattr(x, "group_id") and x.group_id == gid]
                      
                     for g in group_items:
                         g.setSelected(True)
                 # else: Item is already selected - proceed to drag (no toggle on drag start)
                 
                 # Get all movable selected items
-                selected_items = self.main_window.scene.selectedItems()
+                selected_items = [i for i in self.main_window.scene.selectedItems() if not sip_isdeleted_safe(i)]
                 movable_items = [i for i in selected_items if (i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable) or hasattr(i, "atom_id") or hasattr(i, "atom1")]
                 
                 # Store original positions for potential Ctrl+Drag clone during move
@@ -408,6 +413,8 @@ class InteractionHandler(QObject):
                 if self.mode_manager:
                     # Reset originals to their starting positions
                     for item in self._drag_items:
+                        if sip_isdeleted_safe(item):
+                            continue
                         if item in self._drag_original_positions:
                             item.setPos(self._drag_original_positions[item])
                     
@@ -435,6 +442,8 @@ class InteractionHandler(QObject):
             
             # Apply movement delta to current drag items
             for item in self._drag_items:
+                if sip_isdeleted_safe(item):
+                    continue
                 if item in self._drag_initial_positions:
                     new_pos = self._drag_initial_positions[item] + delta
                     item.setPos(new_pos)
@@ -478,7 +487,7 @@ class InteractionHandler(QObject):
             # Update bonds if atoms were moved
             if self._did_move and self._drag_items:
                  try:
-                     atoms = [i for i in self._drag_items if hasattr(i, 'atom_id')]
+                     atoms = [i for i in self._drag_items if not sip_isdeleted_safe(i) and hasattr(i, 'atom_id')]
                      if atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
                          self.main_window.scene.update_connected_bonds(atoms)
                  except: pass
@@ -508,7 +517,7 @@ class InteractionHandler(QObject):
                         group_items = [item]
                         if hasattr(item, "group_id") and item.group_id:
                             gid = item.group_id
-                            group_items = [x for x in self.main_window.scene.items() if hasattr(x, "group_id") and x.group_id == gid]
+                            group_items = [x for x in self.main_window.scene.items() if not sip_isdeleted_safe(x) and hasattr(x, "group_id") and x.group_id == gid]
                         for g in group_items:
                             g.setSelected(False)
                 elif item and item.isSelected() and getattr(item, "is_group_selected", False) and getattr(self, "_drag_start_item_was_selected", False):
@@ -570,7 +579,7 @@ class InteractionHandler(QObject):
         return False
 
     def delete_selection(self):
-        selected = self.main_window.scene.selectedItems()
+        selected = [i for i in self.main_window.scene.selectedItems() if not sip_isdeleted_safe(i)]
         if not selected:
             return False
         
@@ -622,14 +631,21 @@ class InteractionHandler(QObject):
             # 2. If already in select mode, select all.
             if self.active_tool != "select":
                 if self.mode_manager:
-                    for action in self.mode_manager.action_group.actions():
-                        if action.property("tool_name") == "select":
-                            action.setChecked(True)
-                            self.set_tool("select")
-                            break
+                    self.mode_manager.activate_tool_by_name("select")
             else:
+                # Call select_all (now delegated to EditActions via patcher.py)
                 if hasattr(self.main_window, 'select_all'):
                     self.main_window.select_all()
+                elif hasattr(self.main_window, 'main_window_edit_actions') and hasattr(self.main_window.main_window_edit_actions, 'select_all'):
+                     self.main_window.main_window_edit_actions.select_all()
+            return True
+
+        if event.key() == Qt.Key.Key_A and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            # Ctrl+A: Select All
+            if hasattr(self.main_window, 'select_all'):
+                self.main_window.select_all()
+            elif hasattr(self.main_window, 'main_window_edit_actions') and hasattr(self.main_window.main_window_edit_actions, 'select_all'):
+                self.main_window.main_window_edit_actions.select_all()
             return True
 
         if event.key() in [Qt.Key.Key_Delete, Qt.Key.Key_Backspace]:
@@ -639,7 +655,8 @@ class InteractionHandler(QObject):
 
     def handle_mouse_double_click(self, event):
         scene_pos = self.main_window.view_2d.mapToScene(event.pos())
-        items = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.view_2d.transform())
+        raw_items = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.view_2d.transform())
+        items = [i for i in raw_items if not sip_isdeleted_safe(i)]
         
         # Prioritize Text Edit
         for item in items:
