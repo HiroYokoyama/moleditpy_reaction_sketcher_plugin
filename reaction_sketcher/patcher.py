@@ -221,29 +221,9 @@ def apply_core_patches(main_window):
 
     # --- MainWindow.closeEvent ---
     def patched_close_event(self, event):
-        """Override close to check for unsaved reaction items."""
-        # 1. Verification of unsaved items
-        try:
-            reaction_items = [i for i in self.scene.items() if not sip_isdeleted_safe(i) and hasattr(i, "create_json_data")]
-            if reaction_items and getattr(self, 'has_unsaved_changes', False):
-                reply = QMessageBox.question(
-                    self,
-                    "Unsaved Reaction Items",
-                    "There are unsaved reaction items. Do you want to save before closing?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.Yes
-                )
-                
-                if reply == QMessageBox.StandardButton.Cancel:
-                    event.ignore()
-                    return
-                elif reply == QMessageBox.StandardButton.Yes:
-                    if hasattr(self, "save_project"):
-                         self.save_project()
-        except Exception:
-            pass # Avoid blocking close on minor errors
-        
-        # 2. Call original close event FIRST while storage is still intact
+        """Override close to ensure all patches are reverted."""
+        # 1. Call original close event FIRST while storage is still intact.
+        # The core app's closeEvent in main_window_ui_manager.py will handle the unsaved changes prompt.
         orig = _core_originals.get((MainWindow, 'closeEvent'))
         result = None
         if orig:
@@ -252,9 +232,12 @@ def apply_core_patches(main_window):
             from PyQt6.QtWidgets import QMainWindow
             result = QMainWindow.closeEvent(self, event)
 
-        # 3. Clean up ALL patches AFTER the core app had a chance to close
-        revert_all_patches()
+        # 2. Clean up ALL patches AFTER the core app had a chance to close
+        # but ONLY if the event was accepted (meaning the app is actually closing).
+        if event.isAccepted():
+            revert_all_patches()
         return result
+
 
     patch_core(MainWindow, 'closeEvent', patched_close_event)
 
@@ -478,9 +461,17 @@ def apply_core_patches(main_window):
                 except Exception:
                     pass
             
-            # If we only had reaction items, we are done
+            # If we only had reaction items, we must still push undo state
             if not core_items_to_delete:
+                try:
+                    if hasattr(scene, 'push_undo_state'):
+                        scene.push_undo_state()
+                    elif main_window:
+                        main_window.push_undo_state()
+                except Exception:
+                    pass
                 return True
+
 
         # 3. Call original delete_items for Atoms/Bonds
         if (MoleculeScene, 'delete_items') in _core_originals:

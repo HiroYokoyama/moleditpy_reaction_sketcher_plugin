@@ -2148,7 +2148,7 @@ class ModeManager(QObject):
                 reply = QMessageBox.question(
                     self.main_window, 
                     "Confirm Exit",
-                    "Reaction objects are present in the scene. Are you sure you want to exit Reaction Sketching Mode?",
+                    "Reaction objects are present. Exiting Reaction Mode will remove the specialized interaction tools used to edit them. Are you sure you want to exit?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No
                 )
@@ -2312,10 +2312,16 @@ class ModeManager(QObject):
 
     def _sync_selection_visuals(self):
         """Centralized synchronization of the group selection flags and overlay."""
-        if not self.main_window or not self.main_window.scene:
+        # Safety check: ensure main window and scene are valid and not deleted
+        try:
+            if not self.main_window or not self.main_window.scene or sip_isdeleted_safe(self.main_window.scene):
+                return
+                
+            selected_items = self.main_window.scene.selectedItems()
+        except (RuntimeError, AttributeError):
+            # This can happen during application shutdown if objects are partially destroyed
             return
-            
-        selected_items = self.main_window.scene.selectedItems()
+
         if not selected_items:
             # Clear all
             for item in self.main_window.scene.items():
