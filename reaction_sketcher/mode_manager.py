@@ -1052,6 +1052,18 @@ class ModeManager(QObject):
             
         self._updating_props = False
 
+    def disconnect_signals(self):
+        """Safely disconnect signals on exit or destruction."""
+        try:
+            if self.main_window and self.main_window.scene:
+                try:
+                    self.main_window.scene.selectionChanged.disconnect(self.sync_property_toolbar)
+                except (AttributeError, TypeError, RuntimeError):
+                    pass
+        except (AttributeError, RuntimeError):
+            pass
+
+
     def toggle_subscript(self):
         if not self.is_reaction_mode: return
         self._apply_text_format_property("sub")
@@ -2213,7 +2225,9 @@ class ModeManager(QObject):
                 break
         
         # Unapply patches (restore original behavior)
+        self.disconnect_signals()
         revert_all_patches()
+
 
     def set_3d_action_state(self, enabled):
         # 1. Disable the specific buttons found in main_window_main_init.py

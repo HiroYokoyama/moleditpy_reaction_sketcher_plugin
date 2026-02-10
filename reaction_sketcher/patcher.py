@@ -171,17 +171,22 @@ def apply_core_patches(main_window):
             # Safest to connect it to the ACTIVE scene in apply_core_patches.
             pass
 
-        # Connect to active scene
+        # Connect to active scene safely
         if hasattr(main_window, 'scene') and main_window.scene:
             try:
-                # Disconnect if already connected (to avoid duplicates on re-patch)
-                try: main_window.scene.selectionChanged.disconnect()
-                except: pass
-                
                 rmm = getattr(main_window, '_reaction_mode_manager', None)
                 if rmm and hasattr(rmm, '_sync_selection_visuals'):
-                     main_window.scene.selectionChanged.connect(rmm._sync_selection_visuals)
-            except Exception: pass
+                    # Disconnect specifically our slot if already connected (to avoid duplicates)
+                    try: 
+                        main_window.scene.selectionChanged.disconnect(rmm._sync_selection_visuals)
+                    except (TypeError, RuntimeError): 
+                        # TypeError if not connected, RuntimeError if C++ object deleted
+                        pass
+                    
+                    # Connect our sync visual slot
+                    main_window.scene.selectionChanged.connect(rmm._sync_selection_visuals)
+            except Exception: 
+                pass
 
     def patched_bond_bounding_rect(self):
         line = self.get_line_in_local_coords()
@@ -217,41 +222,39 @@ def apply_core_patches(main_window):
     # --- MainWindow.closeEvent ---
     def patched_close_event(self, event):
         """Override close to check for unsaved reaction items."""
-        # Check if there are reaction items in the scene
-        reaction_items = [i for i in self.scene.items() if not sip_isdeleted_safe(i) and hasattr(i, "create_json_data")]
-        
-        # Use the existing has_unsaved_changes flag from the undo system
-        if reaction_items and getattr(self, 'has_unsaved_changes', False):
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Reaction Items",
-                "There are unsaved reaction items. Do you want to save before closing?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Yes
-            )
-            
-            if reply == QMessageBox.StandardButton.Cancel:
-                event.ignore()
-                return
-            elif reply == QMessageBox.StandardButton.Yes:
-                # Attempt to save
-                if hasattr(self, "save_project"):
-                     self.save_project()
+        # 1. Verification of unsaved items
+        try:
+            reaction_items = [i for i in self.scene.items() if not sip_isdeleted_safe(i) and hasattr(i, "create_json_data")]
+            if reaction_items and getattr(self, 'has_unsaved_changes', False):
+                reply = QMessageBox.question(
+                    self,
+                    "Unsaved Reaction Items",
+                    "There are unsaved reaction items. Do you want to save before closing?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Yes
+                )
                 
-                event.accept()
-                return
-            # No - just close without saving
+                if reply == QMessageBox.StandardButton.Cancel:
+                    event.ignore()
+                    return
+                elif reply == QMessageBox.StandardButton.Yes:
+                    if hasattr(self, "save_project"):
+                         self.save_project()
+        except Exception:
+            pass # Avoid blocking close on minor errors
         
-        # Clean up ALL patches on close
-        revert_all_patches()
-        
-        # Call original close event
-        event.accept()
+        # 2. Call original close event FIRST while storage is still intact
         orig = _core_originals.get((MainWindow, 'closeEvent'))
+        result = None
         if orig:
-            return orig(self, event)
-        from PyQt6.QtWidgets import QMainWindow
-        return QMainWindow.closeEvent(self, event)
+            result = orig(self, event)
+        else:
+            from PyQt6.QtWidgets import QMainWindow
+            result = QMainWindow.closeEvent(self, event)
+
+        # 3. Clean up ALL patches AFTER the core app had a chance to close
+        revert_all_patches()
+        return result
 
     patch_core(MainWindow, 'closeEvent', patched_close_event)
 
@@ -863,34 +866,8 @@ def apply_core_patches(main_window):
 
     patch_core(MoleculeScene, 'keyPressEvent', patched_molecule_scene_key_press_event)
 
-    # --- Scene Clear ---
-    def patched_scene_clear(self):
-        from PyQt6.QtWidgets import QGraphicsScene
-        items_to_save = [i for i in self.items() if hasattr(i, "create_json_data")]
-        for item in items_to_save: self.removeItem(item)
-        QGraphicsScene.clear(self)
-        for item in items_to_save: self.addItem(item)
-            
-    if hasattr(MoleculeScene, 'clear'):
-        patch_core(MoleculeScene, 'clear', patched_scene_clear)
-    else: # If clear() didn't exist, we add it. 
-        # _patch handles this by setting original to None
-        patch_core(MoleculeScene, 'clear', patched_scene_clear)
-
-    # --- Clear 2D Editor ---
-    def patched_clear_2d_editor(self, push_to_undo=True):
-        rs_items_data = []
-        for it in self.scene.items():
-            if hasattr(it, "create_json_data"):
-                rs_items_data.append(it.create_json_data())
-        
-        _core_originals[(MainWindowEditActions, 'clear_2d_editor')](self, push_to_undo=push_to_undo)
-        
-        if rs_items_data:
-            from .utils import load_handler_core
-            load_handler_core(self, rs_items_data)
-        
-    patch_core(MainWindowEditActions, 'clear_2d_editor', patched_clear_2d_editor)
+    # preservation patches removed per user request: "remove everything when clear"
+    # This also resolves the TypeError in clear_2d_editor.
 
 
     # --- Clean Up 2D ---
