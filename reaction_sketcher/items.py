@@ -2074,7 +2074,10 @@ class ReactionTextItem(QGraphicsTextItem):
     def keyPressEvent(self, event):
         # Handle shortcuts explicitly when in edit mode
         if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
-            if event.key() == Qt.Key.Key_B:
+            # Short-circuit: require Control modifier for formatting shortcuts
+            has_ctrl = (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            
+            if has_ctrl and event.key() == Qt.Key.Key_B:
                 # Toggle Bold via ModeManager (Undo + Logic)
                 try:
                     mw = get_main_window(self.scene())
@@ -2085,7 +2088,7 @@ class ReactionTextItem(QGraphicsTextItem):
                 except: pass
                 event.accept()
                 return
-            elif event.key() == Qt.Key.Key_I:
+            elif has_ctrl and event.key() == Qt.Key.Key_I:
                 # Toggle Italic
                 try:
                     mw = get_main_window(self.scene())
@@ -2096,7 +2099,7 @@ class ReactionTextItem(QGraphicsTextItem):
                 except: pass
                 event.accept()
                 return
-            elif event.key() == Qt.Key.Key_U:
+            elif has_ctrl and event.key() == Qt.Key.Key_U:
                 # Toggle Underline
                 try:
                     mw = get_main_window(self.scene())
@@ -2107,7 +2110,7 @@ class ReactionTextItem(QGraphicsTextItem):
                 except: pass
                 event.accept()
                 return
-            elif event.key() == Qt.Key.Key_Equal or event.key() == Qt.Key.Key_Plus:
+            elif has_ctrl and (event.key() == Qt.Key.Key_Equal or event.key() == Qt.Key.Key_Plus):
                 # Subscript/Superscript (Ctrl+= or Ctrl+Shift+=)
                 try:
                     mw = get_main_window(self.scene())
