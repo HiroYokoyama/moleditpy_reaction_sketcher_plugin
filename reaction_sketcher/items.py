@@ -2015,6 +2015,16 @@ class ReactionTextItem(QGraphicsTextItem):
             # Disable Movable flag so we don't drag the item while selecting text
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             
+            # Disable main window shortcuts to prevent conflicts
+            try:
+                 mw = get_main_window(self.scene())
+                 if mw:
+                     if hasattr(mw, '_reaction_mode_manager'):
+                         mw._reaction_mode_manager.disable_main_window_shortcuts()
+                     elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                         mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
+            except: pass
+
             # Set cursor to click position
             # QGraphicsTextItem doesn't have cursorForPosition. Use document layout.
             cursor_pos = self.document().documentLayout().hitTest(event.pos(), Qt.HitTestAccuracy.FuzzyHit)
@@ -2207,19 +2217,21 @@ class ReactionTextItem(QGraphicsTextItem):
         apply_format(r'(?<=[a-zA-Z0-9\)])([+-])(?=\s|$|[^a-zA-Z0-9])', 'sup')
 
     def focusInEvent(self, event):
-        # Enable BOTH TextEditorInteraction AND TextSelectableByMouse for mouse text selection
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction | Qt.TextInteractionFlag.TextSelectableByMouse)
-        # Disable Movable flag so we don't drag while selecting text
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        # We NO LONGER force edit mode on focus in. 
+        # Focus can come from single-click selection.
         super().focusInEvent(event)
-        # Disable main window shortcuts to prevent conflicts
-        try:
-             mw = get_main_window(self.scene())
-             if mw and hasattr(mw, '_reaction_mode_manager'):
-                 mw._reaction_mode_manager.disable_main_window_shortcuts()
-             elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
-                 mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
-        except: pass
+        
+        # Only disable shortcuts if we are ALREADY in edit mode 
+        # (e.g. from Text tool creation or double-click which sets the flags BEFORE focus)
+        if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+            try:
+                 mw = get_main_window(self.scene())
+                 if mw:
+                     if hasattr(mw, '_reaction_mode_manager'):
+                         mw._reaction_mode_manager.disable_main_window_shortcuts()
+                     elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
+                         mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
+            except: pass
         
 
 
