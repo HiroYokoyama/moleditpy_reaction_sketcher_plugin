@@ -149,7 +149,52 @@ class ModeManager(QObject):
         
         self.ungroup_shortcut = QShortcut(QKeySequence("Ctrl+U"), self.main_window)
         self.ungroup_shortcut.activated.connect(self.ungroup_selected_items)
-        
+
+    def _find_menu_action(self, text):
+        """Find a QAction by exact text from the main menu tree."""
+        menu_bar = self.main_window.menuBar()
+        if not menu_bar:
+            return None
+
+        def _search(menu):
+            for action in menu.actions():
+                if action.text() == text:
+                    return action
+                sub = action.menu()
+                if sub:
+                    found = _search(sub)
+                    if found:
+                        return found
+            return None
+
+        for top_action in menu_bar.actions():
+            menu = top_action.menu()
+            if not menu:
+                continue
+            found = _search(menu)
+            if found:
+                return found
+        return None
+
+    def _rewire_cleanup_2d_triggers(self):
+        """Ensure UI triggers call the currently active clean_up_2d method."""
+        target = self.main_window.edit_actions_manager.clean_up_2d_structure
+
+        btn = getattr(self.main_window.init_manager, "cleanup_button", None)
+        if btn is not None:
+            try:
+                btn.clicked.disconnect()
+            except Exception:
+                pass
+            btn.clicked.connect(target)
+
+        cleanup_action = self._find_menu_action("Clean Up 2D")
+        if cleanup_action is not None:
+            try:
+                cleanup_action.triggered.disconnect()
+            except Exception:
+                pass
+            cleanup_action.triggered.connect(target)
 
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
@@ -585,7 +630,7 @@ class ModeManager(QObject):
         
         # PATCH: AtomItem paint logic needs to "erase" bonds to Transparent WHITE (00FFFFFF).
         
-        from moleditpy.modules.atom_item import AtomItem
+        from moleditpy.ui.atom_item import AtomItem
         original_paint = AtomItem.paint
         
         def png_atom_paint_patch(atom_self, painter, option, widget):
@@ -690,7 +735,7 @@ class ModeManager(QObject):
 
         # Patch AtomItem.paint to force white background labels while keeping global SVG background transparent.
 
-        from moleditpy.modules.atom_item import AtomItem
+        from moleditpy.ui.atom_item import AtomItem
         
         # Save original
         original_paint = AtomItem.paint
@@ -935,8 +980,8 @@ class ModeManager(QObject):
              from modules.bond_item import BondItem
         except ImportError:
              try:
-                 from moleditpy.modules.atom_item import AtomItem
-                 from moleditpy.modules.bond_item import BondItem
+                 from moleditpy.ui.atom_item import AtomItem
+                 from moleditpy.ui.bond_item import BondItem
              except ImportError:
                  AtomItem = type('AtomItem', (), {})
                  BondItem = type('BondItem', (), {})
@@ -1085,7 +1130,7 @@ class ModeManager(QObject):
                      modified = True
              
              if modified:
-                 self.main_window.push_undo_state()
+                 self.main_window.edit_actions_manager.push_undo_state()
         except: pass
 
     def apply_text_style(self, style_type):
@@ -1152,7 +1197,7 @@ class ModeManager(QObject):
                 modified = True
             
             if modified:
-                self.main_window.push_undo_state()
+                self.main_window.edit_actions_manager.push_undo_state()
                 # Sync toolbar UI
                 self.sync_property_toolbar()
                 
@@ -1249,8 +1294,8 @@ class ModeManager(QObject):
                     item.update()
                     modified = True
         
-        if modified and hasattr(self.main_window, 'push_undo_state'):
-            self.main_window.push_undo_state()
+        if modified and hasattr(self.main_window.edit_actions_manager, 'push_undo_state'):
+            self.main_window.edit_actions_manager.push_undo_state()
 
     def add_tool(self, name, icon_name, tooltip):
         # Create action for the group to manage exclusivity
@@ -1310,7 +1355,7 @@ class ModeManager(QObject):
 
             # Ensure focus returns to view so keyboard shortcuts (Space) work immediately
             if self.main_window and hasattr(self.main_window, 'view_2d'):
-                self.main_window.view_2d.setFocus()
+                self.main_window.init_manager.view_2d.setFocus()
 
     def on_tool_pressed(self, action):
         # Capture state before the action toggles
@@ -1550,7 +1595,7 @@ class ModeManager(QObject):
                                 item.format_as_chemical()
                                 modified = True
                         if modified:
-                            self.main_window.push_undo_state()
+                            self.main_window.edit_actions_manager.push_undo_state()
                 except: pass
             act_chem.triggered.connect(format_chem)
             menu.addSeparator()
@@ -1579,7 +1624,7 @@ class ModeManager(QObject):
                         if hasattr(self.main_window, 'statusBar'):
                             self.main_window.statusBar().showMessage(f"Grouped {len(items)} items", 3000)
                         
-                        self.main_window.push_undo_state()
+                        self.main_window.edit_actions_manager.push_undo_state()
                 except Exception as e:
                     pass # For debugging, can be removed
             act_group.triggered.connect(group_items)
@@ -1603,7 +1648,7 @@ class ModeManager(QObject):
                             self.main_window.statusBar().showMessage(f"Ungrouped {ungrouped_count} items", 3000)
                         
                         if ungrouped_count > 0:
-                            self.main_window.push_undo_state()
+                            self.main_window.edit_actions_manager.push_undo_state()
                 except Exception as e:
                     pass # For debugging, can be removed
             act_ungroup.triggered.connect(ungroup_items)
@@ -1643,7 +1688,7 @@ class ModeManager(QObject):
                     break
             # Return focus
             if self.main_window and hasattr(self.main_window, 'view_2d'):
-                self.main_window.view_2d.setFocus()
+                self.main_window.init_manager.view_2d.setFocus()
 
     def eventFilter(self, obj, event):
         # Handle ShortcutOverride to block main window shortcuts while editing text
@@ -1743,7 +1788,7 @@ class ModeManager(QObject):
                 s = dlg.get_settings()
                 self.apply_settings_to_selection(s)
                 if self.main_window:
-                    self.main_window.push_undo_state()
+                    self.main_window.edit_actions_manager.push_undo_state()
                 self.sync_property_toolbar() # Sync toolbar after applying settings
 
             dlg.applyRequested.connect(on_apply)
@@ -1753,7 +1798,7 @@ class ModeManager(QObject):
                 settings = dlg.get_settings()
                 self.apply_settings_to_selection(settings)
                 if self.main_window:
-                    self.main_window.push_undo_state()
+                    self.main_window.edit_actions_manager.push_undo_state()
                 self.sync_property_toolbar() # Sync toolbar after applying settings
 
     def apply_settings_to_selection(self, settings):
@@ -1948,7 +1993,7 @@ class ModeManager(QObject):
                      break
                      
         if modified:
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
 
     def set_text_size(self, size):
         self.size_spin.setValue(size)
@@ -1962,7 +2007,7 @@ class ModeManager(QObject):
                 item.size = size
                 item.update()
         if items:
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
 
     def set_negation_style(self, style):
         self.default_no_arrow_style = style
@@ -1990,7 +2035,7 @@ class ModeManager(QObject):
                      break
                      
         if modified:
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
 
     def set_curved_hook_style(self, is_fish):
         try:
@@ -2014,7 +2059,7 @@ class ModeManager(QObject):
                      action.setChecked(True)
                      break
 
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
 
     def set_bracket_type(self, btype):
         try:
@@ -2040,7 +2085,7 @@ class ModeManager(QObject):
                      break
                      
         if modified:
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
 
     def set_circle_variant(self, shape_type, line_style):
         self.default_circle_shape_type = shape_type
@@ -2065,7 +2110,7 @@ class ModeManager(QObject):
                          action.setChecked(True)
                          break
             if modified:
-                self.main_window.push_undo_state()
+                self.main_window.edit_actions_manager.push_undo_state()
         except: pass
 
     def set_curved_head_style(self, style):
@@ -2091,7 +2136,7 @@ class ModeManager(QObject):
                          action.setChecked(True)
                          break
 
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
 
     def set_tool(self, tool_name):
         if self.interaction_handler:
@@ -2128,7 +2173,7 @@ class ModeManager(QObject):
                      break
                      
         if modified:
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
 
     def set_tool_thickness(self, t):
         self.width_spin.setValue(t)
@@ -2171,15 +2216,15 @@ class ModeManager(QObject):
 
     def enter_reaction_mode(self):
         # Save original layout
-        self.original_splitter_sizes = self.main_window.splitter.sizes()
+        self.original_splitter_sizes = self.main_window.init_manager.splitter.sizes()
         
         # Unselect main window tool (e.g., templates, atoms)
         if hasattr(self.main_window, 'activate_select_mode'):
             self.main_window.activate_select_mode()
         
         # Maximize 2D view (index 0 usually 2D, index 1 usually 3D)
-        if self.main_window.splitter.count() > 1:
-            self.main_window.splitter.setSizes([1000, 0])
+        if self.main_window.init_manager.splitter.count() > 1:
+            self.main_window.init_manager.splitter.setSizes([1000, 0])
         
         # Show reaction toolbar
         if self.reaction_toolbar:
@@ -2190,6 +2235,8 @@ class ModeManager(QObject):
         # Apply patches (Core and Interaction) dynamically
         apply_core_patches(self.main_window)
         apply_interaction_patches(self.main_window)
+        # Rebind button/menu signals because Qt keeps pre-patch bound callables.
+        self._rewire_cleanup_2d_triggers()
         self.main_window.scene.update()
         self.is_reaction_mode = True
             
@@ -2200,11 +2247,11 @@ class ModeManager(QObject):
     def exit_reaction_mode(self):
         # Restore layout
         if self.original_splitter_sizes:
-            self.main_window.splitter.setSizes(self.original_splitter_sizes)
+            self.main_window.init_manager.splitter.setSizes(self.original_splitter_sizes)
         else:
             # Fallback to 50/50
-            total = sum(self.main_window.splitter.sizes())
-            self.main_window.splitter.setSizes([total//2, total//2])
+            total = sum(self.main_window.init_manager.splitter.sizes())
+            self.main_window.init_manager.splitter.setSizes([total//2, total//2])
             
         self.set_3d_action_state(True)
         self.main_window.statusBar().showMessage("Returned to Molecular Mode", 3000)
@@ -2227,6 +2274,8 @@ class ModeManager(QObject):
         # Unapply patches (restore original behavior)
         self.disconnect_signals()
         revert_all_patches()
+        # Rebind again so button/menu point at restored core method.
+        self._rewire_cleanup_2d_triggers()
 
 
     def set_3d_action_state(self, enabled):
@@ -2268,7 +2317,7 @@ class ModeManager(QObject):
             return
 
         new_group = str(uuid.uuid4())
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
         for item in groupable:
             item.group_id = new_group
             item.is_group_selected = True
@@ -2293,7 +2342,7 @@ class ModeManager(QObject):
         if not groupable:
             return
         
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
         ungrouped_count = 0
         for item in groupable:
             if hasattr(item, "group_id") and item.group_id is not None:
@@ -2587,7 +2636,7 @@ class ModeManager(QObject):
         self.main_window.scene.update()
         
         # Push undo AFTER change completes
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
 
     def distribute_items(self, axis):
         """Distribute selected items evenly (Groups/Molecules Rigidly)."""
@@ -2667,8 +2716,8 @@ class ModeManager(QObject):
             
         self.main_window.scene.update()
         
-        if hasattr(self.main_window, 'push_undo_state'):
-            self.main_window.push_undo_state()
+        if hasattr(self.main_window.edit_actions_manager, 'push_undo_state'):
+            self.main_window.edit_actions_manager.push_undo_state()
 
             
     def toggle_subscript(self):
@@ -2695,7 +2744,7 @@ class ModeManager(QObject):
             
         if not targets: return
         
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
         
         for item in targets:
             cursor = item.textCursor()
@@ -2744,7 +2793,7 @@ class ModeManager(QObject):
         if not targets:
             return
         
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
         
         for item in targets:
             cursor = item.textCursor()
@@ -2803,7 +2852,7 @@ class ModeManager(QObject):
             
         if not targets: return
         
-        self.main_window.push_undo_state()
+        self.main_window.edit_actions_manager.push_undo_state()
         
         for item in targets:
             # We work with HTML to allow complex formatting updates, 

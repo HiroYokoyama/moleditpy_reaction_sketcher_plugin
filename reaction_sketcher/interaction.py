@@ -82,7 +82,7 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_press(self, event):
-        scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+        scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
         
         # Check if we are interacting with a text item currently being edited
         focus_item = self.main_window.scene.focusItem()
@@ -98,7 +98,7 @@ class InteractionHandler(QObject):
         
         if event.button() == Qt.MouseButton.RightButton:
             # Context Menu (Shift+Right) or Delete (Right)
-            item = self.main_window.scene.itemAt(scene_pos, self.main_window.view_2d.transform())
+            item = self.main_window.scene.itemAt(scene_pos, self.main_window.init_manager.view_2d.transform())
             
             if item:
                 # Check for Shift
@@ -115,7 +115,7 @@ class InteractionHandler(QObject):
                              self.main_window.scene.delete_items([target])
                          else:
                              self.main_window.scene.removeItem(target)
-                             self.main_window.push_undo_state()
+                             self.main_window.edit_actions_manager.push_undo_state()
                          return True
                     return False
 
@@ -135,7 +135,7 @@ class InteractionHandler(QObject):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
             
-        items_under = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.view_2d.transform())
+        items_under = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.init_manager.view_2d.transform())
         
         # Check for Handles first (Resize/Reshape)
         for item in items_under:
@@ -384,7 +384,7 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_move(self, event):
-        scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+        scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
         
         # Check if we are interacting with a text item currently being edited
         focus_item = self.main_window.scene.focusItem()
@@ -448,6 +448,8 @@ class InteractionHandler(QObject):
                     new_pos = self._drag_initial_positions[item] + delta
                     item.setPos(new_pos)
                     self._did_move = True
+            # Force full scene repaint to clear ghost artifacts from items with imprecise boundingRects
+            self.main_window.scene.update()
             return True
         
         # 2. Handle drawing Preview (Drawing Tools)
@@ -502,12 +504,12 @@ class InteractionHandler(QObject):
             self._drag_start_with_shift = False
             
             if self._did_move:
-                self.main_window.push_undo_state()
+                self.main_window.edit_actions_manager.push_undo_state()
                 self._did_move = False
             else:
                 # No move happened. 
-                scene_pos = self.main_window.view_2d.mapToScene(event.pos())
-                item = self.main_window.scene.itemAt(scene_pos, self.main_window.view_2d.transform())
+                scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
+                item = self.main_window.scene.itemAt(scene_pos, self.main_window.init_manager.view_2d.transform())
                 
                 # If Shift/Ctrl was used on an already selected item, 
                 # we should toggle it OFF now (logic was deferred from mouse_press to allow drag)
@@ -550,7 +552,7 @@ class InteractionHandler(QObject):
             return False
 
         if self.active_tool in ["plus", "minus", "text"]:
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
             return True
         
         if self.preview_item:
@@ -558,7 +560,7 @@ class InteractionHandler(QObject):
             should_keep = True
             if self.active_tool not in ["freehand"]: # Freehand might be small dots
                  if hasattr(self, "start_pos") and self.start_pos:
-                     scene_pos = self.main_window.view_2d.mapToScene(event.pos())
+                     scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
                      dist = (scene_pos - self.start_pos).manhattanLength()
                      if dist < 10:
                          should_keep = False
@@ -573,7 +575,7 @@ class InteractionHandler(QObject):
             self.preview_item = None
             self.start_pos = None
             self._freehand_drawing = False
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
             return True
             
         return False
@@ -613,7 +615,7 @@ class InteractionHandler(QObject):
             # Fallback manual deletion
             for item in targets:
                 self.main_window.scene.removeItem(item)
-            self.main_window.push_undo_state()
+            self.main_window.edit_actions_manager.push_undo_state()
             return True
         return False
 
@@ -654,8 +656,8 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_double_click(self, event):
-        scene_pos = self.main_window.view_2d.mapToScene(event.pos())
-        raw_items = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.view_2d.transform())
+        scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
+        raw_items = self.main_window.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemShape, Qt.SortOrder.DescendingOrder, self.main_window.init_manager.view_2d.transform())
         items = [i for i in raw_items if not sip_isdeleted_safe(i)]
         
         # Prioritize Text Edit

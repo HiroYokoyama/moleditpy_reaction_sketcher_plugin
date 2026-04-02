@@ -108,7 +108,7 @@ class ReactionHandle(QGraphicsItem):
         # Trigger undo push through main window
         mw = get_main_window(self.scene())
         if mw: 
-            mw.push_undo_state()
+            mw.edit_actions_manager.push_undo_state()
             pass
             #print(f"DEBUG: ReactionHandle mouseReleaseEvent - mw is None for scene {self.scene()}")
 
@@ -2060,7 +2060,7 @@ class ReactionTextItem(QGraphicsTextItem):
         try:
              mw = get_main_window(self.scene())
              if mw: 
-                 mw.push_undo_state()
+                 mw.edit_actions_manager.push_undo_state()
                  if hasattr(mw, '_reaction_mode_manager'):
                      mw._reaction_mode_manager.enable_main_window_shortcuts()
                  elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):

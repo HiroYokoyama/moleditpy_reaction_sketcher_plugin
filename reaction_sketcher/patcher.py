@@ -46,19 +46,23 @@ def apply_core_patches(main_window):
     # Dynamic Class Resolution to handle package path variations (moleditpy vs modules)
     MainWindow = main_window.__class__
     
-    # Resolve MainWindowAppState
+    # Resolve MainWindowAppState (V3: state_manager, V2: main_window_app_state._cls)
     MainWindowAppState = None
-    if hasattr(main_window, 'main_window_app_state') and hasattr(main_window.main_window_app_state, '_cls'):
+    if hasattr(main_window, 'state_manager'):
+        MainWindowAppState = main_window.state_manager.__class__
+    elif hasattr(main_window, 'main_window_app_state') and hasattr(main_window.main_window_app_state, '_cls'):
         MainWindowAppState = main_window.main_window_app_state._cls
-        
+
     # Resolve MoleculeScene
     MoleculeScene = None
     if hasattr(main_window, 'scene') and main_window.scene:
         MoleculeScene = main_window.scene.__class__
 
-    # Resolve MainWindowEditActions
+    # Resolve MainWindowEditActions (V3: edit_actions_manager, V2: main_window_edit_actions._cls)
     MainWindowEditActions = None
-    if hasattr(main_window, 'main_window_edit_actions') and hasattr(main_window.main_window_edit_actions, '_cls'):
+    if hasattr(main_window, 'edit_actions_manager'):
+        MainWindowEditActions = main_window.edit_actions_manager.__class__
+    elif hasattr(main_window, 'main_window_edit_actions') and hasattr(main_window.main_window_edit_actions, '_cls'):
         MainWindowEditActions = main_window.main_window_edit_actions._cls
 
     # Resolve AtomItem for Patching
@@ -67,7 +71,7 @@ def apply_core_patches(main_window):
         from modules.atom_item import AtomItem
     except ImportError:
         try:
-             from moleditpy.modules.atom_item import AtomItem
+             from moleditpy.ui.atom_item import AtomItem
         except ImportError:
              pass
 
@@ -78,8 +82,8 @@ def apply_core_patches(main_window):
 
     # Resolve View2D
     View2D = None
-    if hasattr(main_window, 'view_2d') and main_window.view_2d:
-        View2D = main_window.view_2d.__class__
+    if hasattr(main_window, 'init_manager') and main_window.init_manager.view_2d:
+        View2D = main_window.init_manager.view_2d.__class__
     
     # If standard imports are needed for other classes or fallback
     import sys
@@ -91,31 +95,35 @@ def apply_core_patches(main_window):
     
     # Check sys.modules for hints
     for mod_name in list(sys.modules.keys()):
-        if mod_name.endswith("modules.atom_item"):
+        if mod_name.endswith("modules.atom_item") or mod_name.endswith("ui.atom_item"):
             try: AtomItem = sys.modules[mod_name].AtomItem
             except: pass
-        if mod_name.endswith("modules.bond_item"):
+        if mod_name.endswith("modules.bond_item") or mod_name.endswith("ui.bond_item"):
             try: BondItem = sys.modules[mod_name].BondItem
             except: pass
         if mod_name.endswith("modules.main_window_ui_manager"):
             try: MainWindowUiManager = sys.modules[mod_name].MainWindowUiManager
             except: pass
+        if mod_name.endswith("ui.ui_manager") and MainWindowUiManager is None:
+            try: MainWindowUiManager = sys.modules[mod_name].UIManager
+            except: pass
             
     # Fallback to instance inspection if available (Safest)
-    if hasattr(main_window, 'data'):
-        if AtomItem is None and main_window.data.atoms:
-            for d in main_window.data.atoms.values():
+    if hasattr(main_window, 'state_manager'):
+        if AtomItem is None and main_window.state_manager.data.atoms:
+            for d in main_window.state_manager.data.atoms.values():
                 if d.get('item'):
                     AtomItem = d['item'].__class__
                     break
-        if BondItem is None and main_window.data.bonds:
-            for d in main_window.data.bonds.values():
+        if BondItem is None and main_window.state_manager.data.bonds:
+            for d in main_window.state_manager.data.bonds.values():
                 if d.get('item'):
                     BondItem = d['item'].__class__
                     break
 
     # Final Fallback to standard imports
-    if AtomItem is None or BondItem is None:
+    if AtomItem is None or BondItem is None or MainWindowUiManager is None \
+            or MainWindowAppState is None or MainWindowEditActions is None:
         try:
             from modules.atom_item import AtomItem
             from modules.bond_item import BondItem
@@ -131,18 +139,18 @@ def apply_core_patches(main_window):
                 from modules.main_window_app_state import MainWindowAppState
         except ImportError:
             try:
-                from moleditpy.modules.atom_item import AtomItem
-                from moleditpy.modules.bond_item import BondItem
-                from moleditpy.modules.main_window_ui_manager import MainWindowUiManager
+                from moleditpy.ui.atom_item import AtomItem
+                from moleditpy.ui.bond_item import BondItem
+                from moleditpy.ui.ui_manager import UIManager as MainWindowUiManager
                 
                 if MainWindowEditActions is None:
-                    from moleditpy.modules.main_window_edit_actions import MainWindowEditActions
+                    from moleditpy.ui.edit_actions_logic import EditActionsManager as MainWindowEditActions
                 if View2D is None:
-                    from moleditpy.modules.view_2d import View2D
+                    from moleditpy.ui.zoomable_view import ZoomableView as View2D
                 if MoleculeScene is None:
-                    from moleditpy.modules.molecule_scene import MoleculeScene
+                    from moleditpy.ui.molecule_scene import MoleculeScene
                 if MainWindowAppState is None:
-                    from moleditpy.modules.main_window_app_state import MainWindowAppState
+                    from moleditpy.ui.app_state import StateManager as MainWindowAppState
             except ImportError:
                 return
 
@@ -155,7 +163,7 @@ def apply_core_patches(main_window):
              _core_originals[(MainWindowUiManager, 'set_mode')](self, mode_str)
         
         # Notify Reaction Mode Manager
-        rmm = getattr(self, '_reaction_mode_manager', None)
+        rmm = getattr(self.host, '_reaction_mode_manager', None)
         if rmm: 
             try:
                 rmm._handle_main_mode_change(mode_str)
@@ -191,6 +199,7 @@ def apply_core_patches(main_window):
     def patched_bond_bounding_rect(self):
         line = self.get_line_in_local_coords()
         bond_offset = 3.5
+        wedge_width = 6.0
         settings = None
         try:
             if self.scene() and self.scene().views():
@@ -198,7 +207,7 @@ def apply_core_patches(main_window):
                 if win and hasattr(win, 'settings'):
                      settings = win.settings
         except: pass
-        
+
         if settings:
              if getattr(self, 'order', 1) == 3:
                  bond_offset = settings.get('bond_spacing_triple_2d', 3.5)
@@ -294,7 +303,7 @@ def apply_core_patches(main_window):
             from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
                                 ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
             
-            selected_items = [i for i in self.scene.selectedItems() if not sip_isdeleted_safe(i)]
+            selected_items = [i for i in self.host.scene.selectedItems() if not sip_isdeleted_safe(i)]
             selected_atoms = [item for item in selected_items if hasattr(item, 'atom_id')]
             selected_rs_items_raw = [item for item in selected_items if hasattr(item, 'create_json_data')]
             
@@ -320,7 +329,7 @@ def apply_core_patches(main_window):
                     'radical': atom.radical,
                 })
             fragment_bonds = []
-            for (id1, id2), bond_data in self.data.bonds.items():
+            for (id1, id2), bond_data in self.host.state_manager.data.bonds.items():
                 if id1 in selected_atom_ids and id2 in selected_atom_ids:
                     fragment_bonds.append({'idx1': atom_id_to_idx_map[id1], 'idx2': atom_id_to_idx_map[id2], 'order': bond_data['order'], 'stereo': bond_data.get('stereo', 0)})
 
@@ -348,10 +357,10 @@ def apply_core_patches(main_window):
             mime_data = QMimeData()
             mime_data.setData(CLIPBOARD_MIME_TYPE, byte_array)
             QApplication.clipboard().setMimeData(mime_data)
-            self.statusBar().showMessage(f"Copied selection ({len(fragment_atoms)} atoms, {len(fragment_rs_items)} reaction items).")
+            self.host.statusBar().showMessage(f"Copied selection ({len(fragment_atoms)} atoms, {len(fragment_rs_items)} reaction items).")
 
         except Exception as e:
-            self.statusBar().showMessage(f"Error during patched copy: {e}")
+            self.host.statusBar().showMessage(f"Error during patched copy: {e}")
 
     patch_core(MainWindowEditActions, 'copy_selection', patched_copy_selection)
 
@@ -368,18 +377,18 @@ def apply_core_patches(main_window):
             buffer = io.BytesIO(byte_array)
             fragment_data = pickle.load(buffer)
             
-            paste_center_pos = self.view_2d.mapToScene(self.view_2d.mapFromGlobal(QCursor.pos()))
-            self.scene.clearSelection()
+            paste_center_pos = self.host.init_manager.view_2d.mapToScene(self.host.init_manager.view_2d.mapFromGlobal(QCursor.pos()))
+            self.host.scene.clearSelection()
 
             new_atoms = []
             for atom_data in fragment_data.get('atoms', []):
                 pos = paste_center_pos + atom_data['rel_pos']
-                new_id = self.scene.create_atom(atom_data['symbol'], pos, charge=atom_data.get('charge', 0), radical=atom_data.get('radical', 0))
-                item = self.data.atoms[new_id]['item']
+                new_id = self.host.scene.create_atom(atom_data['symbol'], pos, charge=atom_data.get('charge', 0), radical=atom_data.get('radical', 0))
+                item = self.host.state_manager.data.atoms[new_id]['item']
                 new_atoms.append(item)
                 item.setSelected(True)
             for bond_data in fragment_data.get('bonds', []):
-                self.scene.create_bond(new_atoms[bond_data['idx1']], new_atoms[bond_data['idx2']], bond_order=bond_data.get('order', 1), bond_stereo=bond_data.get('stereo', 0))
+                self.host.scene.create_bond(new_atoms[bond_data['idx1']], new_atoms[bond_data['idx2']], bond_order=bond_data.get('order', 1), bond_stereo=bond_data.get('stereo', 0))
 
             rs_items_data = fragment_data.get('rs_items', [])
             if rs_items_data:
@@ -394,23 +403,23 @@ def apply_core_patches(main_window):
                              d["points"] = [[p[0]+paste_center_pos.x(), p[1]+paste_center_pos.y()] for p in d["points"]]
                 
                 from .utils import load_handler_core
-                load_handler_core(self, rs_items_data)
+                load_handler_core(self.host, rs_items_data)
 
             self.push_undo_state()
-            self.statusBar().showMessage("Pasted selection.")
-            if hasattr(self, 'activate_select_mode'):
-                self.activate_select_mode()
+            self.host.statusBar().showMessage("Pasted selection.")
+            if hasattr(self.host, 'ui_manager'):
+                self.host.ui_manager.activate_select_mode()
         except Exception as e:
-            self.statusBar().showMessage(f"Error during patched paste: {e}")
+            self.host.statusBar().showMessage(f"Error during patched paste: {e}")
 
     patch_core(MainWindowEditActions, 'paste_from_clipboard', patched_paste_from_clipboard)
 
     # --- Patch MainWindowEditActions.delete_selection ---
     def patched_delete_selection(self):
-        items = self.scene.selectedItems()
+        items = self.host.scene.selectedItems()
         if not items: return
         # Delegate to patched scene.delete_items which handles separation
-        self.scene.delete_items(items)
+        self.host.scene.delete_items(items)
 
     patch_core(MainWindowEditActions, 'delete_selection', patched_delete_selection)
 
@@ -418,7 +427,7 @@ def apply_core_patches(main_window):
     def patched_select_all(self):
         from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
                             ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
-        for item in self.scene.items():
+        for item in self.host.scene.items():
             if sip_isdeleted_safe(item):
                 continue
             if hasattr(item, "create_json_data") or isinstance(item, (AtomItem, BondItem)):
@@ -427,8 +436,8 @@ def apply_core_patches(main_window):
     patch_core(MainWindowEditActions, 'select_all', patched_select_all)
 
     # Delegate to EditActions from MainWindow
-    patch_core(MainWindow, 'select_all', lambda self: self.main_window_edit_actions.select_all())
-    patch_core(MainWindow, 'delete_selection', lambda self: self.main_window_edit_actions.delete_selection())
+    patch_core(MainWindow, 'select_all', lambda self: self.edit_actions_manager.select_all())
+    patch_core(MainWindow, 'delete_selection', lambda self: self.edit_actions_manager.delete_selection())
 
     # --- Scene Delete Items ---
     def patched_scene_delete_items(self, items_to_delete):
@@ -467,7 +476,7 @@ def apply_core_patches(main_window):
                     if hasattr(scene, 'push_undo_state'):
                         scene.push_undo_state()
                     elif main_window:
-                        main_window.push_undo_state()
+                        main_window.edit_actions_manager.push_undo_state()
                 except Exception:
                     pass
                 return True
@@ -618,7 +627,7 @@ def apply_core_patches(main_window):
                     from .constants import CPK_COLORS
                 except ImportError:
                     try:
-                        from moleditpy.modules.constants import CPK_COLORS
+                        from moleditpy.utils.constants import CPK_COLORS
                     except ImportError:
                         CPK_COLORS = {'C': '#222222', 'O': 'red', 'N': 'blue', 'H': '#222222', 'S': '#D4A017', 'DEFAULT': '#222222'}
 
@@ -754,8 +763,8 @@ def apply_core_patches(main_window):
             views = self.views()
             if views:
                 window = views[0].window()
-                if hasattr(window, "push_undo_state"):
-                    window.push_undo_state()
+                if hasattr(window, "edit_actions_manager"):
+                    window.edit_actions_manager.push_undo_state()
             elif hasattr(self, "parent") and hasattr(self.parent(), "push_undo_state"):
                  self.parent().push_undo_state()
             
@@ -767,7 +776,7 @@ def apply_core_patches(main_window):
     def patched_rotate_molecule_2d(self, angle_degrees):
         try:
             import math
-            selected_items = [i for i in self.scene.selectedItems() if not sip_isdeleted_safe(i)]
+            selected_items = [i for i in self.host.scene.selectedItems() if not sip_isdeleted_safe(i)]
             
             # Identify targets
             target_atoms = [i for i in selected_items if isinstance(i, AtomItem)]
@@ -775,19 +784,19 @@ def apply_core_patches(main_window):
             
             # If nothing selected, rotate everything
             if not target_atoms and not target_reaction_items:
-                target_atoms = [data['item'] for data in self.data.atoms.values() if data.get('item')]
+                target_atoms = [data['item'] for data in self.host.state_manager.data.atoms.values() if data.get('item')]
                 # Filter out deleted atoms if any
                 target_atoms = [a for a in target_atoms if a.scene() is not None]
                 
                 # Gather reaction items from scene
-                for item in self.scene.items():
+                for item in self.host.scene.items():
                     if sip_isdeleted_safe(item):
                         continue
                     if hasattr(item, "rotate_around"):
                         target_reaction_items.append(item)
             
             if not target_atoms and not target_reaction_items:
-                self.statusBar().showMessage("No items to rotate.")
+                self.host.statusBar().showMessage("No items to rotate.")
                 return
 
             # Calculate Center
@@ -823,15 +832,15 @@ def apply_core_patches(main_window):
                 item.rotate_around(center, angle_degrees)
 
             # Update bonds
-            self.scene.update_connected_bonds(target_atoms)
+            self.host.scene.update_connected_bonds(target_atoms)
             
             self.push_undo_state()
-            self.statusBar().showMessage(f"Rotated {len(target_atoms) + len(target_reaction_items)} items by {angle_degrees} degrees.")
-            self.scene.update()
-            self.scene.update_all_items()
+            self.host.statusBar().showMessage(f"Rotated {len(target_atoms) + len(target_reaction_items)} items by {angle_degrees} degrees.")
+            self.host.scene.update()
+            self.host.scene.update_all_items()
             
         except Exception as e:
-            self.statusBar().showMessage(f"Error rotating: {e}")
+            self.host.statusBar().showMessage(f"Error rotating: {e}")
 
     patch_core(MainWindowEditActions, 'rotate_molecule_2d', patched_rotate_molecule_2d)
 
@@ -863,135 +872,195 @@ def apply_core_patches(main_window):
 
     # --- Clean Up 2D ---
     def patched_clean_up_2d_structure(self):
-        # Cleanup now works in Reaction Mode with CoG preservation and supports selection
+        # Reaction mode variant: preserve fragment CoG and support partial-selection optimization.
         try:
             from rdkit.Chem import AllChem, rdmolops
         except ImportError:
-            self.statusBar().showMessage("Error: RDKit is required for structure optimization.")
+            self.host.statusBar().showMessage("Error: RDKit is required for structure optimization.")
             return
 
-        self.statusBar().showMessage("Optimizing 2D structure (CoG Preserved)...")
-        self.scene.clear_all_problem_flags()
-        if not self.data.atoms:
-            self.statusBar().showMessage("Error: No atoms to optimize.")
+        host = self.host
+        scene = getattr(host, "scene", None) or getattr(getattr(host, "init_manager", None), "scene", None)
+        data = getattr(getattr(host, "state_manager", None), "data", None)
+        if not data:
+            host.statusBar().showMessage("Error: Missing molecular data.")
+            return
+
+        host.statusBar().showMessage("Optimizing 2D structure (CoG Preserved)...")
+        if scene and hasattr(scene, "clear_all_problem_flags"):
+            scene.clear_all_problem_flags()
+        if not data.atoms:
+            host.statusBar().showMessage("Error: No atoms to optimize.")
             return
 
         try:
-            mol = self.data.to_rdkit_mol()
+            mol = data.to_rdkit_mol()
             if mol is None or mol.GetNumAtoms() == 0:
-                self.check_chemistry_problems_fallback()
+                if hasattr(host, "compute_manager") and hasattr(host.compute_manager, "check_chemistry_problems_fallback"):
+                    host.compute_manager.check_chemistry_problems_fallback()
                 return
 
             frags = rdmolops.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
-            
-            # Identify target fragments from selection
-            selected_items = self.scene.selectedItems()
-            target_atom_ids = set()
-            
-            for item in selected_items:
-                # Check for AtomItem (atom_id)
-                if hasattr(item, "atom_id") and item.atom_id is not None:
-                    target_atom_ids.add(item.atom_id)
-                # Check for BondItem (atom1, atom2)
-                elif hasattr(item, "atom1") and hasattr(item, "atom2"):
-                     a1 = item.atom1
-                     a2 = item.atom2
-                     # Resolve IDs if they are objects
-                     if hasattr(a1, "atom_id"): target_atom_ids.add(a1.atom_id)
-                     elif isinstance(a1, int): target_atom_ids.add(a1)
-                     
-                     if hasattr(a2, "atom_id"): target_atom_ids.add(a2.atom_id)
-                     elif isinstance(a2, int): target_atom_ids.add(a2)
 
-            target_frag_indices = set()
+            def resolve_atom_id(rd_atom, fallback_idx):
+                try:
+                    if rd_atom.HasProp("_original_atom_id"):
+                        return rd_atom.GetIntProp("_original_atom_id")
+                except Exception:
+                    pass
+                try:
+                    return rd_atom.GetIntProp("atom_id")
+                except Exception:
+                    return fallback_idx
+
+            def atom_scene_pos(atom_item):
+                if hasattr(atom_item, "scenePos"):
+                    try:
+                        return atom_item.scenePos()
+                    except Exception:
+                        pass
+                return atom_item.pos()
+
+            def set_atom_scene_pos(atom_item, target_scene_pos):
+                parent = atom_item.parentItem() if hasattr(atom_item, "parentItem") else None
+                if parent is not None and hasattr(parent, "mapFromScene"):
+                    atom_item.setPos(parent.mapFromScene(target_scene_pos))
+                else:
+                    atom_item.setPos(target_scene_pos)
+
+            selected_items = scene.selectedItems() if scene else []
+            target_atom_ids = set()
+            for item in selected_items:
+                atom_id = getattr(item, "atom_id", None)
+                if isinstance(atom_id, int):
+                    target_atom_ids.add(atom_id)
+                    continue
+                if hasattr(item, "atom1") and hasattr(item, "atom2"):
+                    a1 = item.atom1
+                    a2 = item.atom2
+                    if hasattr(a1, "atom_id") and isinstance(a1.atom_id, int):
+                        target_atom_ids.add(a1.atom_id)
+                    elif isinstance(a1, int):
+                        target_atom_ids.add(a1)
+                    if hasattr(a2, "atom_id") and isinstance(a2.atom_id, int):
+                        target_atom_ids.add(a2.atom_id)
+                    elif isinstance(a2, int):
+                        target_atom_ids.add(a2)
+
             if not target_atom_ids:
-                # No selection -> Optimize ALL
-                target_frag_indices = set(range(len(frags)))
-            else:
-                # Selection -> Optimize only fragments with selected atoms
+                for item in selected_items:
+                    atom_id = getattr(item, "atom_id", None)
+                    if isinstance(atom_id, int):
+                        target_atom_ids.add(atom_id)
+
+            if target_atom_ids:
+                target_frag_indices = set()
                 for i, frag_indices in enumerate(frags):
-                    # Check intersection
-                    is_target = False
                     for idx in frag_indices:
                         rd_atom = mol.GetAtomWithIdx(idx)
-                        aid = rd_atom.GetIntProp("_original_atom_id")
+                        aid = resolve_atom_id(rd_atom, idx)
                         if aid in target_atom_ids:
-                            is_target = True
+                            target_frag_indices.add(i)
                             break
-                    if is_target:
-                        target_frag_indices.add(i)
+            else:
+                target_frag_indices = set(range(len(frags)))
 
             if not target_frag_indices:
-                self.statusBar().showMessage("No valid atoms selected for optimization.")
+                host.statusBar().showMessage("No valid atoms selected for optimization.")
                 return
 
             orig_cogs = {}
             for i, frag_indices in enumerate(frags):
-                if i not in target_frag_indices: continue
-                sum_x = 0.0; sum_y = 0.0
-                atom_count = 0
+                if i not in target_frag_indices:
+                    continue
+                sum_x = 0.0
+                sum_y = 0.0
+                count = 0
                 for idx in frag_indices:
                     rd_atom = mol.GetAtomWithIdx(idx)
-                    aid = rd_atom.GetIntProp("_original_atom_id")
-                    if aid in self.data.atoms:
-                        pos = self.data.atoms[aid]['item'].pos()
-                        sum_x += pos.x(); sum_y += pos.y()
-                        atom_count += 1
-                if atom_count > 0:
-                    orig_cogs[i] = QPointF(sum_x / atom_count, sum_y / atom_count)
+                    aid = resolve_atom_id(rd_atom, idx)
+                    atom_entry = data.atoms.get(aid)
+                    atom_item = atom_entry.get("item") if atom_entry else None
+                    if atom_item is None:
+                        continue
+                    pos = atom_scene_pos(atom_item)
+                    sum_x += pos.x()
+                    sum_y += pos.y()
+                    count += 1
+                if count > 0:
+                    orig_cogs[i] = QPointF(sum_x / count, sum_y / count)
 
             AllChem.Compute2DCoords(mol)
             conf = mol.GetConformer()
-            SCALE = 50.0
-            
+            scale = 50.0
             updated_count = 0
+
             for i, frag_indices in enumerate(frags):
-                if i not in target_frag_indices: continue
-                if i not in orig_cogs: continue
-                
-                rd_sum_x = 0.0; rd_sum_y = 0.0
+                if i not in target_frag_indices or i not in orig_cogs:
+                    continue
+
+                rd_sum_x = 0.0
+                rd_sum_y = 0.0
+                rd_count = 0
                 for idx in frag_indices:
-                    pos = conf.GetAtomPosition(idx)
-                    rd_sum_x += pos.x; rd_sum_y += pos.y
-                rd_cog_x = rd_sum_x / len(frag_indices)
-                rd_cog_y = rd_sum_y / len(frag_indices)
-                
+                    rd_pos = conf.GetAtomPosition(idx)
+                    rd_sum_x += rd_pos.x
+                    rd_sum_y += rd_pos.y
+                    rd_count += 1
+                if rd_count == 0:
+                    continue
+
+                rd_cog_x = rd_sum_x / rd_count
+                rd_cog_y = rd_sum_y / rd_count
+                scene_cog = orig_cogs[i]
+
                 for idx in frag_indices:
                     rd_atom = mol.GetAtomWithIdx(idx)
-                    aid = rd_atom.GetIntProp("_original_atom_id")
-                    if aid in self.data.atoms:
-                        item = self.data.atoms[aid]['item']
-                        rd_pos = conf.GetAtomPosition(idx)
-                        sx = ((rd_pos.x - rd_cog_x) * SCALE) + orig_cogs[i].x()
-                        sy = (-(rd_pos.y - rd_cog_y) * SCALE) + orig_cogs[i].y()
-                        new_pos = QPointF(sx, sy)
-                        item.setPos(new_pos)
-                        self.data.atoms[aid]['pos'] = new_pos
+                    aid = resolve_atom_id(rd_atom, idx)
+                    atom_entry = data.atoms.get(aid)
+                    atom_item = atom_entry.get("item") if atom_entry else None
+                    if atom_item is None:
+                        continue
+
+                    rd_pos = conf.GetAtomPosition(idx)
+                    sx = ((rd_pos.x - rd_cog_x) * scale) + scene_cog.x()
+                    sy = (-(rd_pos.y - rd_cog_y) * scale) + scene_cog.y()
+                    scene_target = QPointF(sx, sy)
+
+                    set_atom_scene_pos(atom_item, scene_target)
+                    local_pos = atom_item.pos()
+                    if hasattr(data, "set_atom_pos"):
+                        data.set_atom_pos(aid, local_pos)
+                    else:
+                        atom_entry["pos"] = local_pos
                 updated_count += 1
 
-            for bond_data in self.data.bonds.values():
-                if bond_data.get('item'):
-                    bond_data['item'].update_position()
+            for bond_data in data.bonds.values():
+                bond_item = bond_data.get("item") if bond_data else None
+                if not bond_item or sip_isdeleted_safe(bond_item):
+                    continue
+                if hasattr(bond_item, "update_position"):
+                    bond_item.update_position()
 
             self.resolve_overlapping_groups()
-            self.update_2d_measurement_labels()
-            self.scene.update()
-            
-            msg = "2D optimization successful."
+            if hasattr(host, "edit_3d_manager") and hasattr(host.edit_3d_manager, "update_2d_measurement_labels"):
+                host.edit_3d_manager.update_2d_measurement_labels()
+            if hasattr(getattr(host, "init_manager", None), "scene") and hasattr(host.init_manager.scene, "update_all_items"):
+                host.init_manager.scene.update_all_items()
+            elif scene:
+                scene.update()
+
             if target_atom_ids:
-                 msg = f"Optimized {updated_count} selected fragment(s)."
+                host.statusBar().showMessage(f"Optimized {updated_count} selected fragment(s).")
             else:
-                 msg = f"Optimized {updated_count} fragment(s)."
-            
-            self.statusBar().showMessage(msg)
-            self.push_undo_state()
+                host.statusBar().showMessage(f"Optimized {updated_count} fragment(s).")
+            host.edit_actions_manager.push_undo_state()
 
         except Exception as e:
-            self.statusBar().showMessage(f"Error during CoG optimization: {e}")
-            import traceback
+            host.statusBar().showMessage(f"Error during CoG optimization: {e}")
         finally:
-            if hasattr(self, 'view_2d') and self.view_2d:
-                self.view_2d.setFocus()
+            if hasattr(host, "init_manager") and host.init_manager.view_2d:
+                host.init_manager.view_2d.setFocus()
 
     patch_core(MainWindowEditActions, 'clean_up_2d_structure', patched_clean_up_2d_structure)
 
@@ -1008,7 +1077,7 @@ def apply_core_patches(main_window):
         
         # Reaction items
         rs_items_data = []
-        for item in self.scene.items():
+        for item in self.host.scene.items():
             if hasattr(item, "create_json_data"):
                  rs_items_data.append(item.create_json_data())
         
@@ -1039,13 +1108,13 @@ def apply_core_patches(main_window):
                     self.data.bonds[k]['item'].group_id = gid
             except: continue
 
-        for item in list(self.scene.items()):
+        for item in list(self.host.scene.items()):
             if hasattr(item, "create_json_data"):
-                 self.scene.removeItem(item)
+                 self.host.scene.removeItem(item)
 
         if 'rs_items' in state_data:
             from .utils import load_handler_core
-            load_handler_core(self, state_data['rs_items'])
+            load_handler_core(self.host, state_data['rs_items'])
 
     patch_core(MainWindowAppState, 'set_state_from_data', patched_set_state_from_data)
 
@@ -1060,7 +1129,7 @@ def apply_core_patches(main_window):
             'bonds': {k: (v['order'], v.get('stereo', 0), 
                           getattr(v['item'], 'pen_color', QColor()).name()) for k, v in self.data.bonds.items()},
             '_next_atom_id': self.data._next_atom_id,
-            'mol_3d': self.current_mol.ToBinary() if self.current_mol else None,
+            'mol_3d': self.host.view_3d_manager.current_mol.ToBinary() if self.host.view_3d_manager.current_mol else None,
             'mol_3d_atom_ids': curr_state.get('mol_3d_atom_ids', []),
             'rs_items': curr_state.get('rs_items', []),
             'rs_atom_groups': curr_state.get('rs_atom_groups', {}),
@@ -1108,12 +1177,12 @@ def apply_core_patches(main_window):
     try:
         from modules.main_window_export import MainWindowExport
     except:
-        try: from moleditpy.modules.main_window_export import MainWindowExport
+        try: from moleditpy.ui.export_logic import ExportManager as MainWindowExport
         except: MainWindowExport = None
 
     if MainWindowExport:
         def _render_2d_to_image(self, is_transparent=True):
-            all_visible_items = [i for i in self.scene.items() if i.isVisible()]
+            all_visible_items = [i for i in self.host.scene.items() if i.isVisible()]
             molecule_bounds = QRectF()
             for item in all_visible_items:
                 if item.__class__.__name__ in ["ReactionHandle", "ReactionGroupOverlay", "SelectionRect", "GuideLine"]:
@@ -1144,17 +1213,17 @@ def apply_core_patches(main_window):
             else:
                 image.fill(Qt.GlobalColor.white)
             
-            original_background = self.scene.backgroundBrush()
+            original_background = self.host.scene.backgroundBrush()
             if is_transparent:
                 # Set truly transparent WHITE background (255,255,255,0) as requested by user.
                 # The patched_atom_paint will detect alpha=0 and trigger the eraser logic.
-                self.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
+                self.host.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
             
             # Clear selection and focus to avoid highlights/cursors in export
-            selected_items = self.scene.selectedItems()
-            self.scene.clearSelection()
-            original_focus = self.scene.focusItem()
-            self.scene.setFocusItem(None)
+            selected_items = self.host.scene.selectedItems()
+            self.host.scene.clearSelection()
+            original_focus = self.host.scene.focusItem()
+            self.host.scene.setFocusItem(None)
             
             painter = QPainter()
             if painter.begin(image):
@@ -1162,16 +1231,16 @@ def apply_core_patches(main_window):
                     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                     if is_transparent:
                         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-                    self.scene.render(painter, QRectF(0, 0, w, h), rect_to_render)
+                    self.host.scene.render(painter, QRectF(0, 0, w, h), rect_to_render)
                 finally:
                     painter.end()
             else:
-                self.scene.setBackgroundBrush(original_background)
+                self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items:
                     item.setSelected(True)
                 return None, None
 
-            self.scene.setBackgroundBrush(original_background)
+            self.host.scene.setBackgroundBrush(original_background)
             # Restore selection
             for item in selected_items:
                 item.setSelected(True)
@@ -1181,14 +1250,14 @@ def apply_core_patches(main_window):
 
         # Patch export_2d_png to INCLUDE reaction items
         def patched_export_2d_png(self):
-            if not self.data.atoms and not any(hasattr(i, "create_json_data") for i in self.scene.items()):
-                self.statusBar().showMessage("Nothing to export.")
+            if not self.host.state_manager.data.atoms and not any(hasattr(i, "create_json_data") for i in self.host.scene.items()):
+                self.host.statusBar().showMessage("Nothing to export.")
                 return
 
             default_name = "untitled-2d"
             try:
-                if self.current_file_path:
-                    default_name = os.path.splitext(os.path.basename(self.current_file_path))[0] + "-2d"
+                if self.host.init_manager.current_file_path:
+                    default_name = os.path.splitext(os.path.basename(self.host.init_manager.current_file_path))[0] + "-2d"
             except: pass
 
             filePath, _ = QFileDialog.getSaveFileName(self, "Export 2D as PNG", default_name, "PNG Files (*.png)")
@@ -1203,15 +1272,15 @@ def apply_core_patches(main_window):
             
             image, _ = _render_2d_to_image(self, is_transparent=(reply == QMessageBox.StandardButton.Yes))
             if image and image.save(filePath, "PNG"):
-                self.statusBar().showMessage(f"2D view exported to {filePath}")
+                self.host.statusBar().showMessage(f"2D view exported to {filePath}")
             else:
-                self.statusBar().showMessage("Failed to save image.")
+                self.host.statusBar().showMessage("Failed to save image.")
 
         patch_core(MainWindowExport, 'export_2d_png', patched_export_2d_png)
 
         def patched_copy_to_clipboard(self):
-            if not self.data.atoms and not any(hasattr(i, "create_json_data") for i in self.scene.items()):
-                self.statusBar().showMessage("Nothing to copy.")
+            if not self.host.state_manager.data.atoms and not any(hasattr(i, "create_json_data") for i in self.host.scene.items()):
+                self.host.statusBar().showMessage("Nothing to copy.")
                 return
 
             # Default to Transparent for Clipboard as it is the most common desired behavior for passing to PPT/etc.
@@ -1231,26 +1300,26 @@ def apply_core_patches(main_window):
                 mime.setData("image/png", qba)
                 
                 QApplication.clipboard().setMimeData(mime)
-                self.statusBar().showMessage("Copied 2D view to clipboard (Transparent)")
+                self.host.statusBar().showMessage("Copied 2D view to clipboard (Transparent)")
             else:
-                self.statusBar().showMessage("Failed to copy image.")
+                self.host.statusBar().showMessage("Failed to copy image.")
 
         patch_core(MainWindowExport, 'copy_to_clipboard', patched_copy_to_clipboard)
 
         # Patch export_2d_svg to INCLUDE reaction items
         def patched_export_2d_svg(self):
             if QSvgGenerator is None:
-                self.statusBar().showMessage("SVG export not available (QtSvg missing).")
+                self.host.statusBar().showMessage("SVG export not available (QtSvg missing).")
                 return
 
-            if not self.data.atoms and not any(hasattr(i, "create_json_data") for i in self.scene.items()):
-                self.statusBar().showMessage("Nothing to export.")
+            if not self.host.state_manager.data.atoms and not any(hasattr(i, "create_json_data") for i in self.host.scene.items()):
+                self.host.statusBar().showMessage("Nothing to export.")
                 return
 
             default_name = "untitled-2d"
             try:
-                if self.current_file_path:
-                    default_name = os.path.splitext(os.path.basename(self.current_file_path))[0] + "-2d"
+                if self.host.init_manager.current_file_path:
+                    default_name = os.path.splitext(os.path.basename(self.host.init_manager.current_file_path))[0] + "-2d"
             except: pass
 
             filePath, _ = QFileDialog.getSaveFileName(self, "Export 2D as SVG", default_name, "SVG Files (*.svg)")
@@ -1263,8 +1332,8 @@ def apply_core_patches(main_window):
             if reply == QMessageBox.StandardButton.Cancel: return
 
             # Get items to export: selected items if any, otherwise all visible
-            selected_items = [i for i in self.scene.selectedItems() if i.isVisible()]
-            items_to_export = selected_items if selected_items else list(self.scene.items())
+            selected_items = [i for i in self.host.scene.selectedItems() if i.isVisible()]
+            items_to_export = selected_items if selected_items else list(self.host.scene.items())
             
             # Get tight bounds excluding invisible and helper items
             molecule_bounds = QRectF()
@@ -1284,19 +1353,19 @@ def apply_core_patches(main_window):
                     molecule_bounds = molecule_bounds.united(item_bounds)
             
             if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
-                self.statusBar().showMessage("Error: Could not determine molecule bounds for export.")
+                self.host.statusBar().showMessage("Error: Could not determine molecule bounds for export.")
                 return
 
             # Minimal padding (2px)
             rect_to_render = molecule_bounds.adjusted(-2, -2, 2, 2)
             
-            original_background = self.scene.backgroundBrush()
+            original_background = self.host.scene.backgroundBrush()
             if reply == QMessageBox.StandardButton.Yes:
                 # Use strictly transparent WHITE background
-                self.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
+                self.host.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
             else:
                 # Use white background if user chose No transparency
-                self.scene.setBackgroundBrush(QBrush(Qt.GlobalColor.white))
+                self.host.scene.setBackgroundBrush(QBrush(Qt.GlobalColor.white))
 
             generator = QSvgGenerator()
             generator.setFileName(filePath)
@@ -1308,34 +1377,34 @@ def apply_core_patches(main_window):
             generator.setTitle("MoleditPy Molecule")
             
             # Clear selection to avoid highlights in export
-            selected_items = self.scene.selectedItems()
-            self.scene.clearSelection()
-            self.original_focus = self.scene.focusItem()
-            self.scene.setFocusItem(None)
+            selected_items = self.host.scene.selectedItems()
+            self.host.scene.clearSelection()
+            self.original_focus = self.host.scene.focusItem()
+            self.host.scene.setFocusItem(None)
             
             painter = QPainter()
             if not painter.begin(generator):
-                self.scene.setBackgroundBrush(original_background)
+                self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items:
                     item.setSelected(True)
-                self.statusBar().showMessage("Failed to start SVG painter. Check file access.")
+                self.host.statusBar().showMessage("Failed to start SVG painter. Check file access.")
                 return
 
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 # Render content from scene-rect (source) to generator's origin (target)
                 target_rect = QRectF(0, 0, rect_to_render.width(), rect_to_render.height())
-                self.scene.render(painter, target_rect, rect_to_render)
+                self.host.scene.render(painter, target_rect, rect_to_render)
             finally:
                 painter.end()
-                self.scene.setBackgroundBrush(original_background)
+                self.host.scene.setBackgroundBrush(original_background)
                 # Restore selection
                 # Restore selection
                 for item in selected_items:
                     item.setSelected(True)
                 if hasattr(self, 'original_focus') and self.original_focus:
                      self.original_focus.setFocus()
-            self.statusBar().showMessage(f"2D view exported to {filePath}")
+            self.host.statusBar().showMessage(f"2D view exported to {filePath}")
 
         patch_core(MainWindowExport, 'export_2d_svg', patched_export_2d_svg)
 
@@ -1356,27 +1425,27 @@ def apply_core_patches(main_window):
                 mime.setData("image/png", qba)
                 
                 QApplication.clipboard().setMimeData(mime)
-                self.statusBar().showMessage("2D Image copied to clipboard (Transparent).", 2000)
+                self.host.statusBar().showMessage("2D Image copied to clipboard (Transparent).", 2000)
         
         # We'll add this to MainWindowEditActions so it's easily accessible via Ctrl+Shift+C
         patch_core(MainWindowEditActions, 'copy_2d_image_to_clipboard', patched_copy_2d_image_to_clipboard)
         
         # Patch MainWindow with a delegator so self.copy_2d_image_to_clipboard works directly
-        patch_core(MainWindow, 'copy_2d_image_to_clipboard', lambda self: self.main_window_edit_actions.copy_2d_image_to_clipboard())
+        patch_core(MainWindow, 'copy_2d_image_to_clipboard', lambda self: self.edit_actions_manager.copy_2d_image_to_clipboard())
 
         # Patch copy_svg_to_clipboard to INCLUDE reaction items
         def patched_copy_svg_to_clipboard(self):
             if QSvgGenerator is None:
-                self.statusBar().showMessage("SVG copy not available (QtSvg missing).")
+                self.host.statusBar().showMessage("SVG copy not available (QtSvg missing).")
                 return
 
-            if not self.data.atoms and not any(hasattr(i, "create_json_data") for i in self.scene.items()):
-                self.statusBar().showMessage("Nothing to copy.")
+            if not self.host.state_manager.data.atoms and not any(hasattr(i, "create_json_data") for i in self.host.scene.items()):
+                self.host.statusBar().showMessage("Nothing to copy.")
                 return
 
             # Get items to export: selected items if any, otherwise all visible
-            selected_items = [i for i in self.scene.selectedItems() if i.isVisible()]
-            items_to_export = selected_items if selected_items else list(self.scene.items())
+            selected_items = [i for i in self.host.scene.selectedItems() if i.isVisible()]
+            items_to_export = selected_items if selected_items else list(self.host.scene.items())
             
             # Get tight bounds excluding invisible and helper items
             molecule_bounds = QRectF()
@@ -1394,15 +1463,15 @@ def apply_core_patches(main_window):
                     molecule_bounds = molecule_bounds.united(item_bounds)
             
             if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
-                self.statusBar().showMessage("Error: Could not determine molecule bounds for copy.")
+                self.host.statusBar().showMessage("Error: Could not determine molecule bounds for copy.")
                 return
 
             # Minimal padding (2px) - Consistent with PNG
             rect_to_render = molecule_bounds.adjusted(-2, -2, 2, 2)
             
             # Use strictly transparent WHITE background
-            original_background = self.scene.backgroundBrush()
-            self.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
+            original_background = self.host.scene.backgroundBrush()
+            self.host.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0)))
 
             buffer = QBuffer()
             buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -1414,23 +1483,23 @@ def apply_core_patches(main_window):
             generator.setViewBox(QRectF(0, 0, rect_to_render.width(), rect_to_render.height()))
             
             # Clear selection to avoid highlights
-            self.scene.clearSelection()
-            self.original_focus = self.scene.focusItem()
-            self.scene.setFocusItem(None)
+            self.host.scene.clearSelection()
+            self.original_focus = self.host.scene.focusItem()
+            self.host.scene.setFocusItem(None)
             
             painter = QPainter()
             if not painter.begin(generator):
-                 self.scene.setBackgroundBrush(original_background)
+                 self.host.scene.setBackgroundBrush(original_background)
                  for item in selected_items: item.setSelected(True)
                  return
             
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 target_rect = QRectF(0, 0, rect_to_render.width(), rect_to_render.height())
-                self.scene.render(painter, target_rect, rect_to_render)
+                self.host.scene.render(painter, target_rect, rect_to_render)
             finally:
                 painter.end()
-                self.scene.setBackgroundBrush(original_background)
+                self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items: item.setSelected(True)
                 if hasattr(self, 'original_focus') and self.original_focus:
                      self.original_focus.setFocus()
@@ -1440,7 +1509,7 @@ def apply_core_patches(main_window):
             # Also set text for compatibility
             mime.setText(buffer.data().data().decode('utf-8'))
             QApplication.clipboard().setMimeData(mime)
-            self.statusBar().showMessage("Reaction copied to clipboard (SVG)")
+            self.host.statusBar().showMessage("Reaction copied to clipboard (SVG)")
 
         patch_core(MainWindowExport, 'copy_svg_to_clipboard', patched_copy_svg_to_clipboard)
 
@@ -1506,15 +1575,39 @@ def apply_core_patches(main_window):
 
 def apply_interaction_patches(main_window):
     """Applies patches to View2D for mouse/key interactions. Active only in Reaction Mode."""
+    import types as _types
     try:
         from modules.view_2d import View2D
     except ImportError:
         try:
-             from moleditpy.modules.view_2d import View2D
+             from moleditpy.ui.zoomable_view import ZoomableView as View2D
         except ImportError: return
 
     def patch_int(cls, name, func):
-        _patch(_interaction_originals, cls, name, func)
+        key = (cls, name)
+        if key in _interaction_originals:
+            setattr(cls, name, func)
+            return
+        if name in cls.__dict__:
+            # Python-defined: save original so revert can restore it
+            _interaction_originals[key] = cls.__dict__[name]
+        else:
+            # C++ inherited: store None so revert uses delattr (cleanly restores C++ method)
+            _interaction_originals[key] = None
+        setattr(cls, name, func)
+
+    def _call_view_orig(method_name, view, *args):
+        """Call the stored original view method, handling both Python and C++ (sip) methods."""
+        orig = _interaction_originals.get((View2D, method_name))
+        if orig is None:
+            # Originally a C++ inherited method — call via super() as a bound call
+            getattr(super(View2D, view), method_name)(*args)
+        elif isinstance(orig, _types.FunctionType):
+            # Pure Python method defined in View2D — call directly
+            orig(view, *args)
+        else:
+            # Fallback for other callables (e.g. staticmethod wrappers)
+            getattr(super(View2D, view), method_name)(*args)
 
     # --- View2D Mouse/Key Events ---
     def patched_mousePressEvent(view, event):
@@ -1524,10 +1617,9 @@ def apply_interaction_patches(main_window):
             if handler and handler.handle_mouse_press(event):
                 return
         if (View2D, 'mousePressEvent') in _interaction_originals:
-             _interaction_originals[(View2D, 'mousePressEvent')](view, event)
+            _call_view_orig('mousePressEvent', view, event)
         else:
-             # Fallback
-             QGraphicsView.mousePressEvent(view, event)
+            QGraphicsView.mousePressEvent(view, event)
 
     def patched_mouseMoveEvent(view, event):
         mw = view.window()
@@ -1536,7 +1628,7 @@ def apply_interaction_patches(main_window):
             if handler and handler.handle_mouse_move(event):
                 return
         if (View2D, 'mouseMoveEvent') in _interaction_originals:
-            _interaction_originals[(View2D, 'mouseMoveEvent')](view, event)
+            _call_view_orig('mouseMoveEvent', view, event)
         else:
             QGraphicsView.mouseMoveEvent(view, event)
 
@@ -1546,48 +1638,101 @@ def apply_interaction_patches(main_window):
             handler = mw._reaction_mode_manager.interaction_handler
             if handler and handler.handle_mouse_release(event):
                 return
-        
         if (View2D, 'mouseReleaseEvent') in _interaction_originals:
-            _interaction_originals[(View2D, 'mouseReleaseEvent')](view, event)
+            _call_view_orig('mouseReleaseEvent', view, event)
         else:
             QGraphicsView.mouseReleaseEvent(view, event)
 
     def patched_mouseDoubleClickEvent(view, event):
         mw = view.window()
-        consumed = False
         if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
-            handler = mw._reaction_mode_manager.interaction_handler
+            rmm = mw._reaction_mode_manager
+            scene_pos = view.mapToScene(event.pos())
+            scene = mw.scene
+            item = scene.itemAt(scene_pos, view.transform()) if scene else None
+            # Double-click on an atom/bond: select the entire connected molecule
+            is_atom = item is not None and hasattr(item, 'atom_id')
+            is_bond = (item is not None
+                       and hasattr(item, 'atom1') and hasattr(item, 'atom2')
+                       and hasattr(getattr(item, 'atom1', None), 'atom_id'))
+            if (is_atom or is_bond) and scene is not None:
+                from collections import deque
+                # Build atom and bond item maps
+                atom_items = {i.atom_id: i for i in scene.items()
+                              if hasattr(i, 'atom_id') and not sip_isdeleted_safe(i)}
+                bond_scene_items = [i for i in scene.items()
+                                    if hasattr(i, 'atom1') and hasattr(i, 'atom2')
+                                    and hasattr(getattr(i, 'atom1', None), 'atom_id')
+                                    and not sip_isdeleted_safe(i)]
+                # Build adjacency: atom_id -> [(bond_item, neighbour_atom_id)]
+                adj = {aid: [] for aid in atom_items}
+                for b in bond_scene_items:
+                    a1 = b.atom1.atom_id
+                    a2 = b.atom2.atom_id
+                    if a1 in adj and a2 in adj:
+                        adj[a1].append((b, a2))
+                        adj[a2].append((b, a1))
+                # Determine start atom
+                start_aid = getattr(item, 'atom_id', None)
+                if start_aid is None and is_bond:
+                    start_aid = getattr(item.atom1, 'atom_id', None)
+                if start_aid is not None and start_aid in atom_items:
+                    visited_atoms = set([start_aid])
+                    visited_bond_ids = set()
+                    q = deque([start_aid])
+                    while q:
+                        aid = q.popleft()
+                        for bond_item, neighbour in adj.get(aid, []):
+                            visited_bond_ids.add(id(bond_item))
+                            if neighbour not in visited_atoms:
+                                visited_atoms.add(neighbour)
+                                q.append(neighbour)
+                    scene.clearSelection()
+                    for aid in visited_atoms:
+                        atom_items[aid].setSelected(True)
+                    for b in bond_scene_items:
+                        if id(b) in visited_bond_ids:
+                            b.setSelected(True)
+                    return
+            # Let interaction handler handle double-click
+            handler = rmm.interaction_handler
             if handler and hasattr(handler, "handle_mouse_double_click"):
                 if handler.handle_mouse_double_click(event):
-                    consumed = True
-        
-        if not consumed:
-             # Important: Pass to original to allow items to receive the event (e.g. Text Edit)
-             if (View2D, 'mouseDoubleClickEvent') in _interaction_originals:
-                  _interaction_originals[(View2D, 'mouseDoubleClickEvent')](view, event)
-             else:
-                  QGraphicsView.mouseDoubleClickEvent(view, event)
+                    return
+        # Pass to original
+        if (View2D, 'mouseDoubleClickEvent') in _interaction_originals:
+            _call_view_orig('mouseDoubleClickEvent', view, event)
+        else:
+            QGraphicsView.mouseDoubleClickEvent(view, event)
 
     def patched_keyPressEvent(view, event):
         mw = view.window()
         if hasattr(mw, "_reaction_mode_manager") and mw._reaction_mode_manager.is_reaction_mode:
             handler = mw._reaction_mode_manager.interaction_handler
             if handler:
-                focus_item = view.scene().focusItem()
-                is_editing_text = (focus_item and hasattr(focus_item, "toPlainText") and hasattr(focus_item, "create_json_data") and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction))
-                
+                focus_item = view.scene().focusItem() if view.scene() else None
+                is_editing_text = (
+                    focus_item is not None
+                    and hasattr(focus_item, "toPlainText")
+                    and hasattr(focus_item, "create_json_data")
+                    and bool(focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
+                )
                 if is_editing_text:
+                    # Let Qt deliver the key event normally to the focused text item
                     if (View2D, 'keyPressEvent') in _interaction_originals:
-                        _interaction_originals[(View2D, 'keyPressEvent')](view, event)
-                    event.accept() 
+                        _call_view_orig('keyPressEvent', view, event)
+                    else:
+                        QGraphicsView.keyPressEvent(view, event)
                     return
 
                 if handler.handle_key_press(event):
                     event.accept()
                     return
-        
+
         if (View2D, 'keyPressEvent') in _interaction_originals:
-            _interaction_originals[(View2D, 'keyPressEvent')](view, event)
+            _call_view_orig('keyPressEvent', view, event)
+        else:
+            QGraphicsView.keyPressEvent(view, event)
 
 
     patch_int(View2D, 'mousePressEvent', patched_mousePressEvent)
