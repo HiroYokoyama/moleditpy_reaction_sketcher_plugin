@@ -14,8 +14,9 @@ from .utils import sip_isdeleted_safe, get_main_window
 from .icons import create_style_icon, create_shape_variant_icon
 
 class InteractionHandler(QObject):
-    def __init__(self, main_window, mode_manager):
+    def __init__(self, context, main_window, mode_manager):
         super().__init__()
+        self.context = context
         self.main_window = main_window
         self.mode_manager = mode_manager
         self.active_tool = None # "arrow", "plus", "text"
@@ -38,8 +39,10 @@ class InteractionHandler(QObject):
             # Set a flag to avoid infinite loops when we programmatically change main mode
             self._internal_mode_change = True
             try:
-                if hasattr(self.main_window, 'activate_select_mode'):
-                    self.main_window.activate_select_mode()
+                # In V3, activate_select_mode is on ui_manager
+                ui_mgr = getattr(self.main_window, "ui_manager", self.main_window)
+                if hasattr(ui_mgr, "activate_select_mode"):
+                    ui_mgr.activate_select_mode()
             finally:
                 self._internal_mode_change = False
         
@@ -57,8 +60,13 @@ class InteractionHandler(QObject):
             # Scene or main window was deleted during teardown
             return False
 
-        if scene_mode != 'select' and scene_mode != 'bond_2_5': # bond_2_5 is E/Z mode which is fine
-            return False
+        # ALLOW Space key even in non-select mode so we can catch it to switch modes.
+        if scene_mode != 'select' and scene_mode != 'bond_2_5':
+            if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Space:
+                 # Let it pass through to handle_key_press below
+                 pass
+            else:
+                 return False
 
         # SAFEGUARD: Ensure the scene has this attribute to avoid crash in release event
         # if the press was intercepted by us.
@@ -115,7 +123,7 @@ class InteractionHandler(QObject):
                              self.main_window.scene.delete_items([target])
                          else:
                              self.main_window.scene.removeItem(target)
-                             self.main_window.edit_actions_manager.push_undo_state()
+                         self.context.push_undo_checkpoint()
                          return True
                     return False
 
@@ -504,7 +512,7 @@ class InteractionHandler(QObject):
             self._drag_start_with_shift = False
             
             if self._did_move:
-                self.main_window.edit_actions_manager.push_undo_state()
+                self.context.push_undo_checkpoint()
                 self._did_move = False
             else:
                 # No move happened. 
@@ -552,7 +560,7 @@ class InteractionHandler(QObject):
             return False
 
         if self.active_tool in ["plus", "minus", "text"]:
-            self.main_window.edit_actions_manager.push_undo_state()
+            self.context.push_undo_checkpoint()
             return True
         
         if self.preview_item:
@@ -575,7 +583,7 @@ class InteractionHandler(QObject):
             self.preview_item = None
             self.start_pos = None
             self._freehand_drawing = False
-            self.main_window.edit_actions_manager.push_undo_state()
+            self.context.push_undo_checkpoint()
             return True
             
         return False
@@ -615,7 +623,7 @@ class InteractionHandler(QObject):
             # Fallback manual deletion
             for item in targets:
                 self.main_window.scene.removeItem(item)
-            self.main_window.edit_actions_manager.push_undo_state()
+            self.context.push_undo_checkpoint()
             return True
         return False
 
@@ -628,13 +636,25 @@ class InteractionHandler(QObject):
                 return False  # Let text item handle ALL keys
         
         if event.key() == Qt.Key.Key_Space:
-            # Match main app logic: 
-            # 1. If not in select mode, switch to it.
-            # 2. If already in select mode, select all.
-            if self.active_tool != "select":
+            # 1. Check if we need to switch main app or plugin to select mode
+            scene_mode = getattr(self.main_window.scene, 'mode', 'select')
+            needs_switch = (scene_mode != 'select') or (self.active_tool != 'select')
+            
+            if needs_switch:
+                # Switch main app to select (via ui_manager in V3)
+                self._internal_mode_change = True
+                try:
+                    ui_mgr = getattr(self.main_window, "ui_manager", self.main_window)
+                    if hasattr(ui_mgr, "activate_select_mode"):
+                        ui_mgr.activate_select_mode()
+                finally:
+                    self._internal_mode_change = False
+
+                # Switch plugin to select
                 if self.mode_manager:
                     self.mode_manager.activate_tool_by_name("select")
             else:
+                # 2. If already in select mode (both app and plugin), select all
                 # Call select_all (now delegated to EditActions via patcher.py)
                 if hasattr(self.main_window, 'select_all'):
                     self.main_window.select_all()

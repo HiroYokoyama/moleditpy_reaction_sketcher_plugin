@@ -47,6 +47,7 @@ def apply_core_patches(main_window):
     MainWindow = main_window.__class__
     
     # Resolve MainWindowAppState (V3: state_manager, V2: main_window_app_state._cls)
+    # Target StateManager for V3
     MainWindowAppState = None
     if hasattr(main_window, 'state_manager'):
         MainWindowAppState = main_window.state_manager.__class__
@@ -59,11 +60,22 @@ def apply_core_patches(main_window):
         MoleculeScene = main_window.scene.__class__
 
     # Resolve MainWindowEditActions (V3: edit_actions_manager, V2: main_window_edit_actions._cls)
+    # Target EditActionsManager for V3
     MainWindowEditActions = None
     if hasattr(main_window, 'edit_actions_manager'):
         MainWindowEditActions = main_window.edit_actions_manager.__class__
     elif hasattr(main_window, 'main_window_edit_actions') and hasattr(main_window.main_window_edit_actions, '_cls'):
         MainWindowEditActions = main_window.main_window_edit_actions._cls
+
+    # Resolve ComputeManager (V3: compute_manager)
+    ComputeManager = None
+    if hasattr(main_window, 'compute_manager'):
+        ComputeManager = main_window.compute_manager.__class__
+
+    # Resolve ExportManager (V3: export_manager)
+    ExportManager = None
+    if hasattr(main_window, 'export_manager'):
+        ExportManager = main_window.export_manager.__class__
 
     # Resolve AtomItem for Patching
     AtomItem = None
@@ -109,6 +121,9 @@ def apply_core_patches(main_window):
             except: pass
             
     # Fallback to instance inspection if available (Safest)
+    if hasattr(main_window, 'ui_manager') and MainWindowUiManager is None:
+        MainWindowUiManager = main_window.ui_manager.__class__
+
     if hasattr(main_window, 'state_manager'):
         if AtomItem is None and main_window.state_manager.data.atoms:
             for d in main_window.state_manager.data.atoms.values():
@@ -829,7 +844,11 @@ def apply_core_patches(main_window):
                 
             # Rotate Reaction Items
             for item in target_reaction_items:
-                item.rotate_around(center, angle_degrees)
+                rotate_func = getattr(item, 'rotate_around', None)
+                if rotate_func:
+                    rotate_func(center, angle_degrees)
+                else:
+                    print(f"Error: item {item} missing 'rotate_around'")
 
             # Update bonds
             self.host.scene.update_connected_bonds(target_atoms)
@@ -1039,16 +1058,36 @@ def apply_core_patches(main_window):
                 bond_item = bond_data.get("item") if bond_data else None
                 if not bond_item or sip_isdeleted_safe(bond_item):
                     continue
-                if hasattr(bond_item, "update_position"):
-                    bond_item.update_position()
+                update_pos_func = getattr(bond_item, "update_position", None)
+                if update_pos_func:
+                    update_pos_func()
+                else:
+                    print(f"Error: bond_item missing 'update_position'")
 
             self.resolve_overlapping_groups()
-            if hasattr(host, "edit_3d_manager") and hasattr(host.edit_3d_manager, "update_2d_measurement_labels"):
-                host.edit_3d_manager.update_2d_measurement_labels()
-            if hasattr(getattr(host, "init_manager", None), "scene") and hasattr(host.init_manager.scene, "update_all_items"):
-                host.init_manager.scene.update_all_items()
-            elif scene:
-                scene.update()
+            
+            mgr_3d = getattr(host, "edit_3d_manager", None)
+            if mgr_3d:
+                update_labels_func = getattr(mgr_3d, "update_2d_measurement_labels", None)
+                if update_labels_func:
+                    update_labels_func()
+                else:
+                    print("Error: edit_3d_manager missing 'update_2d_measurement_labels'")
+            else:
+                # Pattern followed, no 3D manager is okay
+                pass
+
+            init_mgr = getattr(host, "init_manager", None)
+            scene_obj = getattr(init_mgr, "scene", None) if init_mgr else scene
+            if scene_obj:
+                update_all_func = getattr(scene_obj, "update_all_items", None)
+                if update_all_func:
+                    update_all_func()
+                else:
+                    scene_obj.update()
+                    print("Error: scene missing 'update_all_items', falling back to update()")
+            else:
+                 print("Error: no scene available for update")
 
             if target_atom_ids:
                 host.statusBar().showMessage(f"Optimized {updated_count} selected fragment(s).")
@@ -1118,18 +1157,50 @@ def apply_core_patches(main_window):
 
     patch_core(MainWindowAppState, 'set_state_from_data', patched_set_state_from_data)
 
-    def patched_push_undo_state(self):
-        if getattr(self, '_is_restoring_state', False): return
+    # --- ComputeManager Patch (Cre Logic) ---
+    if ComputeManager:
+        def patched_on_calculation_finished(self, result):
+            # 1. Call original
+            if (ComputeManager, 'on_calculation_finished') in _core_originals:
+                _core_originals[(ComputeManager, 'on_calculation_finished')](self, result)
+            
+            # 2. Notify Sketcher or Refresh items
+            try:
+                mm = getattr(main_window, '_reaction_mode_manager', None)
+                if mm and hasattr(mm, 'interaction_handler'):
+                    # Force a refresh of the 2D view to ensure reaction items are drawn correctly
+                    # after the molecular change
+                    if hasattr(main_window, 'scene') and main_window.scene:
+                        main_window.scene.update()
+            except Exception: pass
+            
+        patch_core(ComputeManager, 'on_calculation_finished', patched_on_calculation_finished)
 
-        curr_state = self.get_current_state()
+    def patched_push_undo_state(self):
+        # Prevent recursion and checks based on both Manager and Host state
+        if getattr(self, '_is_restoring_state', False): return
+        if hasattr(self, 'host') and getattr(self.host, '_is_restoring_state', False): return
+
+        # Resolve correct StateManager (which has get_current_state and data)
+        # In V3, self might be EditActionsManager, which lacks these.
+        state_mgr = self
+        if not hasattr(self, 'get_current_state') and hasattr(self, 'host') and hasattr(self.host, 'state_manager'):
+            state_mgr = self.host.state_manager
+        
+        if not hasattr(state_mgr, 'get_current_state') or not hasattr(state_mgr, 'data'):
+            return
+
+        curr_state = state_mgr.get_current_state()
+        data = state_mgr.data
+        host = state_mgr.host
         
         current_comp = {
             'atoms': {k: (v['symbol'], v['item'].pos().x(), v['item'].pos().y(), v.get('charge', 0), v.get('radical', 0), 
-                          getattr(v['item'], 'pen_color', QColor()).name()) for k, v in self.data.atoms.items()},
+                          getattr(v['item'], 'pen_color', QColor()).name()) for k, v in data.atoms.items()},
             'bonds': {k: (v['order'], v.get('stereo', 0), 
-                          getattr(v['item'], 'pen_color', QColor()).name()) for k, v in self.data.bonds.items()},
-            '_next_atom_id': self.data._next_atom_id,
-            'mol_3d': self.host.view_3d_manager.current_mol.ToBinary() if self.host.view_3d_manager.current_mol else None,
+                          getattr(v['item'], 'pen_color', QColor()).name()) for k, v in data.bonds.items()},
+            '_next_atom_id': data._next_atom_id,
+            'mol_3d': host.view_3d_manager.current_mol.ToBinary() if host.view_3d_manager.current_mol else None,
             'mol_3d_atom_ids': curr_state.get('mol_3d_atom_ids', []),
             'rs_items': curr_state.get('rs_items', []),
             'rs_atom_groups': curr_state.get('rs_atom_groups', {}),
@@ -1163,15 +1234,50 @@ def apply_core_patches(main_window):
             state = copy.deepcopy(curr_state)
             self.undo_stack.append(state)
             self.redo_stack.clear()
-            if self.initialization_complete:
-                self.has_unsaved_changes = True
-                self.update_window_title()
+            
+            # Use host or state_mgr for UI/Persistence updates (V3 uses state_mgr, older might use host or self)
+            target_obj = host if hasattr(host, 'initialization_complete') else state_mgr
+            if getattr(target_obj, 'initialization_complete', True):
+                if hasattr(state_mgr, 'has_unsaved_changes'):
+                    state_mgr.has_unsaved_changes = True
+                elif hasattr(host, 'has_unsaved_changes'):
+                    host.has_unsaved_changes = True
+                
+                # V3: window title update is on state_manager
+                title_func = getattr(state_mgr, 'update_window_title', None)
+                if title_func:
+                    title_func()
+                else:
+                    print("Error: state_manager missing 'update_window_title'")
 
-        self.update_implicit_hydrogens()
-        self.update_realtime_info()
-        self.update_undo_redo_actions()
+        # 1. Update Implicit Hydrogens (On self if EditActionsManager, or state_mgr in some versions)
+        h_func = getattr(self, 'update_implicit_hydrogens', None)
+        if not h_func:
+             h_func = getattr(state_mgr, 'update_implicit_hydrogens', None)
+             
+        if h_func:
+            h_func()
+        else:
+            print("Error: missing 'update_implicit_hydrogens' on self and state_manager")
+            
+        # 2. Update Realtime Info (On state_manager)
+        r_func = getattr(state_mgr, 'update_realtime_info', None)
+        if r_func:
+            r_func()
+        else:
+            print("Error: missing 'update_realtime_info' on state_manager")
+            
+        # 3. Update Undo Redo Actions (On self if EditActionsManager)
+        u_func = getattr(self, 'update_undo_redo_actions', None)
+        if u_func:
+            u_func()
+        else:
+             print("Error: missing 'update_undo_redo_actions' on self")
 
-    patch_core(MainWindowAppState, 'push_undo_state', patched_push_undo_state)
+    if MainWindowEditActions:
+        patch_core(MainWindowEditActions, 'push_undo_state', patched_push_undo_state)
+    elif MainWindowAppState:
+        patch_core(MainWindowAppState, 'push_undo_state', patched_push_undo_state)
 
     # --- MainWindowExport Patches (PNG/SVG/Clipboard) ---
     try:

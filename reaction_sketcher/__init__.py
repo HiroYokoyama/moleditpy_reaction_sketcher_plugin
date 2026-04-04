@@ -32,7 +32,7 @@ from .utils import load_handler_core
 from .patcher import apply_patches
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "2.0.0"
+PLUGIN_VERSION = "2.1.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
@@ -50,9 +50,13 @@ def initialize(context):
     """
     main_window = context.get_main_window()
     
+    # Main window initialization
+    # (Patches are now only applied when entering reaction mode)
+    
+    
     # Initialize components with context awareness
     mode_manager = ModeManager(main_window)
-    interaction_handler = InteractionHandler(main_window, mode_manager)
+    interaction_handler = InteractionHandler(context, main_window, mode_manager)
     mode_manager.interaction_handler = interaction_handler
     
     # Setup UI via V3-aware methods
@@ -130,7 +134,9 @@ def initialize(context):
         
         if isinstance(data, dict):
             mode_manager.auto_start_pref = data.get("auto_start_pref", False)
-            should_enter_mode = data.get("reaction_mode_active", False) or mode_manager.auto_start_pref
+            should_enter_mode = data.get("reaction_mode_active", False) or \
+                                mode_manager.auto_start_pref or \
+                                (len(reaction_items) > 0)
             if hasattr(mode_manager, "auto_start_action"):
                 mode_manager.auto_start_action.setChecked(mode_manager.auto_start_pref)
             

@@ -178,7 +178,12 @@ class ModeManager(QObject):
 
     def _rewire_cleanup_2d_triggers(self):
         """Ensure UI triggers call the currently active clean_up_2d method."""
-        target = self.main_window.edit_actions_manager.clean_up_2d_structure
+        mgr = getattr(self.main_window, 'edit_actions_manager', None)
+        if mgr:
+            target = mgr.clean_up_2d_structure
+        else:
+            print("Error: main_window missing 'edit_actions_manager'")
+            return
 
         btn = getattr(self.main_window.init_manager, "cleanup_button", None)
         if btn is not None:
@@ -187,6 +192,8 @@ class ModeManager(QObject):
             except Exception:
                 pass
             btn.clicked.connect(target)
+        else:
+            print("Error: init_manager missing 'cleanup_button'")
 
         cleanup_action = self._find_menu_action("Clean Up 2D")
         if cleanup_action is not None:
@@ -195,6 +202,8 @@ class ModeManager(QObject):
             except Exception:
                 pass
             cleanup_action.triggered.connect(target)
+        else:
+            print("Error: 'Clean Up 2D' action not found in menu")
 
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
@@ -433,8 +442,7 @@ class ModeManager(QObject):
                     if not action.isChecked():
                         action.setChecked(True)
                         if self.interaction_handler:
-                            # We don't want to call activate_select_mode again
-                            self.interaction_handler.active_tool = "select"
+                            self.interaction_handler.set_tool("select")
                     break
 
     def setup_property_toolbar(self):
@@ -2629,14 +2637,28 @@ class ModeManager(QObject):
                         item.moveBy(dx, dy)
         
         # Update bond positions
-        if moved_atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
-            self.main_window.scene.update_connected_bonds(moved_atoms)
+        if moved_atoms:
+            update_func = getattr(self.main_window.scene, 'update_connected_bonds', None)
+            if update_func:
+                update_func(moved_atoms)
+            else:
+                print("Error: scene missing 'update_connected_bonds'")
         
-        self.main_window.update_2d_measurement_labels()
+        if hasattr(self.main_window, 'edit_3d_manager') and hasattr(self.main_window.edit_3d_manager, 'update_2d_measurement_labels'):
+            self.main_window.edit_3d_manager.update_2d_measurement_labels()
+
         self.main_window.scene.update()
         
         # Push undo AFTER change completes
-        self.main_window.edit_actions_manager.push_undo_state()
+        mgr_edit = getattr(self.main_window, 'edit_actions_manager', None)
+        if mgr_edit:
+            push_undo_func = getattr(mgr_edit, 'push_undo_state', None)
+            if push_undo_func:
+                push_undo_func()
+            else:
+                print("Error: edit_actions_manager missing 'push_undo_state'")
+        else:
+             print("Error: main_window missing 'edit_actions_manager'")
 
     def distribute_items(self, axis):
         """Distribute selected items evenly (Groups/Molecules Rigidly)."""
@@ -2708,16 +2730,27 @@ class ModeManager(QObject):
         # ---------------------------------------------------------
         # 結合(Bond)と画面の更新
         # ---------------------------------------------------------
-        if moved_atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
-            self.main_window.scene.update_connected_bonds(moved_atoms)
+        if moved_atoms:
+            update_func = getattr(self.main_window.scene, 'update_connected_bonds', None)
+            if update_func:
+                update_func(moved_atoms)
+            else:
+                print("Error: scene missing 'update_connected_bonds'")
                     
-        if hasattr(self.main_window, 'update_2d_measurement_labels'):
-            self.main_window.update_2d_measurement_labels()
+        if hasattr(self.main_window, 'edit_3d_manager') and hasattr(self.main_window.edit_3d_manager, 'update_2d_measurement_labels'):
+            self.main_window.edit_3d_manager.update_2d_measurement_labels()
             
         self.main_window.scene.update()
         
-        if hasattr(self.main_window.edit_actions_manager, 'push_undo_state'):
-            self.main_window.edit_actions_manager.push_undo_state()
+        mgr_edit = getattr(self.main_window, 'edit_actions_manager', None)
+        if mgr_edit:
+            push_undo_func = getattr(mgr_edit, 'push_undo_state', None)
+            if push_undo_func:
+                push_undo_func()
+            else:
+                print("Error: edit_actions_manager missing 'push_undo_state'")
+        else:
+             print("Error: main_window missing 'edit_actions_manager'")
 
             
     def toggle_subscript(self):
@@ -3173,8 +3206,12 @@ class ModeManager(QObject):
         else:
             # Fallback to direct scene delete
             items = self.main_window.scene.selectedItems()
-            if items and hasattr(self.main_window.scene, 'delete_items'):
-                self.main_window.scene.delete_items(items)
+            if items:
+                delete_func = getattr(self.main_window.scene, 'delete_items', None)
+                if delete_func:
+                    delete_func(items)
+                else:
+                    print("Error: scene missing 'delete_items'")
     
     def paste_reaction_items(self):
         """Paste items from system clipboard."""
