@@ -1068,6 +1068,8 @@ class ModeManager(QObject):
             # Ensure we are listening to cursor changes for live updates
             try:
                 first_text.cursorChanged.disconnect(self.sync_property_toolbar)
+            except TypeError:
+                pass  # not connected — expected
             except Exception as _e:
                 logging.warning("[mode_manager.py:1088] silenced: %s", _e)
             first_text.cursorChanged.connect(self.sync_property_toolbar)
@@ -1095,7 +1097,9 @@ class ModeManager(QObject):
             if self.main_window and self.main_window.scene:
                 try:
                     self.main_window.scene.selectionChanged.disconnect(self.sync_property_toolbar)
-                except (AttributeError, TypeError, RuntimeError) as _e:
+                except TypeError:
+                    pass  # not connected — expected
+                except (AttributeError, RuntimeError) as _e:
                     logging.warning("[mode_manager.py:1114] silenced: %s", _e)
         except (AttributeError, RuntimeError) as _e:
             logging.warning("[mode_manager.py:1116] silenced: %s", _e)

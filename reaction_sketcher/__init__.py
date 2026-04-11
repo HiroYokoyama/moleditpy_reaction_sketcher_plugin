@@ -16,6 +16,7 @@ Refactored for MoleditPy V3.0 API.
 """
 
 from functools import partial
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMenu
 from PyQt6.QtGui import QAction, QColor
 
@@ -127,10 +128,10 @@ def initialize(context):
 
     def load_handler(data):
         if not data: return
-        
+
         reaction_items = data.get("items", []) if isinstance(data, dict) else data
         should_enter_mode = False
-        
+
         if isinstance(data, dict):
             mode_manager.auto_start_pref = data.get("auto_start_pref", False)
             should_enter_mode = data.get("reaction_mode_active", False) or \
@@ -138,22 +139,28 @@ def initialize(context):
                                 (len(reaction_items) > 0)
             if hasattr(mode_manager, "auto_start_action"):
                 mode_manager.auto_start_action.setChecked(mode_manager.auto_start_pref)
-            
+
         load_handler_core(main_window, reaction_items)
-        
-        # Restore molecular properties (colors and groups)
-        state_mgr = getattr(main_window, 'state_manager', None)
-        mol_data = state_mgr.data if state_mgr else getattr(main_window, 'data', None)
-        
-        if mol_data:
-            rs_cols = data.get("rs_colors", {})
+
+        if should_enter_mode and not mode_manager.is_reaction_mode:
+            mode_manager.toggle_reaction_mode()
+
+        # Defer molecular property restore — the main app restores atoms/bonds
+        # AFTER load_handler returns, so mol_data.atoms is empty at this point.
+        def _restore_mol_props():
+            state_mgr = getattr(main_window, 'state_manager', None)
+            mol_data = state_mgr.data if state_mgr else getattr(main_window, 'data', None)
+            if not mol_data:
+                return
+
+            rs_cols = data.get("rs_colors", {}) if isinstance(data, dict) else {}
             ac_data = rs_cols.get("atoms", {})
             for aid_str, col in ac_data.items():
                 aid = int(aid_str)
                 if aid in mol_data.atoms:
                     mol_data.atoms[aid]['item'].pen_color = QColor(col)
                     mol_data.atoms[aid]['item'].update()
-            
+
             bc_data = rs_cols.get("bonds", {})
             for key, col in bc_data.items():
                 try:
@@ -163,9 +170,9 @@ def initialize(context):
                         mol_data.bonds[k]['item'].pen_color = QColor(col)
                         mol_data.bonds[k]['item'].update()
                 except Exception as _e:
-                    logging.warning("[__init__.py:166] silenced: %s", _e)
+                    logging.warning("[__init__.py] bond color restore silenced: %s", _e)
 
-            groups = data.get("groups", {})
+            groups = data.get("groups", {}) if isinstance(data, dict) else {}
             ag_data = groups.get("atoms", {})
             for aid_str, gid in ag_data.items():
                 aid = int(aid_str)
@@ -180,10 +187,9 @@ def initialize(context):
                     if k in mol_data.bonds:
                         mol_data.bonds[k]['item'].group_id = gid
                 except Exception as _e:
-                    logging.warning("[__init__.py:182] silenced: %s", _e)
+                    logging.warning("[__init__.py] bond group restore silenced: %s", _e)
 
-        if should_enter_mode and not mode_manager.is_reaction_mode:
-            mode_manager.toggle_reaction_mode()
+        QTimer.singleShot(0, _restore_mol_props)
 
     def reset_handler():
         """Reset state for new project."""

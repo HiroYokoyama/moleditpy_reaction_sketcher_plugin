@@ -192,10 +192,11 @@ def apply_core_patches(main_window):
                 rmm = getattr(main_window, '_reaction_mode_manager', None)
                 if rmm and hasattr(rmm, '_sync_selection_visuals'):
                     # Disconnect specifically our slot if already connected (to avoid duplicates)
-                    try: 
+                    try:
                         main_window.scene.selectionChanged.disconnect(rmm._sync_selection_visuals)
-                    except (TypeError, RuntimeError) as _e:
-                        # TypeError if not connected, RuntimeError if C++ object deleted
+                    except TypeError:
+                        pass  # not connected — expected
+                    except RuntimeError as _e:
                         logging.warning("[patcher.py:205] silenced: %s", _e)
                     
                     # Connect our sync visual slot

@@ -2420,14 +2420,20 @@ class ReactionGroupOverlay(QGraphicsItem):
         return super().itemChange(change, value)
     
     def _connect_scene(self, scene):
+        if scene is None:
+            return
         try:
-             scene.changed.connect(self.on_scene_changed)
+            scene.changed.connect(self.on_scene_changed)
         except Exception as _e:
             logging.warning("[items.py:2429] silenced: %s", _e)
-        
+
     def _disconnect_scene(self, scene):
+        if scene is None:
+            return
         try:
-             scene.changed.disconnect(self.on_scene_changed)
+            scene.changed.disconnect(self.on_scene_changed)
+        except TypeError:
+            pass  # not connected — expected
         except Exception as _e:
             logging.warning("[items.py:2434] silenced: %s", _e)
 
