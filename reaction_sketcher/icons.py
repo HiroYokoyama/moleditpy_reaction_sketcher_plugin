@@ -274,8 +274,8 @@ def create_style_icon(item_type, style_name, selected=False):
     pen = QPen(pen_color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
     
     if item_type == "arrow": # Generic/Straight default
-        w = size - 2*m
-        h = size - 2*m
+        size - 2*m
+        size - 2*m
     
     if item_type == "arrow_no":
         # Draw a line with style

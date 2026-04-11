@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QStyleOptionGraphicsItem, QWidget, QStyle
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QStyle
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPainterPath
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent, pyqtSignal
 import math
 
 from .utils import sip_isdeleted_safe
+import logging
 
 def rotate_point(point, center, angle_degrees):
     """Rotate a QPointF around a center QPointF."""
@@ -109,7 +110,6 @@ class ReactionHandle(QGraphicsItem):
         mw = get_main_window(self.scene())
         if mw: 
             mw.edit_actions_manager.push_undo_state()
-            pass
             #print(f"DEBUG: ReactionHandle mouseReleaseEvent - mw is None for scene {self.scene()}")
 
     def itemChange(self, change, value):
@@ -289,18 +289,18 @@ class ReactionArrowItem(QGraphicsItem):
         selected = self.isSelected()
         show_h = selected and (not self.is_group_selected or getattr(self, "show_handles_in_group", False))
         
-        if hasattr(self, 'h_start') and self.h_start: 
+        if getattr(self, 'h_start', None) is not None and self.h_start: 
             self.h_start.setVisible(show_h)
-        if hasattr(self, 'h_end') and self.h_end: 
+        if getattr(self, 'h_end', None) is not None and self.h_end: 
             self.h_end.setVisible(show_h)
-        if hasattr(self, 'h_head') and self.h_head: 
+        if getattr(self, 'h_head', None) is not None and self.h_head: 
             self.h_head.setVisible(show_h)
-        if hasattr(self, 'h_concavity') and self.h_concavity:
+        if getattr(self, 'h_concavity', None) is not None and self.h_concavity:
             # Also check head style for concavity
             self.h_concavity.setVisible(show_h and self.head_style in ["chevron", "arrow_eq", "resonance", "chevron_curved"])
-        if hasattr(self, 'h_control') and self.h_control: 
+        if getattr(self, 'h_control', None) is not None and self.h_control: 
             self.h_control.setVisible(show_h)
-        if hasattr(self, 'h_br') and self.h_br:
+        if getattr(self, 'h_br', None) is not None and self.h_br:
             self.h_br.setVisible(show_h)
 
     def itemChange(self, change, value):
@@ -460,7 +460,6 @@ class ReactionPlusItem(QGraphicsItem):
 
     def update_handle_visibility(self):
         """Update visibility - Plus has no separate handles yet."""
-        pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -531,7 +530,6 @@ class ReactionMinusItem(QGraphicsItem):
 
     def update_handle_visibility(self):
         """Update visibility - Plus has no separate handles yet."""
-        pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -755,12 +753,12 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
         elif self.head_style == "chevron":
             h_pos1 = QLineF.fromPolar(self.head_size, angle + 180 - head_angle).p2()
             h_pos1b = QLineF.fromPolar(self.head_size, angle + 180 + head_angle).p2()
-            mid_end = QLineF.fromPolar(self.head_size * (self.head_concavity if hasattr(self, 'head_concavity') else 0.8), angle + 180).p2()
+            mid_end = QLineF.fromPolar(self.head_size * (self.head_concavity if getattr(self, 'head_concavity', None) is not None else 0.8), angle + 180).p2()
             painter.drawPolygon(QPolygonF([head_tip1, head_tip1 + h_pos1, head_tip1 + mid_end, head_tip1 + h_pos1b]))
 
             h_pos2 = QLineF.fromPolar(self.head_size, angle - head_angle).p2()
             h_pos2b = QLineF.fromPolar(self.head_size, angle + head_angle).p2()
-            mid_start = QLineF.fromPolar(self.head_size * (self.head_concavity if hasattr(self, 'head_concavity') else 0.8), angle).p2()
+            mid_start = QLineF.fromPolar(self.head_size * (self.head_concavity if getattr(self, 'head_concavity', None) is not None else 0.8), angle).p2()
             painter.drawPolygon(QPolygonF([head_tip2, head_tip2 + h_pos2, head_tip2 + mid_start, head_tip2 + h_pos2b]))
 
         elif self.head_style == "harpoon":
@@ -803,8 +801,8 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
         self.h_start.setPos(self.start_p)
         self.h_end.setPos(self.end_p)
 
-        if hasattr(self, 'h_concavity') and self.h_concavity:
-             c_pos = QLineF.fromPolar(self.head_size * (self.head_concavity if hasattr(self, 'head_concavity') else 0.8), angle + 180).p2()
+        if getattr(self, 'h_concavity', None) is not None and self.h_concavity:
+             c_pos = QLineF.fromPolar(self.head_size * (self.head_concavity if getattr(self, 'head_concavity', None) is not None else 0.8), angle + 180).p2()
              self.h_concavity.setPos(head_tip1 + c_pos)
              self.h_concavity.setVisible(self.isSelected() and self.head_style == "chevron")
 
@@ -924,7 +922,7 @@ class ReactionRetroArrowItem(ReactionArrowItem):
         self.h_start.setPos(self.start_p)
         self.h_end.setPos(self.end_p)
 
-        if hasattr(self, 'h_concavity') and self.h_concavity:
+        if getattr(self, 'h_concavity', None) is not None and self.h_concavity:
              c_pos = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
              self.h_concavity.setPos(self.end_p + c_pos)
              self.h_concavity.setVisible(self.isSelected() and self.head_style == "chevron")
@@ -990,7 +988,6 @@ class ReactionNoArrowItem(ReactionArrowItem):
             # Double slash
             l_slash = QLineF.fromPolar(slash_len, angle + 90 + 20)
             offset_vec = QLineF.fromPolar(3, angle).p2()
-            ensure_gap = 4
             
             center1 = mid - offset_vec
             center2 = mid + offset_vec
@@ -1114,10 +1111,10 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
             h_pos = QLineF.fromPolar(self.head_size, angle + 180 + draw_angle).p2()
             self.h_head.setPos(tip_p + h_pos)
             
-            if hasattr(self, 'h_control') and self.h_control:
+            if getattr(self, 'h_control', None) is not None and self.h_control:
                 self.h_control.setPos(cp)
                 
-            if hasattr(self, 'h_concavity') and self.h_concavity:
+            if getattr(self, 'h_concavity', None) is not None and self.h_concavity:
                  c_pos = QLineF.fromPolar(self.head_size * self.head_concavity, angle + 180).p2()
                  self.h_concavity.setPos(self.end_p + c_pos)
                  self.h_concavity.setVisible(self.isSelected() and self.head_style == "chevron")
@@ -1311,7 +1308,6 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
                      # Q1 = (1-t)P0 + tP1
                      # Q2 = P(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
                      
-                     t = t_cut
                      p0 = self.start_p
                      p1 = cp
                      p2 = self.end_p
@@ -1470,7 +1466,7 @@ class ReactionBracketItem(QGraphicsItem):
     def update_handle_visibility(self):
         selected = self.isSelected()
         show_h = selected and (not self.is_group_selected or getattr(self, "show_handles_in_group", False))
-        if hasattr(self, 'h_br') and self.h_br:
+        if getattr(self, 'h_br', None) is not None and self.h_br:
             self.h_br.setVisible(show_h)
 
     def itemChange(self, change, value):
@@ -1553,7 +1549,6 @@ class ReactionBracketItem(QGraphicsItem):
              highlight_color = QColor(130, 100, 255, 120) if getattr(self, "is_group_selected", False) else QColor(0, 120, 255, 120)
              painter.setPen(QPen(highlight_color, self.pen_width + 8))
              # Draw a soft highlight rect too? No, stay on the lines.
-             pass
         
         # Check if single-sided
         draw_left = True
@@ -1752,9 +1747,9 @@ class ReactionLineItem(ReactionArrowItem):
         self.h_end.setPos(self.end_p)
         
         # Hide head and concavity handles since this is a line, not arrow
-        if hasattr(self, 'h_head') and self.h_head:
+        if getattr(self, 'h_head', None) is not None and self.h_head:
             self.h_head.setVisible(False)
-        if hasattr(self, 'h_concavity') and self.h_concavity:
+        if getattr(self, 'h_concavity', None) is not None and self.h_concavity:
             self.h_concavity.setVisible(False)
 
     def create_json_data(self):
@@ -1782,14 +1777,14 @@ class ReactionCurvedLineItem(ReactionCurvedArrowItem):
         self.h_end.setPos(self.end_p)
         
         # Only show control point handle, NO head handle
-        if hasattr(self, 'h_control') and self.h_control:
+        if getattr(self, 'h_control', None) is not None and self.h_control:
             cp = self.get_control_point()
             self.h_control.setPos(cp)
         
         # Hide head and concavity handles since this is a line, not arrow
-        if hasattr(self, 'h_head') and self.h_head:
+        if getattr(self, 'h_head', None) is not None and self.h_head:
             self.h_head.setVisible(False)
-        if hasattr(self, 'h_concavity') and self.h_concavity:
+        if getattr(self, 'h_concavity', None) is not None and self.h_concavity:
             self.h_concavity.setVisible(False)
         
     def paint(self, painter, option, widget):
@@ -1895,7 +1890,6 @@ class ReactionFreehandItem(QGraphicsItem):
 
     def update_handle_visibility(self):
         """Freehand has no separate handles yet."""
-        pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -1965,10 +1959,6 @@ class ReactionTextItem(QGraphicsTextItem):
     def _on_cursor_changed(self, cursor):
         self.cursorChanged.emit()
 
-    def paint(self, painter, option, widget):
-        # Draw text on top
-        super().paint(painter, option, widget)
-
     def mousePressEvent(self, event):
         # If in edit mode, consume event to prevent scene drag
         if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
@@ -1982,7 +1972,6 @@ class ReactionTextItem(QGraphicsTextItem):
 
     def update_handle_visibility(self):
         """Text has no separate handles yet."""
-        pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -2023,7 +2012,8 @@ class ReactionTextItem(QGraphicsTextItem):
                          mw._reaction_mode_manager.disable_main_window_shortcuts()
                      elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
                          mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
-            except: pass
+            except Exception as _e:
+                logging.warning("[items.py:2026] silenced: %s", _e)
 
             # Set cursor to click position
             # QGraphicsTextItem doesn't have cursorForPosition. Use document layout.
@@ -2049,7 +2039,6 @@ class ReactionTextItem(QGraphicsTextItem):
              return
 
         # Clear selection to avoid confusion
-        from PyQt6.QtGui import QTextCursor
         cursor = self.textCursor()
         cursor.clearSelection()
         self.setTextCursor(cursor)
@@ -2065,7 +2054,8 @@ class ReactionTextItem(QGraphicsTextItem):
                      mw._reaction_mode_manager.enable_main_window_shortcuts()
                  elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
                      mw.ui_manager._reaction_mode_manager.enable_main_window_shortcuts()
-        except: pass
+        except Exception as _e:
+            logging.warning("[items.py:2068] silenced: %s", _e)
 
     @property
     def size(self):
@@ -2095,7 +2085,8 @@ class ReactionTextItem(QGraphicsTextItem):
                         mw._reaction_mode_manager.apply_text_style('bold')
                     elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
                         mw.ui_manager._reaction_mode_manager.apply_text_style('bold')
-                except: pass
+                except Exception as _e:
+                    logging.warning("[items.py:2098] silenced: %s", _e)
                 event.accept()
                 return
             elif has_ctrl and event.key() == Qt.Key.Key_I:
@@ -2106,7 +2097,8 @@ class ReactionTextItem(QGraphicsTextItem):
                         mw._reaction_mode_manager.apply_text_style('italic')
                     elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
                         mw.ui_manager._reaction_mode_manager.apply_text_style('italic')
-                except: pass
+                except Exception as _e:
+                    logging.warning("[items.py:2109] silenced: %s", _e)
                 event.accept()
                 return
             elif has_ctrl and event.key() == Qt.Key.Key_U:
@@ -2117,7 +2109,8 @@ class ReactionTextItem(QGraphicsTextItem):
                         mw._reaction_mode_manager.apply_text_style('underline')
                     elif mw and hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
                         mw.ui_manager._reaction_mode_manager.apply_text_style('underline')
-                except: pass
+                except Exception as _e:
+                    logging.warning("[items.py:2120] silenced: %s", _e)
                 event.accept()
                 return
             elif has_ctrl and (event.key() == Qt.Key.Key_Equal or event.key() == Qt.Key.Key_Plus):
@@ -2134,7 +2127,8 @@ class ReactionTextItem(QGraphicsTextItem):
                             mw.ui_manager._reaction_mode_manager.toggle_superscript()
                          else:
                             mw.ui_manager._reaction_mode_manager.toggle_subscript()
-                except: pass
+                except Exception as _e:
+                    logging.warning("[items.py:2137] silenced: %s", _e)
                 event.accept()
                 return
 
@@ -2153,7 +2147,8 @@ class ReactionTextItem(QGraphicsTextItem):
                             if action.property("tool_name") == "select":
                                 action.trigger()
                                 break
-                except: pass
+                except Exception as _e:
+                    logging.warning("[items.py:2156] silenced: %s", _e)
                 
                 event.accept()
                 return
@@ -2231,7 +2226,8 @@ class ReactionTextItem(QGraphicsTextItem):
                          mw._reaction_mode_manager.disable_main_window_shortcuts()
                      elif hasattr(mw, 'ui_manager') and hasattr(mw.ui_manager, '_reaction_mode_manager'):
                          mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
-            except: pass
+            except Exception as _e:
+                logging.warning("[items.py:2234] silenced: %s", _e)
         
 
 
@@ -2367,7 +2363,7 @@ class ReactionGroupOverlay(QGraphicsItem):
                          # Rect based
                          curr_r = item.rect
                          # TopLeft moves
-                         new_tl = origin + (item.mapToScene(curr_r.topLeft()) - origin) * scale
+                         origin + (item.mapToScene(curr_r.topLeft()) - origin) * scale
                          new_br = origin + (item.mapToScene(curr_r.bottomRight()) - origin) * scale
                          
                          # Map back to item local if item pos didn't change?
@@ -2426,19 +2422,21 @@ class ReactionGroupOverlay(QGraphicsItem):
     def _connect_scene(self, scene):
         try:
              scene.changed.connect(self.on_scene_changed)
-        except: pass
+        except Exception as _e:
+            logging.warning("[items.py:2429] silenced: %s", _e)
         
     def _disconnect_scene(self, scene):
         try:
              scene.changed.disconnect(self.on_scene_changed)
-        except: pass
+        except Exception as _e:
+            logging.warning("[items.py:2434] silenced: %s", _e)
 
     def on_scene_changed(self, region):
         if self._updating: return
         self._updating = True
         try:
             self.update_rect()
-            if hasattr(self, 'h_scale'):
+            if getattr(self, 'h_scale', None) is not None:
                 self.sync_handles()
         finally:
             self._updating = False

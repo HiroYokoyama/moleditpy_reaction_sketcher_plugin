@@ -16,9 +16,8 @@ Refactored for MoleditPy V3.0 API.
 """
 
 from functools import partial
-from PyQt6.QtWidgets import QMenu, QApplication
-from PyQt6.QtGui import QAction, QColor, QFont
-from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QMenu
+from PyQt6.QtGui import QAction, QColor
 
 from .mode_manager import ModeManager
 from .interaction import InteractionHandler
@@ -29,10 +28,10 @@ from .items import (
     ReactionLineItem, ReactionCurvedLineItem, ReactionFreehandItem, ReactionDashedArrowItem
 )
 from .utils import load_handler_core
-from .patcher import apply_patches
+import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "2.1.0"
+PLUGIN_VERSION = "2.2.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
@@ -163,7 +162,8 @@ def initialize(context):
                     if k in mol_data.bonds:
                         mol_data.bonds[k]['item'].pen_color = QColor(col)
                         mol_data.bonds[k]['item'].update()
-                except: pass
+                except Exception as _e:
+                    logging.warning("[__init__.py:166] silenced: %s", _e)
 
             groups = data.get("groups", {})
             ag_data = groups.get("atoms", {})
@@ -179,7 +179,8 @@ def initialize(context):
                     k = (int(id1_s), int(id2_s))
                     if k in mol_data.bonds:
                         mol_data.bonds[k]['item'].group_id = gid
-                except: pass
+                except Exception as _e:
+                    logging.warning("[__init__.py:182] silenced: %s", _e)
 
         if should_enter_mode and not mode_manager.is_reaction_mode:
             mode_manager.toggle_reaction_mode()

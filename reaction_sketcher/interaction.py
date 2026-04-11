@@ -2,16 +2,15 @@
 # -*- coding: utf-8 -*-
 
 from PyQt6.QtCore import QObject, QEvent, Qt, QPointF, QLineF
-from PyQt6.QtGui import QMouseEvent, QKeyEvent, QIcon, QAction, QColor, QFont
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QGraphicsItem, QApplication
 from .items import (ReactionArrowItem, ReactionResonanceArrowItem, ReactionEquilibriumArrowItem, 
                     ReactionRetroArrowItem, ReactionCurvedArrowItem, ReactionTextItem, 
                     ReactionPlusItem, ReactionMinusItem, ReactionNoArrowItem, 
                     ReactionDashedArrowItem, ReactionLineItem, ReactionCurvedLineItem,
-                    ReactionFreehandItem, ReactionBracketItem, ReactionCircleItem, ReactionHandle,
-                    ReactionGroupOverlay)
-from .utils import sip_isdeleted_safe, get_main_window
-from .icons import create_style_icon, create_shape_variant_icon
+                    ReactionFreehandItem, ReactionBracketItem, ReactionCircleItem, ReactionGroupOverlay)
+from .utils import sip_isdeleted_safe
+import logging
 
 class InteractionHandler(QObject):
     def __init__(self, context, main_window, mode_manager):
@@ -163,7 +162,8 @@ class InteractionHandler(QObject):
                  if focus_item and hasattr(focus_item, "textInteractionFlags"):
                      if focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
                          return False 
-            except: pass
+            except Exception as _e:
+                logging.warning("[interaction.py:166] silenced: %s", _e)
 
             # Check for clickable items
             top_item = None
@@ -177,7 +177,7 @@ class InteractionHandler(QObject):
                     break
             
             if top_item:
-                import copy
+                pass
                 
                 # Manual Drag Initiation
                 self._is_dragging = True
@@ -470,7 +470,7 @@ class InteractionHandler(QObject):
             ]
             
             if should_snap and not (modifiers.value & Qt.KeyboardModifier.AltModifier.value):
-                if hasattr(self, "start_pos") and self.start_pos:
+                if getattr(self, "start_pos", None) is not None and self.start_pos:
                     line = QLineF(self.start_pos, scene_pos)
                     if line.length() > 5:
                         angle = line.angle()
@@ -500,7 +500,8 @@ class InteractionHandler(QObject):
                      atoms = [i for i in self._drag_items if not sip_isdeleted_safe(i) and hasattr(i, 'atom_id')]
                      if atoms and hasattr(self.main_window.scene, 'update_connected_bonds'):
                          self.main_window.scene.update_connected_bonds(atoms)
-                 except: pass
+                 except Exception as _e:
+                     logging.warning("[interaction.py:503] silenced: %s", _e)
 
             self._is_dragging = False
             self._drag_start_pos = None
@@ -567,7 +568,7 @@ class InteractionHandler(QObject):
             # Check for short items (prevent accidental single clicks creating tiny arrows)
             should_keep = True
             if self.active_tool not in ["freehand"]: # Freehand might be small dots
-                 if hasattr(self, "start_pos") and self.start_pos:
+                 if getattr(self, "start_pos", None) is not None and self.start_pos:
                      scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
                      dist = (scene_pos - self.start_pos).manhattanLength()
                      if dist < 10:
@@ -595,13 +596,6 @@ class InteractionHandler(QObject):
         
         # Sanitization: Ensure we have a set of valid items
         targets = set()
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                            ReactionMinusItem, ReactionResonanceArrowItem, 
-                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                            ReactionNoArrowItem, ReactionCurvedArrowItem,
-                            ReactionBracketItem, ReactionCircleItem,
-                            ReactionLineItem, ReactionCurvedLineItem,
-                            ReactionFreehandItem, ReactionDashedArrowItem)
 
         for item in selected:
             # Duck typing for reaction items
@@ -682,7 +676,6 @@ class InteractionHandler(QObject):
         
         # Prioritize Text Edit
         for item in items:
-            from .items import ReactionTextItem
             if isinstance(item, ReactionTextItem):
                 # Exit edit mode on any other text item FIRST
                 focus_item = self.main_window.scene.focusItem()
@@ -726,7 +719,7 @@ class InteractionHandler(QObject):
             # BFS to select connected component
             visited = set()
             stack = [start_atom]
-            scene = self.main_window.scene
+            self.main_window.scene
             
             while stack:
                 atom = stack.pop()

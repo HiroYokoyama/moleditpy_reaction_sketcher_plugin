@@ -3,12 +3,12 @@
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QSpinBox, QDoubleSpinBox, QPushButton, QColorDialog, 
-                             QGroupBox, QComboBox, QMessageBox, QWidget, QCheckBox,
-                             QFormLayout)
+                             QGroupBox, QComboBox, QMessageBox, QFormLayout)
 from PyQt6.QtGui import QColor
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 import json
 import os
+import logging
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
@@ -212,19 +212,19 @@ class AdvancedSettingsDialog(QDialog):
         
     def update_ui_state(self, _=None):
         # Enable/Disable based on item state
-        if hasattr(self, "concavity_spin"):
+        if getattr(self, "concavity_spin", None) is not None:
             # Enable only if head style is chevron
             is_chevron = False
-            if hasattr(self, "head_style_combo"):
+            if getattr(self, "head_style_combo", None) is not None:
                 is_chevron = (self.head_style_combo.currentText() == "chevron")
             elif hasattr(self.item, "head_style"):
                 is_chevron = (self.item.head_style == "chevron")
             self.concavity_spin.setEnabled(is_chevron)
             
-        if hasattr(self, "head_side_combo"):
+        if getattr(self, "head_side_combo", None) is not None:
             # Show for harpoon style OR if it's a curved arrow (where it's always relevant for fish-hooks)
             is_harpoon = False
-            if hasattr(self, "head_style_combo"):
+            if getattr(self, "head_style_combo", None) is not None:
                 is_harpoon = (self.head_style_combo.currentText() == "harpoon")
             elif hasattr(self.item, "head_style"):
                 is_harpoon = (self.item.head_style == "harpoon")
@@ -232,7 +232,7 @@ class AdvancedSettingsDialog(QDialog):
             is_curved = "curved" in self.item_kind
             visible = is_harpoon or is_curved
             self.head_side_combo.setVisible(visible)
-            if hasattr(self, "head_side_label"):
+            if getattr(self, "head_side_label", None) is not None:
                 self.head_side_label.setVisible(visible)
         
     def choose_color(self):
@@ -249,20 +249,20 @@ class AdvancedSettingsDialog(QDialog):
     def get_current_values(self):
         """Returns a dict of currently displayed values."""
         vals = {"color": self.current_color.name()}
-        if hasattr(self, "width_spin"): vals["width"] = self.width_spin.value()
-        if hasattr(self, "head_size_spin"): vals["head_size"] = self.head_size_spin.value()
-        if hasattr(self, "head_angle_spin"): vals["head_angle"] = self.head_angle_spin.value()
-        if hasattr(self, "concavity_spin"): vals["head_concavity"] = self.concavity_spin.value()
-        if hasattr(self, "curvature_spin"): vals["curvature"] = self.curvature_spin.value()
-        if hasattr(self, "spacing_spin"): vals["double_arrow_offset"] = self.spacing_spin.value()
-        if hasattr(self, "cross_size_spin"): vals["cross_size"] = self.cross_size_spin.value()
-        if hasattr(self, "item_size_spin"): vals["size"] = self.item_size_spin.value()
-        if hasattr(self, "rect_w_spin"): vals["rect_width"] = self.rect_w_spin.value()
-        if hasattr(self, "rect_h_spin"): vals["rect_height"] = self.rect_h_spin.value()
-        if hasattr(self, "bracket_combo"): vals["bracket_type"] = self.bracket_combo.currentText()
-        if hasattr(self, "head_style_combo"): vals["head_style"] = self.head_style_combo.currentText()
+        if getattr(self, "width_spin", None) is not None: vals["width"] = self.width_spin.value()
+        if getattr(self, "head_size_spin", None) is not None: vals["head_size"] = self.head_size_spin.value()
+        if getattr(self, "head_angle_spin", None) is not None: vals["head_angle"] = self.head_angle_spin.value()
+        if getattr(self, "concavity_spin", None) is not None: vals["head_concavity"] = self.concavity_spin.value()
+        if getattr(self, "curvature_spin", None) is not None: vals["curvature"] = self.curvature_spin.value()
+        if getattr(self, "spacing_spin", None) is not None: vals["double_arrow_offset"] = self.spacing_spin.value()
+        if getattr(self, "cross_size_spin", None) is not None: vals["cross_size"] = self.cross_size_spin.value()
+        if getattr(self, "item_size_spin", None) is not None: vals["size"] = self.item_size_spin.value()
+        if getattr(self, "rect_w_spin", None) is not None: vals["rect_width"] = self.rect_w_spin.value()
+        if getattr(self, "rect_h_spin", None) is not None: vals["rect_height"] = self.rect_h_spin.value()
+        if getattr(self, "bracket_combo", None) is not None: vals["bracket_type"] = self.bracket_combo.currentText()
+        if getattr(self, "head_style_combo", None) is not None: vals["head_style"] = self.head_style_combo.currentText()
         # if hasattr(self, "head_at_combo"): vals["head_at"] = self.head_at_combo.currentText()
-        if hasattr(self, "head_side_combo"): vals["head_side"] = -1 if self.head_side_combo.currentText() == "Up" else 1
+        if getattr(self, "head_side_combo", None) is not None: vals["head_side"] = -1 if self.head_side_combo.currentText() == "Up" else 1
         return vals
 
     def set_ui_values(self, vals):
@@ -270,11 +270,11 @@ class AdvancedSettingsDialog(QDialog):
         if "color" in vals:
             self.current_color = QColor(vals["color"])
             self.update_color_button()
-        if "width" in vals and hasattr(self, "width_spin"):
+        if "width" in vals and getattr(self, "width_spin", None) is not None:
             self.width_spin.setValue(int(vals["width"]))
-        if "head_size" in vals and hasattr(self, "head_size_spin"):
+        if "head_size" in vals and getattr(self, "head_size_spin", None) is not None:
             self.head_size_spin.setValue(float(vals["head_size"]))
-        if "head_angle" in vals and hasattr(self, "head_angle_spin"):
+        if "head_angle" in vals and getattr(self, "head_angle_spin", None) is not None:
             self.head_angle_spin.setValue(float(vals["head_angle"]))
         if "head_concavity" in vals and hasattr(self.item, "head_concavity"):
             self.item.head_concavity = float(vals["head_concavity"])
@@ -284,13 +284,13 @@ class AdvancedSettingsDialog(QDialog):
             self.item.double_arrow_offset = float(vals["double_arrow_offset"])
         if "cross_size" in vals and hasattr(self.item, "cross_size"):
              self.item.cross_size = float(vals["cross_size"])
-        if "cross_size" in vals and hasattr(self, "cross_size_spin"):
+        if "cross_size" in vals and getattr(self, "cross_size_spin", None) is not None:
              self.cross_size_spin.setValue(float(vals["cross_size"]))
         if "bracket_type" in vals and hasattr(self.item, "bracket_type"):
             self.item.bracket_type = vals["bracket_type"]
-        if "bracket_type" in vals and hasattr(self, "bracket_combo"):
+        if "bracket_type" in vals and getattr(self, "bracket_combo", None) is not None:
              self.bracket_combo.setCurrentText(vals["bracket_type"])
-        if "head_style" in vals and hasattr(self, "head_style_combo"):
+        if "head_style" in vals and getattr(self, "head_style_combo", None) is not None:
              self.head_style_combo.setCurrentText(vals["head_style"])
         # if "head_at" in vals and hasattr(self.item, "head_at"):
         #      self.item.head_at = vals["head_at"]
@@ -298,15 +298,15 @@ class AdvancedSettingsDialog(QDialog):
         #      self.head_at_combo.setCurrentText(vals["head_at"])
         if "head_side" in vals and hasattr(self.item, "head_side"):
              self.item.head_side = int(vals["head_side"])
-        if "head_side" in vals and hasattr(self, "head_side_combo"):
+        if "head_side" in vals and getattr(self, "head_side_combo", None) is not None:
              self.head_side_combo.setCurrentText("Up" if int(vals["head_side"]) < 0 else "Down")
         if "size" in vals and hasattr(self.item, "size"):
              self.item.size = float(vals["size"])
-        if "size" in vals and hasattr(self, "item_size_spin"):
+        if "size" in vals and getattr(self, "item_size_spin", None) is not None:
              self.item_size_spin.setValue(float(vals["size"]))
-        if "rect_width" in vals and hasattr(self, "rect_w_spin"):
+        if "rect_width" in vals and getattr(self, "rect_w_spin", None) is not None:
              self.rect_w_spin.setValue(float(vals["rect_width"]))
-        if "rect_height" in vals and hasattr(self, "rect_h_spin"):
+        if "rect_height" in vals and getattr(self, "rect_h_spin", None) is not None:
              self.rect_h_spin.setValue(float(vals["rect_height"]))
              
         self.update_ui_state()
@@ -321,7 +321,8 @@ class AdvancedSettingsDialog(QDialog):
                      data = json.load(f)
                      all_templates = data.get("templates", {})
                      self.templates = all_templates
-             except: pass
+             except Exception as _e:
+                 logging.warning("[settings_dialog.py:324] silenced: %s", _e)
         
         self.default_key = f"Default_{self.item_kind}"
         
@@ -380,7 +381,7 @@ class AdvancedSettingsDialog(QDialog):
             
         if current_text in self.templates:
             self.tmpl_combo.setCurrentText(current_text)
-        elif self.templates.get("Default"):
+        elif self.templates.get("Default", None):
              self.tmpl_combo.setCurrentText("Default")
 
     def on_template_selected(self, text):
@@ -441,7 +442,7 @@ class AdvancedSettingsDialog(QDialog):
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            pass
+            logging.warning("[settings_dialog.py:443] silenced: %s", e)
 
     def get_settings(self):
         vals = self.get_current_values()

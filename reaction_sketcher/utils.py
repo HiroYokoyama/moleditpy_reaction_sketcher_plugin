@@ -1,3 +1,4 @@
+import logging
 def sip_isdeleted_safe(obj):
     """Check if a PyQt object has been deleted at the C++ level."""
     if obj is None: return True
@@ -13,8 +14,8 @@ def sip_isdeleted_safe(obj):
     try:
         import sip
         return sip.isdeleted(obj)
-    except:
-        pass
+    except Exception as _e:
+        logging.warning("[utils.py:16] silenced: %s", _e)
         
     # If we truly cannot check, assume it is NOT deleted to allow functionality.
     # The RuntimeError is worse than a potential crash in some cases, 
@@ -48,7 +49,7 @@ def load_handler_core(main_window, reaction_items):
         return
 
     for item_data in reaction_items:
-        item_type = item_data.get("type")
+        item_type = item_data.get("type", None)
         item = None
         
         if item_type in ["arrow", "arrow_res", "arrow_eq", "arrow_retro", "arrow_no"]:
@@ -181,4 +182,3 @@ def load_handler_core(main_window, reaction_items):
         if item:
             if "group_id" in item_data: item.group_id = item_data["group_id"]
             main_window.scene.addItem(item)
-

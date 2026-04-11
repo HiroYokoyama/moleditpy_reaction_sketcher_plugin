@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 import copy
-from PyQt6.QtGui import (QColor, QPen, QBrush, QFont, QPainter, QPolygonF, QPaintEngine, 
-                         QImage, QFontMetricsF, QAction, QKeySequence, qRgba)
+from PyQt6.QtGui import (QColor, QPen, QBrush, QFont, QPainter, QImage, QAction, 
+                         QKeySequence, qRgba)
 from PyQt6.QtCore import Qt, QPointF, QByteArray, QMimeData, QRectF, QSize, QBuffer, QIODevice
-from PyQt6.QtWidgets import QStyle, QApplication, QGraphicsItem, QFileDialog, QMessageBox, QGraphicsView
+from PyQt6.QtWidgets import QApplication, QGraphicsItem, QFileDialog, QMessageBox, QGraphicsView
 import os
 import math
 try:
@@ -14,6 +14,7 @@ except ImportError:
     QSvgGenerator = None
 
 from .utils import sip_isdeleted_safe
+import logging
 
 # Storage for original methods
 _core_originals = {}
@@ -73,24 +74,10 @@ def apply_core_patches(main_window):
         ComputeManager = main_window.compute_manager.__class__
 
     # Resolve ExportManager (V3: export_manager)
-    ExportManager = None
     if hasattr(main_window, 'export_manager'):
-        ExportManager = main_window.export_manager.__class__
+        main_window.export_manager.__class__
 
-    # Resolve AtomItem for Patching
-    AtomItem = None
-    try:
-        from modules.atom_item import AtomItem
-    except ImportError:
-        try:
-             from moleditpy.ui.atom_item import AtomItem
-        except ImportError:
-             pass
-
-    # AtomItem paint patch is applied later (line 621) after the function is defined
-    # if AtomItem:
-    #     _patch(_core_originals, AtomItem, 'paint', patched_atom_paint)
-
+    # AtomItem is resolved below via sys.modules
 
     # Resolve View2D
     View2D = None
@@ -109,16 +96,20 @@ def apply_core_patches(main_window):
     for mod_name in list(sys.modules.keys()):
         if mod_name.endswith("modules.atom_item") or mod_name.endswith("ui.atom_item"):
             try: AtomItem = sys.modules[mod_name].AtomItem
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:112] silenced: %s", _e)
         if mod_name.endswith("modules.bond_item") or mod_name.endswith("ui.bond_item"):
             try: BondItem = sys.modules[mod_name].BondItem
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:115] silenced: %s", _e)
         if mod_name.endswith("modules.main_window_ui_manager"):
             try: MainWindowUiManager = sys.modules[mod_name].MainWindowUiManager
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:118] silenced: %s", _e)
         if mod_name.endswith("ui.ui_manager") and MainWindowUiManager is None:
             try: MainWindowUiManager = sys.modules[mod_name].UIManager
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:121] silenced: %s", _e)
             
     # Fallback to instance inspection if available (Safest)
     if hasattr(main_window, 'ui_manager') and MainWindowUiManager is None:
@@ -127,12 +118,12 @@ def apply_core_patches(main_window):
     if hasattr(main_window, 'state_manager'):
         if AtomItem is None and main_window.state_manager.data.atoms:
             for d in main_window.state_manager.data.atoms.values():
-                if d.get('item'):
+                if d.get('item', None):
                     AtomItem = d['item'].__class__
                     break
         if BondItem is None and main_window.state_manager.data.bonds:
             for d in main_window.state_manager.data.bonds.values():
-                if d.get('item'):
+                if d.get('item', None):
                     BondItem = d['item'].__class__
                     break
 
@@ -182,7 +173,8 @@ def apply_core_patches(main_window):
         if rmm: 
             try:
                 rmm._handle_main_mode_change(mode_str)
-            except Exception: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:185] silenced: %s", _e)
 
     patch_core(MainWindowUiManager, 'set_mode', patched_set_mode)
 
@@ -202,14 +194,14 @@ def apply_core_patches(main_window):
                     # Disconnect specifically our slot if already connected (to avoid duplicates)
                     try: 
                         main_window.scene.selectionChanged.disconnect(rmm._sync_selection_visuals)
-                    except (TypeError, RuntimeError): 
+                    except (TypeError, RuntimeError) as _e:
                         # TypeError if not connected, RuntimeError if C++ object deleted
-                        pass
+                        logging.warning("[patcher.py:205] silenced: %s", _e)
                     
                     # Connect our sync visual slot
                     main_window.scene.selectionChanged.connect(rmm._sync_selection_visuals)
-            except Exception: 
-                pass
+            except Exception as _e:
+                logging.warning("[patcher.py:211] silenced: %s", _e)
 
     def patched_bond_bounding_rect(self):
         line = self.get_line_in_local_coords()
@@ -221,7 +213,8 @@ def apply_core_patches(main_window):
                 win = self.scene().views()[0].window()
                 if win and hasattr(win, 'settings'):
                      settings = win.settings
-        except: pass
+        except Exception as _e:
+            logging.warning("[patcher.py:224] silenced: %s", _e)
 
         if settings:
              if getattr(self, 'order', 1) == 3:
@@ -315,8 +308,7 @@ def apply_core_patches(main_window):
     # --- Copy Selection ---
     def patched_copy_selection(self):
         try:
-            from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                                ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
+            pass
             
             selected_items = [i for i in self.host.scene.selectedItems() if not sip_isdeleted_safe(i)]
             selected_atoms = [item for item in selected_items if hasattr(item, 'atom_id')]
@@ -440,8 +432,6 @@ def apply_core_patches(main_window):
 
     # --- Select All ---
     def patched_select_all(self):
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionMinusItem, 
-                            ReactionTextItem, ReactionBracketItem, ReactionCircleItem)
         for item in self.host.scene.items():
             if sip_isdeleted_safe(item):
                 continue
@@ -482,8 +472,8 @@ def apply_core_patches(main_window):
                 try:
                     if item.scene() == scene:
                         scene.removeItem(item)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.warning("[patcher.py:485] silenced: %s", _e)
             
             # If we only had reaction items, we must still push undo state
             if not core_items_to_delete:
@@ -492,8 +482,8 @@ def apply_core_patches(main_window):
                         scene.push_undo_state()
                     elif main_window:
                         main_window.edit_actions_manager.push_undo_state()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.warning("[patcher.py:495] silenced: %s", _e)
                 return True
 
 
@@ -538,7 +528,7 @@ def apply_core_patches(main_window):
             fm = painter.fontMetrics()
             
             hydrogen_part = ""
-            if hasattr(self, 'implicit_h_count') and self.implicit_h_count > 0:
+            if getattr(self, 'implicit_h_count', None) is not None and self.implicit_h_count > 0:
                 is_skeletal_carbon = (self.symbol == 'C' and self.charge == 0 and self.radical == 0 and len(self.bonds) > 0)
                 if not is_skeletal_carbon:
                     hydrogen_part = "H"
@@ -590,7 +580,8 @@ def apply_core_patches(main_window):
                     is_svg = True
                 elif painter.device() and type(painter.device()).__name__ == "QSvgGenerator":
                     is_svg = True
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:593] silenced: %s", _e)
 
             if is_svg:
                 # SVG: Use background color from settings to hide bonds (Clear mode fails in SVG)
@@ -601,8 +592,8 @@ def apply_core_patches(main_window):
                         if win and hasattr(win, 'settings'):
                             bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
                             bg_color = QColor(bg_color_str)
-                except:
-                    pass
+                except Exception as _e:
+                    logging.warning("[patcher.py:604] silenced: %s", _e)
                 painter.setBrush(bg_color)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(bg_rect)
@@ -655,9 +646,10 @@ def apply_core_patches(main_window):
                              if self.symbol == 'H' or win.settings.get('atom_use_bond_color_2d', False):
                                  bond_col = win.settings.get('bond_color_2d', '#222222')
                                  color = QColor(bond_col)
-                except Exception: pass
+                except Exception as _e:
+                    logging.warning("[patcher.py:658] silenced: %s", _e)
                 
-                if hasattr(self, "color") and self.color:
+                if getattr(self, "color", None) is not None and self.color:
                      c = self.color
                      if isinstance(c, QColor): color = c
                      elif isinstance(c, str): color = QColor(c)
@@ -738,13 +730,7 @@ def apply_core_patches(main_window):
 
     # --- Delete Items (Global) ---
     def patched_delete_items(self, items_to_delete):
-        from .items import (ReactionArrowItem, ReactionPlusItem, ReactionTextItem, 
-                            ReactionMinusItem, ReactionResonanceArrowItem, 
-                            ReactionEquilibriumArrowItem, ReactionRetroArrowItem,
-                            ReactionNoArrowItem, ReactionCurvedArrowItem,
-                            ReactionBracketItem, ReactionCircleItem,
-                            ReactionLineItem, ReactionCurvedLineItem,
-                            ReactionFreehandItem, ReactionDashedArrowItem)
+        pass
 
         core_items = []
         reaction_items = []
@@ -780,7 +766,7 @@ def apply_core_patches(main_window):
                 window = views[0].window()
                 if hasattr(window, "edit_actions_manager"):
                     window.edit_actions_manager.push_undo_state()
-            elif hasattr(self, "parent") and hasattr(self.parent(), "push_undo_state"):
+            elif getattr(self, "parent", None) is not None and hasattr(self.parent(), "push_undo_state"):
                  self.parent().push_undo_state()
             
         return deleted_reaction or success_core
@@ -925,8 +911,8 @@ def apply_core_patches(main_window):
                 try:
                     if rd_atom.HasProp("_original_atom_id"):
                         return rd_atom.GetIntProp("_original_atom_id")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.warning("[patcher.py:928] silenced: %s", _e)
                 try:
                     return rd_atom.GetIntProp("atom_id")
                 except Exception:
@@ -936,8 +922,8 @@ def apply_core_patches(main_window):
                 if hasattr(atom_item, "scenePos"):
                     try:
                         return atom_item.scenePos()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        logging.warning("[patcher.py:939] silenced: %s", _e)
                 return atom_item.pos()
 
             def set_atom_scene_pos(atom_item, target_scene_pos):
@@ -998,8 +984,8 @@ def apply_core_patches(main_window):
                 for idx in frag_indices:
                     rd_atom = mol.GetAtomWithIdx(idx)
                     aid = resolve_atom_id(rd_atom, idx)
-                    atom_entry = data.atoms.get(aid)
-                    atom_item = atom_entry.get("item") if atom_entry else None
+                    atom_entry = data.atoms.get(aid, None)
+                    atom_item = atom_entry.get("item", None) if atom_entry else None
                     if atom_item is None:
                         continue
                     pos = atom_scene_pos(atom_item)
@@ -1036,8 +1022,8 @@ def apply_core_patches(main_window):
                 for idx in frag_indices:
                     rd_atom = mol.GetAtomWithIdx(idx)
                     aid = resolve_atom_id(rd_atom, idx)
-                    atom_entry = data.atoms.get(aid)
-                    atom_item = atom_entry.get("item") if atom_entry else None
+                    atom_entry = data.atoms.get(aid, None)
+                    atom_item = atom_entry.get("item", None) if atom_entry else None
                     if atom_item is None:
                         continue
 
@@ -1055,7 +1041,7 @@ def apply_core_patches(main_window):
                 updated_count += 1
 
             for bond_data in data.bonds.values():
-                bond_item = bond_data.get("item") if bond_data else None
+                bond_item = bond_data.get("item", None) if bond_data else None
                 if not bond_item or sip_isdeleted_safe(bond_item):
                     continue
                 update_pos_func = getattr(bond_item, "update_position", None)
@@ -1172,19 +1158,20 @@ def apply_core_patches(main_window):
                     # after the molecular change
                     if hasattr(main_window, 'scene') and main_window.scene:
                         main_window.scene.update()
-            except Exception: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:1175] silenced: %s", _e)
             
         patch_core(ComputeManager, 'on_calculation_finished', patched_on_calculation_finished)
 
     def patched_push_undo_state(self):
         # Prevent recursion and checks based on both Manager and Host state
         if getattr(self, '_is_restoring_state', False): return
-        if hasattr(self, 'host') and getattr(self.host, '_is_restoring_state', False): return
+        if getattr(self, 'host', None) is not None and getattr(self.host, '_is_restoring_state', False): return
 
         # Resolve correct StateManager (which has get_current_state and data)
         # In V3, self might be EditActionsManager, which lacks these.
         state_mgr = self
-        if not hasattr(self, 'get_current_state') and hasattr(self, 'host') and hasattr(self.host, 'state_manager'):
+        if getattr(self, 'get_current_state', None) is None and hasattr(self, 'host') and hasattr(self.host, 'state_manager'):
             state_mgr = self.host.state_manager
         
         if not hasattr(state_mgr, 'get_current_state') or not hasattr(state_mgr, 'data'):
@@ -1222,7 +1209,7 @@ def apply_core_patches(main_window):
                               last_acols.get(str(k), "")) for k, v in last_atoms.items()},
                 'bonds': {k: (v['order'], v.get('stereo', 0), 
                               last_bcols.get(f"{k[0]}-{k[1]}", "")) for k, v in last_bonds.items()},
-                '_next_atom_id': last_state.get('_next_atom_id'),
+                '_next_atom_id': last_state.get('_next_atom_id', None),
                 'mol_3d': last_state.get('mol_3d', None),
                 'mol_3d_atom_ids': last_state.get('mol_3d_atom_ids', []),
                 'rs_items': last_state.get('rs_items', []),
@@ -1364,7 +1351,8 @@ def apply_core_patches(main_window):
             try:
                 if self.host.init_manager.current_file_path:
                     default_name = os.path.splitext(os.path.basename(self.host.init_manager.current_file_path))[0] + "-2d"
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:1367] silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(self, "Export 2D as PNG", default_name, "PNG Files (*.png)")
             if not filePath: return
@@ -1426,7 +1414,8 @@ def apply_core_patches(main_window):
             try:
                 if self.host.init_manager.current_file_path:
                     default_name = os.path.splitext(os.path.basename(self.host.init_manager.current_file_path))[0] + "-2d"
-            except: pass
+            except Exception as _e:
+                logging.warning("[patcher.py:1429] silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(self, "Export 2D as SVG", default_name, "SVG Files (*.svg)")
             if not filePath: return
@@ -1508,7 +1497,7 @@ def apply_core_patches(main_window):
                 # Restore selection
                 for item in selected_items:
                     item.setSelected(True)
-                if hasattr(self, 'original_focus') and self.original_focus:
+                if getattr(self, 'original_focus', None) is not None and self.original_focus:
                      self.original_focus.setFocus()
             self.host.statusBar().showMessage(f"2D view exported to {filePath}")
 
@@ -1607,7 +1596,7 @@ def apply_core_patches(main_window):
                 painter.end()
                 self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items: item.setSelected(True)
-                if hasattr(self, 'original_focus') and self.original_focus:
+                if getattr(self, 'original_focus', None) is not None and self.original_focus:
                      self.original_focus.setFocus()
             
             mime = QMimeData()
@@ -1622,7 +1611,7 @@ def apply_core_patches(main_window):
         # Register Shortcut
         def patched_setup_copy_shortcut(self):
             # Try to find if shortcut already exists or just create a new action
-            if not hasattr(self, "copy_2d_action"):
+            if getattr(self, "copy_2d_action", None) is None:
                 self.copy_2d_action = QAction("Copy 2D Image", self)
                 self.copy_2d_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
                 self.copy_2d_action.triggered.connect(self.copy_2d_image_to_clipboard)
@@ -1672,7 +1661,7 @@ def apply_core_patches(main_window):
     if MainWindowExport:
         def forward_copy_clip(self):
             # Forward to patched export logic
-            if hasattr(self, 'copy_2d_image_to_clipboard'):
+            if getattr(self, 'copy_2d_image_to_clipboard', None) is not None:
                  self.copy_2d_image_to_clipboard()
             elif hasattr(MainWindowExport, 'copy_to_clipboard'):
                 MainWindowExport.copy_to_clipboard(self)

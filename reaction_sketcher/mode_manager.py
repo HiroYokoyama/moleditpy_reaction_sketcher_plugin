@@ -1,37 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import time
 import json
 import os
 import uuid
 from PyQt6.QtWidgets import (
-    QToolBar, QToolButton, QSizePolicy, QComboBox, QSpinBox, QCheckBox, 
-    QHBoxLayout, QGridLayout, QWidget, QLabel, QColorDialog, QFileDialog, 
-    QMessageBox, QMenu, QFrame
+    QToolBar, QToolButton, QComboBox, QSpinBox, QGridLayout, QWidget, 
+    QLabel, QColorDialog, QMessageBox, QMenu
 )
 from PyQt6.QtGui import (
     QIcon, QColor, QFont, QPainter, QBrush, QActionGroup, QGuiApplication, 
     QAction, QShortcut, QKeySequence, QTextCharFormat, QTextCursor, 
-    QFontDatabase, QCursor, QImage
+    QFontDatabase, QImage
 )
 from PyQt6.QtSvg import QSvgGenerator
 from PyQt6.QtCore import (
     Qt, QSize, QRectF, QBuffer, QIODevice, QMimeData, QPoint, QPointF, 
-    QObject, QEvent, QTimer, QFile
+    QObject, QEvent, QFile
 )
 
 from .utils import sip_isdeleted_safe
 from .icons import create_reaction_icon, create_shape_variant_icon, create_style_icon, create_alignment_icon
 from .patcher import (
-    apply_interaction_patches, revert_interaction_patches,
-    apply_core_patches, revert_core_patches, revert_all_patches
+    apply_interaction_patches, apply_core_patches,
+    revert_all_patches
 )
 from .items import (
-    ReactionTextItem, ReactionArrowItem, ReactionBracketItem, ReactionCircleItem, 
-    ReactionPlusItem, ReactionMinusItem, ReactionDashedArrowItem, ReactionResonanceArrowItem, 
+    ReactionTextItem, ReactionArrowItem, ReactionDashedArrowItem, ReactionResonanceArrowItem, 
     ReactionEquilibriumArrowItem, ReactionRetroArrowItem, ReactionCurvedArrowItem
 )
+import logging
 
 class ModeManager(QObject):
     def __init__(self, main_window):
@@ -92,7 +90,7 @@ class ModeManager(QObject):
 
                             # Legacy Support: Update individual properties where applicable
                             if item_type == "arrow":
-                                style = val.get("head_style")
+                                style = val.get("head_style", None)
                                 if style:
                                     self.default_head_styles["arrow"] = style
                                     self.default_head_styles["arrow_dashed"] = style
@@ -104,21 +102,21 @@ class ModeManager(QObject):
                                     self.default_double_arrow_offset = float(val["double_arrow_offset"])
                                     
                             elif item_type == "arrow_eq":
-                                style = val.get("head_style")
+                                style = val.get("head_style", None)
                                 if style: self.default_head_styles["arrow_eq"] = style
                                 if "double_arrow_offset" in val:
                                      self.default_double_arrow_offset = float(val["double_arrow_offset"])
 
                             elif item_type == "arrow_res":
-                                style = val.get("head_style")
+                                style = val.get("head_style", None)
                                 if style: self.default_head_styles["arrow_res"] = style
 
                             elif item_type == "arrow_retro":
-                                style = val.get("head_style")
+                                style = val.get("head_style", None)
                                 if style: self.default_head_styles["arrow_retro"] = style
                                 
                             elif item_type == "arrow_no":
-                                style = val.get("head_style")
+                                style = val.get("head_style", None)
                                 if style: self.default_head_styles["arrow_no"] = style
                                 if "negation_style" in val:
                                     self.default_no_arrow_style = val["negation_style"]
@@ -137,7 +135,7 @@ class ModeManager(QObject):
                                 
             except Exception as e:
                 # print(f"Error loading defaults: {e}")
-                pass
+                logging.warning("[mode_manager.py:138] silenced: %s", e)
 
     def setup_shortcuts(self):
         """Setup keyboard shortcuts for grouping etc."""
@@ -189,8 +187,8 @@ class ModeManager(QObject):
         if btn is not None:
             try:
                 btn.clicked.disconnect()
-            except Exception:
-                pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:192] silenced: %s", _e)
             btn.clicked.connect(target)
         else:
             print("Error: init_manager missing 'cleanup_button'")
@@ -199,8 +197,8 @@ class ModeManager(QObject):
         if cleanup_action is not None:
             try:
                 cleanup_action.triggered.disconnect()
-            except Exception:
-                pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:202] silenced: %s", _e)
             cleanup_action.triggered.connect(target)
         else:
             print("Error: 'Clean Up 2D' action not found in menu")
@@ -352,7 +350,6 @@ class ModeManager(QObject):
                     action.setToolTip(tooltip)
                     action.triggered.connect(func)
                     
-                    from .icons import create_alignment_icon
                     action.setIcon(create_alignment_icon(name))
                     
                     btn.setDefaultAction(action)
@@ -564,20 +561,6 @@ class ModeManager(QObject):
         if hasattr(item, "atom_id") or hasattr(item, "atom1"): return True
         return False
 
-# ... (skip to copy_to_clipboard)
-
-    def copy_to_clipboard(self):
-        # Synchronize logic with SVG export/copy to ensure consistency.
-        # Use shared _generate_png_data
-        
-        # Logic disabled per user request
-        pass
-        # Reliable check for Reaction Items
-        if hasattr(item, "create_json_data"): return True
-        # Check for Molecule Items (Atom/Bond)
-        if hasattr(item, "atom_id") or hasattr(item, "atom1"): return True
-        return False
-
     def _generate_png_data(self, items_to_render):
         """Generate PNG data (bytes) for the given items using scene render (Hide/Restore pattern)."""
         if not items_to_render:
@@ -648,10 +631,10 @@ class ModeManager(QObject):
 
             # 1. Erase background to Transparent White (0x00FFFFFF)
             painter.setFont(atom_self.font)
-            fm = painter.fontMetrics()
+            painter.fontMetrics()
             
             # (Simplified rect calculation logic - matching AtomItem.py roughly)
-            display_text = atom_self.symbol
+            atom_self.symbol
             if atom_self.implicit_h_count > 0:
 
                  pass
@@ -752,9 +735,8 @@ class ModeManager(QObject):
             # 1. Force White Mask logic
             # Calculate rects (same as original)
             painter.setFont(atom_self.font)
-            fm = painter.fontMetrics()
+            painter.fontMetrics()
             
-            pass
         
         def export_atom_paint(self, painter, option, widget):
              # Use configured background color from settings for atom label backgrounds
@@ -766,8 +748,8 @@ class ModeManager(QObject):
                      if win and hasattr(win, 'settings'):
                          bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
                          bg_color = QColor(bg_color_str)
-             except:
-                 pass
+             except Exception as _e:
+                 logging.warning("[mode_manager.py:769] silenced: %s", _e)
              self.scene().setBackgroundBrush(QBrush(bg_color))
              try:
                  original_paint(self, painter, option, widget)
@@ -1058,7 +1040,8 @@ class ModeManager(QObject):
                      c.setPosition(0)
                      c.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
                      f = c.charFormat().font()
-            except: pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:1061] silenced: %s", _e)
 
             idx = self.font_combo.findText(f.family())
             if idx >= 0: self.font_combo.setCurrentIndex(idx)
@@ -1085,7 +1068,8 @@ class ModeManager(QObject):
             # Ensure we are listening to cursor changes for live updates
             try:
                 first_text.cursorChanged.disconnect(self.sync_property_toolbar)
-            except: pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:1088] silenced: %s", _e)
             first_text.cursorChanged.connect(self.sync_property_toolbar)
         else:
             self.font_combo.setEnabled(False)
@@ -1111,39 +1095,11 @@ class ModeManager(QObject):
             if self.main_window and self.main_window.scene:
                 try:
                     self.main_window.scene.selectionChanged.disconnect(self.sync_property_toolbar)
-                except (AttributeError, TypeError, RuntimeError):
-                    pass
-        except (AttributeError, RuntimeError):
-            pass
+                except (AttributeError, TypeError, RuntimeError) as _e:
+                    logging.warning("[mode_manager.py:1114] silenced: %s", _e)
+        except (AttributeError, RuntimeError) as _e:
+            logging.warning("[mode_manager.py:1116] silenced: %s", _e)
 
-
-    def toggle_subscript(self):
-        if not self.is_reaction_mode: return
-        self._apply_text_format_property("sub")
-
-    def toggle_superscript(self):
-        if not self.is_reaction_mode: return
-        self._apply_text_format_property("sup")
-
-    def apply_chem_style(self):
-        if not self.is_reaction_mode: return
-        try:
-             # Apply chemical formatting to ReactionTextItems
-             items = self.main_window.scene.selectedItems()
-             modified = False
-             
-             for item in items:
-                 if isinstance(item, ReactionTextItem):
-                     item.format_as_chemical()
-                     modified = True
-             
-             if modified:
-                 self.main_window.edit_actions_manager.push_undo_state()
-        except: pass
-
-    def apply_text_style(self, style_type):
-        if not self.is_reaction_mode: return
-        self._apply_text_format_property(style_type)
 
     def _apply_text_format_property(self, property_name):
         """Helper to apply a specific text property safely."""
@@ -1210,7 +1166,7 @@ class ModeManager(QObject):
                 self.sync_property_toolbar()
                 
         except Exception as e:
-            pass
+            logging.warning("[mode_manager.py:1212] silenced: %s", e)
 
     def apply_properties(self):
         if self._updating_props: return
@@ -1434,7 +1390,8 @@ class ModeManager(QObject):
                                 if hasattr(item, "head_style"):
                                     current_style = item.head_style
                                 break
-            except: pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:1437] silenced: %s", _e)
             
             # Determine if we should show straight or curved icons based on the tool
             icon_type = "curved" if "curved" in tool_name else "straight"
@@ -1476,7 +1433,8 @@ class ModeManager(QObject):
                             if hasattr(item, "negation_style"):
                                 neg_style = item.negation_style
                                 break
-            except: pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:1479] silenced: %s", _e)
 
             # Slash
             act_slash = menu.addAction(create_style_icon("arrow_no", "slash", selected=(neg_style == "slash")), "Slash (/)")
@@ -1513,7 +1471,8 @@ class ModeManager(QObject):
                         if hasattr(item, "bracket_type"):
                             curr_type = item.bracket_type
                             break
-            except: pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:1516] silenced: %s", _e)
 
             act_sq = menu.addAction("Square [ ]")
             act_sq.setCheckable(True)
@@ -1572,7 +1531,8 @@ class ModeManager(QObject):
                             curr_shape = item.shape_type
                             curr_style = getattr(item, "line_style", "solid")
                             break
-            except: pass
+            except Exception as _e:
+                logging.warning("[mode_manager.py:1575] silenced: %s", _e)
 
             variants = [
                 ("Solid Rectangle", "rectangle", "solid"),
@@ -1604,7 +1564,8 @@ class ModeManager(QObject):
                                 modified = True
                         if modified:
                             self.main_window.edit_actions_manager.push_undo_state()
-                except: pass
+                except Exception as _e:
+                    logging.warning("[mode_manager.py:1607] silenced: %s", _e)
             act_chem.triggered.connect(format_chem)
             menu.addSeparator()
 
@@ -1633,7 +1594,7 @@ class ModeManager(QObject):
                             self.main_window.statusBar().showMessage(f"Grouped {len(items)} items", 3000)
                         
                         self.main_window.edit_actions_manager.push_undo_state()
-                except Exception as e:
+                except Exception:
                     pass # For debugging, can be removed
             act_group.triggered.connect(group_items)
 
@@ -1657,7 +1618,7 @@ class ModeManager(QObject):
                         
                         if ungrouped_count > 0:
                             self.main_window.edit_actions_manager.push_undo_state()
-                except Exception as e:
+                except Exception:
                     pass # For debugging, can be removed
             act_ungroup.triggered.connect(ungroup_items)
             menu.addSeparator()
@@ -1709,7 +1670,8 @@ class ModeManager(QObject):
                     if isinstance(focus_item, ReactionTextItem) and (focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
                         event.accept()
                         return True
-                except: pass
+                except Exception as _e:
+                    logging.warning("[mode_manager.py:1712] silenced: %s", _e)
         return super().eventFilter(obj, event)
 
     def disable_main_window_shortcuts(self):
@@ -1745,11 +1707,12 @@ class ModeManager(QObject):
             
         if self.main_window:
             # 1. Restore QActions
-            if hasattr(self, "_disabled_actions_state"):
+            if getattr(self, "_disabled_actions_state", None) is not None:
                 for action in self._disabled_actions_state:
                     try:
                         action.setEnabled(True)
-                    except: pass
+                    except Exception as _e:
+                        logging.warning("[mode_manager.py:1752] silenced: %s", _e)
                 self._disabled_actions_state = []
             
             # 2. Remove Event Filter
@@ -1911,7 +1874,7 @@ class ModeManager(QObject):
             "curved_fish": ReactionCurvedArrowItem
         }
         
-        target_class = tool_map.get(tool_name)
+        target_class = tool_map.get(tool_name, None)
         
         modified = False
         scene = self.main_window.scene
@@ -1982,7 +1945,6 @@ class ModeManager(QObject):
                 except Exception as e:
                     print(f"Error converting item: {e}")
                     # Do NOT remove the old item if creation failed
-                    pass
                 
             else:
                 # Same type, just update style
@@ -2069,32 +2031,6 @@ class ModeManager(QObject):
 
         self.main_window.edit_actions_manager.push_undo_state()
 
-    def set_bracket_type(self, btype):
-        try:
-            if not self.main_window or not self.main_window.scene:
-                return
-            items = self.main_window.scene.selectedItems()
-        except: return
-        
-        from .items import ReactionBracketItem
-        modified = False
-        for item in items:
-            if isinstance(item, ReactionBracketItem):
-                item.bracket_type = btype
-                item.update()
-                modified = True
-        
-        # ACTIVATE TOOL
-        if self.interaction_handler:
-             self.interaction_handler.set_tool("bracket")
-             for action in self.action_group.actions():
-                 if action.property("tool_name") == "bracket":
-                     action.setChecked(True)
-                     break
-                     
-        if modified:
-            self.main_window.edit_actions_manager.push_undo_state()
-
     def set_circle_variant(self, shape_type, line_style):
         self.default_circle_shape_type = shape_type
         self.default_circle_line_style = line_style
@@ -2119,7 +2055,8 @@ class ModeManager(QObject):
                          break
             if modified:
                 self.main_window.edit_actions_manager.push_undo_state()
-        except: pass
+        except Exception as _e:
+            logging.warning("[mode_manager.py:2122] silenced: %s", _e)
 
     def set_curved_head_style(self, style):
         try:
@@ -2301,7 +2238,7 @@ class ModeManager(QObject):
                     pass
 
         # 2. Try to find other actions (menus)
-        if not hasattr(self, '_3d_actions'):
+        if getattr(self, '_3d_actions', None) is None:
             self._3d_actions = []
             # Common names
             for name in ['action_3d', 'act_3d', 'action_convert_to_3d', 'convert_3d_action', 
@@ -2623,7 +2560,7 @@ class ModeManager(QObject):
                             if hasattr(mol_data, 'atoms'):
                                 aid = item.atom_id
                                 if aid in mol_data.atoms:
-                                    atom_obj = mol_data.atoms[aid].get('atom')
+                                    atom_obj = mol_data.atoms[aid].get('atom', None)
                                     if atom_obj and hasattr(atom_obj, 'x'):
                                         atom_obj.x += dx
                                         atom_obj.y += dy
@@ -2679,7 +2616,7 @@ class ModeManager(QObject):
             
             aid = getattr(item, 'atom_id', None)
             if aid in mol_data.atoms:
-                atom_obj = mol_data.atoms[aid].get('atom')
+                atom_obj = mol_data.atoms[aid].get('atom', None)
                 if atom_obj and hasattr(atom_obj, axis_char):
                     current_val = getattr(atom_obj, axis_char)
                     setattr(atom_obj, axis_char, current_val + delta)
@@ -2966,7 +2903,7 @@ class ModeManager(QObject):
         
         # === 1. Handle Molecules (Atoms + Bonds) ===
         atom_items = [i for i in items if hasattr(i, 'atom_id') and not hasattr(i, 'atom1')]
-        bond_items = [i for i in items if hasattr(i, 'atom1') and hasattr(i, 'atom2')]
+        [i for i in items if hasattr(i, 'atom1') and hasattr(i, 'atom2')]
         
         if atom_items:
             try:
@@ -2984,7 +2921,7 @@ class ModeManager(QObject):
                             continue
                         
                         atom_data = self.main_window.data.atoms[atom_id]
-                        atom_obj = atom_data.get('atom')
+                        atom_obj = atom_data.get('atom', None)
                         
                         symbol = atom_data.get('symbol', 'C')
                         pos = atom_item.pos()
@@ -3001,8 +2938,8 @@ class ModeManager(QObject):
                             new_atom_item = self.main_window.data.atoms[new_id]['item']
                             old_to_new_atom[atom_id] = new_atom_item
                             new_items.append(new_atom_item)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        logging.warning("[mode_manager.py:3004] silenced: %s", _e)
                 
                 # Create bonds between the new atoms
                 for (id1, id2), bond_data in list(self.main_window.data.bonds.items()):
@@ -3014,10 +2951,10 @@ class ModeManager(QObject):
                                 order = bond_data.get('order', 1)
                                 stereo = bond_data.get('stereo', 0)
                                 scene.create_bond(new_atom1, new_atom2, bond_order=order, bond_stereo=stereo)
-                            except Exception:
-                                pass
-            except Exception:
-                pass
+                            except Exception as _e:
+                                logging.warning("[mode_manager.py:3017] silenced: %s", _e)
+            except Exception as _e:
+                logging.warning("[mode_manager.py:3019] silenced: %s", _e)
         
         # === 2. Handle Reaction Items ===
         snapshot = []
@@ -3049,7 +2986,7 @@ class ModeManager(QObject):
                             ReactionLineItem, ReactionCurvedLineItem, ReactionFreehandItem)
 
         for data in snapshot:
-            item_type = data.get("type")
+            item_type = data.get("type", None)
             new_item = None
             
             try:
@@ -3166,7 +3103,7 @@ class ModeManager(QObject):
                     
             except Exception as e:
                 # print(f"Error duplicating item {item_type}: {e}")
-                pass
+                logging.warning("[mode_manager.py:3167] silenced: %s", e)
         
         return new_items
         """Copy selected items to system clipboard."""
