@@ -812,8 +812,10 @@ class ModeManager(QObject):
 
         from PyQt6.QtWidgets import QFileDialog
         folder = os.getcwd()
-        if hasattr(self.main_window, 'last_open_path'):
-                folder = self.main_window.last_open_path
+        if hasattr(self.main_window, 'init_manager') and hasattr(self.main_window.init_manager, 'current_file_path') and self.main_window.init_manager.current_file_path:
+            folder = os.path.dirname(self.main_window.init_manager.current_file_path)
+        elif hasattr(self.main_window, 'last_open_path') and self.main_window.last_open_path:
+            folder = self.main_window.last_open_path
         filename, _ = QFileDialog.getSaveFileName(self.main_window, "Export PNG", folder, "PNG Files (*.png)")
         if not filename:
             return
@@ -885,8 +887,10 @@ class ModeManager(QObject):
         if filename is None:
             from PyQt6.QtWidgets import QFileDialog
             folder = os.getcwd()
-            if hasattr(self.main_window, 'last_open_path'):
-                 folder = self.main_window.last_open_path
+            if hasattr(self.main_window, 'init_manager') and hasattr(self.main_window.init_manager, 'current_file_path') and self.main_window.init_manager.current_file_path:
+                folder = os.path.dirname(self.main_window.init_manager.current_file_path)
+            elif hasattr(self.main_window, 'last_open_path') and self.main_window.last_open_path:
+                folder = self.main_window.last_open_path
             filename, _ = QFileDialog.getSaveFileName(self.main_window, "Export SVG", folder, "SVG Files (*.svg)")
             if not filename:
                 return
