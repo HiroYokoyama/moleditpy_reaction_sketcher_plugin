@@ -652,14 +652,18 @@ class InteractionHandler(QObject):
                 # Call select_all (now delegated to EditActions via patcher.py)
                 if hasattr(self.main_window, 'select_all'):
                     self.main_window.select_all()
+                elif hasattr(self.main_window, 'edit_actions_manager') and hasattr(self.main_window.edit_actions_manager, 'select_all'):
+                    self.main_window.edit_actions_manager.select_all()
                 elif hasattr(self.main_window, 'main_window_edit_actions') and hasattr(self.main_window.main_window_edit_actions, 'select_all'):
-                     self.main_window.main_window_edit_actions.select_all()
+                    self.main_window.main_window_edit_actions.select_all()
             return True
 
         if event.key() == Qt.Key.Key_A and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
             # Ctrl+A: Select All
             if hasattr(self.main_window, 'select_all'):
                 self.main_window.select_all()
+            elif hasattr(self.main_window, 'edit_actions_manager') and hasattr(self.main_window.edit_actions_manager, 'select_all'):
+                self.main_window.edit_actions_manager.select_all()
             elif hasattr(self.main_window, 'main_window_edit_actions') and hasattr(self.main_window.main_window_edit_actions, 'select_all'):
                 self.main_window.main_window_edit_actions.select_all()
             return True

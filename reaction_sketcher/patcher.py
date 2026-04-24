@@ -1652,8 +1652,9 @@ def apply_core_patches(main_window):
                 has_png = any(a.text() == "Export PNG" for a in rmm.property_toolbar.actions())
                 if not has_png:
                     rmm.property_toolbar.addSeparator()
-                    if hasattr(main_window, 'export_2d_png'):
-                        rmm.property_toolbar.addAction("Export PNG", lambda: main_window.export_2d_png())
+                    _em = getattr(main_window, 'export_manager', None)
+                    if _em is not None and hasattr(_em, 'export_2d_png'):
+                        rmm.property_toolbar.addAction("Export PNG", lambda: main_window.export_manager.export_2d_png())
                     if hasattr(main_window, 'copy_2d_image_to_clipboard'):
                         rmm.property_toolbar.addAction("Copy PNG", lambda: main_window.copy_2d_image_to_clipboard())
 

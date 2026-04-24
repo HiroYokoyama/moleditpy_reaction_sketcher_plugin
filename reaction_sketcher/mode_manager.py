@@ -2168,7 +2168,9 @@ class ModeManager(QObject):
         self.original_splitter_sizes = self.main_window.init_manager.splitter.sizes()
         
         # Unselect main window tool (e.g., templates, atoms)
-        if hasattr(self.main_window, 'activate_select_mode'):
+        if hasattr(self.main_window, 'ui_manager') and hasattr(self.main_window.ui_manager, 'activate_select_mode'):
+            self.main_window.ui_manager.activate_select_mode()
+        elif hasattr(self.main_window, 'activate_select_mode'):
             self.main_window.activate_select_mode()
         
         # Maximize 2D view (index 0 usually 2D, index 1 usually 3D)
@@ -2230,16 +2232,15 @@ class ModeManager(QObject):
     def set_3d_action_state(self, enabled):
         # 1. Disable the specific buttons found in main_window_main_init.py
         if self.main_window:
-            if hasattr(self.main_window, 'convert_button'):
-                self.main_window.convert_button.setEnabled(enabled)
-            
-            if hasattr(self.main_window, 'optimize_3d_button'):
-                # optimize_3d_button is usually disabled by default until 3D exists, 
-                # but we should force disable it if in reaction mode
-                if not enabled:
-                    self.main_window.optimize_3d_button.setEnabled(False)
-                else:
-                    pass
+            _init = getattr(self.main_window, 'init_manager', None)
+            if _init is not None:
+                if hasattr(_init, 'convert_button'):
+                    _init.convert_button.setEnabled(enabled)
+                if hasattr(_init, 'optimize_3d_button'):
+                    # optimize_3d_button is usually disabled by default until 3D exists,
+                    # but we should force disable it if in reaction mode
+                    if not enabled:
+                        _init.optimize_3d_button.setEnabled(False)
 
         # 2. Try to find other actions (menus)
         if getattr(self, '_3d_actions', None) is None:
@@ -3121,7 +3122,9 @@ class ModeManager(QObject):
             return
             
         # Call the patched copy method of the main window
-        if hasattr(self.main_window, 'main_window_edit_actions'):
+        if hasattr(self.main_window, 'edit_actions_manager') and hasattr(self.main_window.edit_actions_manager, 'copy_selection'):
+            self.main_window.edit_actions_manager.copy_selection()
+        elif hasattr(self.main_window, 'main_window_edit_actions'):
             self.main_window.main_window_edit_actions.copy_selection()
         else:
             # Fallback (should not happen if patched)
@@ -3167,7 +3170,9 @@ class ModeManager(QObject):
 
         # Call the patched paste method of the main window
         # The patcher should have applied 'paste_from_clipboard' to MainWindowEditActions
-        if hasattr(self.main_window, 'main_window_edit_actions'):
+        if hasattr(self.main_window, 'edit_actions_manager') and hasattr(self.main_window.edit_actions_manager, 'paste_from_clipboard'):
+            self.main_window.edit_actions_manager.paste_from_clipboard()
+        elif hasattr(self.main_window, 'main_window_edit_actions'):
             self.main_window.main_window_edit_actions.paste_from_clipboard()
         else:
             # Fallback (should not happen if patched)
