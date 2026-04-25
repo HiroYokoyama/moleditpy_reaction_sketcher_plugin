@@ -476,6 +476,25 @@ class InteractionHandler(QObject):
                     new_pos = self._drag_initial_positions[item] + delta
                     item.setPos(new_pos)
                     self._did_move = True
+
+            # Optimized real-time bond update
+            dragged_atoms = [i for i in self._drag_items if hasattr(i, "atom_id") and not sip_isdeleted_safe(i)]
+            if dragged_atoms:
+                bonds_to_update = set()
+                for atom in dragged_atoms:
+                    # Collect all connected bonds
+                    for bond in getattr(atom, "bonds", []):
+                        # Optimization: Only update bonds that are NOT already in the drag items.
+                        # Items in self._drag_items have already been moved by the loop above.
+                        if bond not in self._drag_items:
+                            bonds_to_update.add(bond)
+                
+                for bond in bonds_to_update:
+                    if not sip_isdeleted_safe(bond) and hasattr(bond, "update_position"):
+                        # Calling update_position() ensures the bond line matches the new atom positions
+                        # and calls prepareGeometryChange() to prevent visual artifacts/clipping.
+                        bond.update_position()
+
             # Force full scene repaint to clear ghost artifacts from items with imprecise boundingRects
             self.main_window.scene.update()
             return True
