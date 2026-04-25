@@ -89,6 +89,17 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_press(self, event):
+        # Safeguard: If main window is in a placement/edit mode (atom, bond, template),
+        # stay out of the way so the main app can handle bond creation/atom placement.
+        try:
+            if not self.main_window or not self.main_window.scene:
+                return False
+            scene_mode = getattr(self.main_window.scene, 'mode', 'select')
+            if scene_mode != 'select' and scene_mode != 'bond_2_5':
+                return False
+        except (RuntimeError, AttributeError):
+            return False
+
         scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
         
         # Check if we are interacting with a text item currently being edited
@@ -392,6 +403,15 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_move(self, event):
+        # Always allow if we are already in a drag/preview state initiated by us
+        if not self._is_dragging and not self.preview_item:
+             try:
+                 scene_mode = getattr(self.main_window.scene, 'mode', 'select')
+                 if scene_mode != 'select' and scene_mode != 'bond_2_5':
+                     return False
+             except (RuntimeError, AttributeError):
+                 return False
+
         scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())
         
         # Check if we are interacting with a text item currently being edited
@@ -492,6 +512,15 @@ class InteractionHandler(QObject):
         return False
 
     def handle_mouse_release(self, event):
+        # Always allow if we are already in a drag/preview state initiated by us
+        if not self._is_dragging and not self.preview_item:
+             try:
+                 scene_mode = getattr(self.main_window.scene, 'mode', 'select')
+                 if scene_mode != 'select' and scene_mode != 'bond_2_5':
+                     return False
+             except (RuntimeError, AttributeError):
+                 return False
+
         # 1. End Dragging
         if self._is_dragging:
             # Update bonds if atoms were moved
