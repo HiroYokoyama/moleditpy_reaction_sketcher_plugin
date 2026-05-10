@@ -616,65 +616,27 @@ class ModeManager(QObject):
         
         # 4. Background
         old_bg = self.main_window.scene.backgroundBrush()
-        # Use Transparent White with Explicit SOLID Pattern
         self.main_window.scene.setBackgroundBrush(QBrush(QColor(255, 255, 255, 0), Qt.BrushStyle.SolidPattern))
-        
-        # PATCH: AtomItem paint logic needs to "erase" bonds to Transparent WHITE (00FFFFFF).
-        
-        from moleditpy.ui.atom_item import AtomItem
-        original_paint = AtomItem.paint
-        
-        def png_atom_paint_patch(atom_self, painter, option, widget):
-            # Skip invisible atoms (e.g. skeletal carbons) to avoid erasing bonds
-            if not atom_self.is_visible:
-                return
 
-            # 1. Erase background to Transparent White (0x00FFFFFF)
-            painter.setFont(atom_self.font)
-            painter.fontMetrics()
-            
-            # (Simplified rect calculation logic - matching AtomItem.py roughly)
-            atom_self.symbol
-            if atom_self.implicit_h_count > 0:
-
-                 pass
-            
-            path = atom_self.shape()
-            
-            painter.save()
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-            # Fill with Transparent White (00FFFFFF)
-            painter.setBrush(QColor(255, 255, 255, 0))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawPath(path) 
-            painter.restore()
-            
-            # 2. Call original paint
-            original_paint(atom_self, painter, option, widget)
-
-        AtomItem.paint = png_atom_paint_patch
+        # Bonds are geometrically shortened around atom labels, so no atom paint
+        # patch is needed — rendering is handled entirely by core paint.
 
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         try:
-            # Clear selection during render to avoid selection highlights
             selected_items = self.main_window.scene.selectedItems()
             self.main_window.scene.clearSelection()
 
             target = QRectF(0, 0, w, h)
-            # Render whole scene (masked by visibility) from source 'bounds' to 'target'
             self.main_window.scene.render(painter, target, bounds)
         finally:
             painter.end()
             self.main_window.scene.setBackgroundBrush(old_bg)
-            AtomItem.paint = original_paint
             
-            # Restore visibility
             for item in items_to_restore:
                 item.show()
                 
-            # Restore selection
             for item in selected_items:
                 item.setSelected(True)
             
@@ -724,68 +686,27 @@ class ModeManager(QObject):
         generator.setViewBox(bounds)
         generator.setTitle("Reaction Sketch")
 
-        # Patch AtomItem.paint to force white background labels while keeping global SVG background transparent.
+        # Bonds are geometrically shortened around atom labels, so no atom paint
+        # patch is needed for SVG export — core paint writes clean paths.
 
-        from moleditpy.ui.atom_item import AtomItem
-        
-        # Save original
-        original_paint = AtomItem.paint
-
-        def white_bg_atom_paint(atom_self, painter, option, widget):
-            # 1. Force White Mask logic
-            # Calculate rects (same as original)
-            painter.setFont(atom_self.font)
-            painter.fontMetrics()
-            
-        
-        def export_atom_paint(self, painter, option, widget):
-             # Use configured background color from settings for atom label backgrounds
-             old_brush = self.scene().backgroundBrush()
-             bg_color = QColor(255, 255, 255)  # Default white
-             try:
-                 if self.scene() and self.scene().views():
-                     win = self.scene().views()[0].window()
-                     if win and hasattr(win, 'settings'):
-                         bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
-                         bg_color = QColor(bg_color_str)
-             except Exception as _e:
-                 logging.warning("[mode_manager.py:769] silenced: %s", _e)
-             self.scene().setBackgroundBrush(QBrush(bg_color))
-             try:
-                 original_paint(self, painter, option, widget)
-             finally:
-                 self.scene().setBackgroundBrush(old_brush) # Restore Transparent
-        
-        AtomItem.paint = export_atom_paint
-        
-        # Initialize painter
         painter = QPainter()
         painter.begin(generator)
         
-        # Save current background to restore later
         old_bg = self.main_window.scene.backgroundBrush()
         
         try:
-            # Clear selection during render to avoid selection highlights
             selected_items = self.main_window.scene.selectedItems()
             self.main_window.scene.clearSelection()
 
-            # Render scene
-            # Ensure Scene BG is Transparent for the Global SVG
             self.main_window.scene.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))
-            
             self.main_window.scene.render(painter, bounds, bounds)
         finally:
             painter.end()
-            AtomItem.paint = original_paint
-            # Restore scene background
             self.main_window.scene.setBackgroundBrush(old_bg)
             
-            # Restore visibility
             for item in items_to_restore:
                 item.show()
                 
-            # Restore selection
             for item in selected_items:
                 item.setSelected(True)
         

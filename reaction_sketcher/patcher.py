@@ -496,12 +496,10 @@ def apply_core_patches(main_window):
 
     patch_core(MoleculeScene, 'delete_items', patched_scene_delete_items)
     def patched_atom_paint(self, painter, option, widget):
-        # ALWAYS use patched paint logic to ensure visibility and background handling
-        
+        """Delegate to core paint, overlaying reaction-sketcher group/hover highlights."""
         custom_color = getattr(self, 'pen_color', None)
-        
+
         if not self.is_visible:
-            # Still draw selection highlight even if atom is central to a bond (skeletal carbon)
             if getattr(self, 'has_problem', False):
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -512,7 +510,7 @@ def apply_core_patches(main_window):
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
-                painter.setPen(QPen(highlight_color, 5)) 
+                painter.setPen(QPen(highlight_color, 5))
                 painter.drawRect(self.boundingRect())
                 painter.restore()
             elif getattr(self, 'hovered', False):
@@ -521,166 +519,28 @@ def apply_core_patches(main_window):
                 painter.drawRect(self.boundingRect())
                 painter.restore()
             return
-        
-        # Logic from original atom_item.py with custom color support
-        painter.save()
-        try:
-            painter.setFont(self.font)
-            fm = painter.fontMetrics()
-            
-            hydrogen_part = ""
-            if getattr(self, 'implicit_h_count', None) is not None and self.implicit_h_count > 0:
-                is_skeletal_carbon = (self.symbol == 'C' and self.charge == 0 and self.radical == 0 and len(self.bonds) > 0)
-                if not is_skeletal_carbon:
-                    hydrogen_part = "H"
-                    if self.implicit_h_count > 1:
-                        subscript_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
-                        hydrogen_part += str(self.implicit_h_count).translate(subscript_map)
 
-            flip_text = False
-            if hydrogen_part and self.bonds:
-                my_pos_x = self.pos().x()
-                total_dx = 0.0
-                for bond in self.bonds:
-                    try:
-                        other_atom = bond.atom1 if bond.atom2 is self else bond.atom2
-                        if other_atom:
-                            total_dx += (other_atom.pos().x() - my_pos_x)
-                    except: continue
-                if total_dx > 0: flip_text = True
-
-            if flip_text:
-                display_text = hydrogen_part + self.symbol
-                alignment_flag = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            else:
-                display_text = self.symbol + hydrogen_part
-                alignment_flag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-
-            text_rect = fm.boundingRect(display_text)
-            text_rect.adjust(-2, -2, 2, 2)
-            symbol_rect = fm.boundingRect(self.symbol)
-
-            if not hydrogen_part:
-                alignment_flag = Qt.AlignmentFlag.AlignCenter
-                text_rect.moveCenter(QPointF(0, 0).toPoint())
-            elif flip_text:
-                offset_x = symbol_rect.width() // 2
-                text_rect.moveTo(offset_x - text_rect.width(), -text_rect.height() // 2)
-            else:
-                offset_x = -symbol_rect.width() // 2
-                text_rect.moveTo(offset_x, -text_rect.height() // 2)
-
-            # --- Background Logic ---
-            bg_rect = text_rect.adjusted(-5, -8, 5, 8)
-            
-            # Check for SVG Export
-            is_svg = False
-            try:
-                # Type 10 is SVG
-                if painter.paintEngine() and painter.paintEngine().type() == 10: 
-                    is_svg = True
-                elif painter.device() and type(painter.device()).__name__ == "QSvgGenerator":
-                    is_svg = True
-            except Exception as _e:
-                logging.warning("[patcher.py:593] silenced: %s", _e)
-
-            if is_svg:
-                # SVG: Use background color from settings to hide bonds (Clear mode fails in SVG)
-                bg_color = QColor(255, 255, 255)  # Default white
-                try:
-                    if self.scene() and self.scene().views():
-                        win = self.scene().views()[0].window()
-                        if win and hasattr(win, 'settings'):
-                            bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
-                            bg_color = QColor(bg_color_str)
-                except Exception as _e:
-                    logging.warning("[patcher.py:604] silenced: %s", _e)
-                painter.setBrush(bg_color)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(bg_rect)
-            else:
-                # Normal/PNG: Use Clear mode for transparency if background is empty
-                bg_brush = self.scene().backgroundBrush() if self.scene() else QBrush(Qt.BrushStyle.NoBrush)
-                if bg_brush.style() == Qt.BrushStyle.NoBrush:
-                    painter.save()
-                    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-                    painter.setBrush(QColor(0, 0, 0, 255))
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(bg_rect)
-                    painter.restore()
-                else:
-                    painter.setBrush(bg_brush)
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(bg_rect)
-
-            if getattr(self, 'has_problem', False):
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
-                painter.drawRect(self.boundingRect())
-            elif self.isSelected():
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                # Use thinner purple/blue highlight
-                highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
-                painter.setPen(QPen(highlight_color, 5))
-                painter.drawRect(self.boundingRect())
-            elif getattr(self, 'hovered', False):
-                painter.setPen(QPen(QColor(144, 238, 144, 200), 3))
-                painter.drawRect(self.boundingRect())
-
+        # Bonds are geometrically shortened around atom labels, so no background
+        # ellipse is needed — just call the core paint directly.
+        orig = _core_originals.get((AtomItem, 'paint'))
+        if orig:
             if custom_color:
-                painter.setPen(QPen(custom_color))
+                # Temporarily override pen color via the core's color attribute
+                old_color = getattr(self, 'color', None)
+                self.color = custom_color
+                try:
+                    orig(self, painter, option, widget)
+                finally:
+                    self.color = old_color
             else:
-                try:
-                    from .constants import CPK_COLORS
-                except ImportError:
-                    try:
-                        from moleditpy.utils.constants import CPK_COLORS
-                    except ImportError:
-                        CPK_COLORS = {'C': '#222222', 'O': 'red', 'N': 'blue', 'H': '#222222', 'S': '#D4A017', 'DEFAULT': '#222222'}
-
-                color = QColor(CPK_COLORS.get(self.symbol, CPK_COLORS.get('DEFAULT', '#222222')))
-                
-                try:
-                    if self.scene() and self.scene().views():
-                        win = self.scene().views()[0].window()
-                        if win and hasattr(win, 'settings'):
-                             if self.symbol == 'H' or win.settings.get('atom_use_bond_color_2d', False):
-                                 bond_col = win.settings.get('bond_color_2d', '#222222')
-                                 color = QColor(bond_col)
-                except Exception as _e:
-                    logging.warning("[patcher.py:658] silenced: %s", _e)
-                
-                if getattr(self, "color", None) is not None and self.color:
-                     c = self.color
-                     if isinstance(c, QColor): color = c
-                     elif isinstance(c, str): color = QColor(c)
-
-                painter.setPen(QPen(color))
-                
-            painter.drawText(text_rect, int(alignment_flag), display_text)
-            
-            if self.charge != 0:
-                c_str = "+" if self.charge == 1 else ("-" if self.charge == -1 else f"{abs(self.charge)}{'+' if self.charge > 0 else '-'}")
-                painter.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-                cfm = painter.fontMetrics()
-                cr = cfm.boundingRect(c_str)
-                if flip_text:
-                    cp = QPointF(text_rect.left() - cr.width(), text_rect.top() + cr.height() - 2)
-                else:
-                    cp = QPointF(text_rect.right(), text_rect.top() + cr.height() - 2)
-                painter.setPen(Qt.GlobalColor.black)
-                painter.drawText(cp, c_str)
-
-            if self.radical > 0:
-                painter.setBrush(QBrush(Qt.GlobalColor.black))
-                painter.setPen(Qt.PenStyle.NoPen)
-                ry = text_rect.top() - 5
-                if self.radical == 1:
-                    painter.drawEllipse(QPointF(text_rect.center().x(), ry), 3, 3)
-                elif self.radical == 2:
-                    painter.drawEllipse(QPointF(text_rect.center().x() - 5, ry), 3, 3)
-                    painter.drawEllipse(QPointF(text_rect.center().x() + 5, ry), 3, 3)
-        finally:
+                orig(self, painter, option, widget)
+        
+        # Overlay reaction-sketcher selection/hover highlights on top of core paint
+        if getattr(self, 'is_group_selected', False) and self.isSelected():
+            painter.save()
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(130, 100, 255, 120), 5))
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
     patch_core(AtomItem, 'paint', patched_atom_paint)
