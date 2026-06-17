@@ -1,5 +1,7 @@
 # Reaction Sketcher Plugin for MoleditPy
 
+[![Tests](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml)
+
 ![Reaction Sketcher](img/main.png)
 
 A comprehensive chemical reaction sketching tool for MoleditPy, allowing users to draw reaction text, arrows, brackets, and annotations directly in the 2D workspace.
