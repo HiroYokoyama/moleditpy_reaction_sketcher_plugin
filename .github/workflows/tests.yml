@@ -28,7 +28,12 @@ jobs:
       - name: Install dependencies
         run: pip install pytest pytest-cov
 
+      - name: Clone main app (real-context integration tests)
+        run: git clone --depth 1 https://github.com/HiroYokoyama/python_molecular_editor.git ../python_molecular_editor || true
+
       - name: Run tests
+        env:
+          CI_MAIN_APP_SRC: ../python_molecular_editor/moleditpy/src
         run: python -m pytest tests/ -v --tb=short
 
       - name: Run tests with coverage
