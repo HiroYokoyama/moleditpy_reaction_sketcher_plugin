@@ -2928,7 +2928,6 @@ class ModeManager(QObject):
         ):
             self.main_window.edit_3d_manager.update_2d_measurement_labels()
 
-        self.main_window.scene.update()
         self.main_window.scene.update_all_items()
 
         # Push undo AFTER change completes
@@ -3030,7 +3029,6 @@ class ModeManager(QObject):
         ):
             self.main_window.edit_3d_manager.update_2d_measurement_labels()
 
-        self.main_window.scene.update()
         self.main_window.scene.update_all_items()
 
         mgr_edit = getattr(self.main_window, "edit_actions_manager", None)

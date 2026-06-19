@@ -1130,7 +1130,6 @@ def apply_core_patches(main_window):
             self.host.statusBar().showMessage(
                 f"Rotated {len(target_atoms) + len(target_reaction_items)} items by {angle_degrees} degrees."
             )
-            self.host.scene.update()
             self.host.scene.update_all_items()
 
         except Exception as e:
