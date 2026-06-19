@@ -208,7 +208,7 @@ def apply_core_patches(main_window):
                         main_window.scene.selectionChanged.disconnect(rmm._sync_selection_visuals)
                     except (TypeError, RuntimeError) as _e:
                         # TypeError if not connected, RuntimeError if C++ object deleted
-                        logging.warning("[patcher.py:205] silenced: %s", _e)
+                        logging.debug("[patcher.py:205] silenced: %s", _e)
                     
                     # Connect our sync visual slot
                     main_window.scene.selectionChanged.connect(rmm._sync_selection_visuals)
