@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (C) 2026 Reaction Sketcher Plugin
+# This file is part of MoleditPy Reaction Sketcher Plugin.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
 
 """
 Reaction Sketcher Plugin
@@ -8,7 +16,6 @@ Refactored for MoleditPy V3.0 API.
 """
 
 from functools import partial
-from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMenu
 from PyQt6.QtGui import QAction, QColor
 
@@ -24,7 +31,7 @@ from .utils import load_handler_core
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "2.4.0"
+PLUGIN_VERSION = "3.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 
@@ -103,11 +110,30 @@ def initialize(context):
         agroups = {}
         bgroups = {}
         
-        if data:
-            acols = {str(aid): d['item'].pen_color.name() for aid, d in data.atoms.items() if getattr(d['item'], 'pen_color', None)}
-            bcols = {f"{k[0]}-{k[1]}": d['item'].pen_color.name() for k, d in data.bonds.items() if getattr(d['item'], 'pen_color', None)}
-            agroups = {str(aid): d['item'].group_id for aid, d in data.atoms.items() if hasattr(d['item'], 'group_id') and d['item'].group_id is not None}
-            bgroups = {f"{k[0]}-{k[1]}": d['item'].group_id for k, d in data.bonds.items() if hasattr(d['item'], 'group_id') and d['item'].group_id is not None}
+        if data and context.scene:
+            for aid, d in data.atoms.items():
+                item = context.scene.atom_items.get(aid)
+                color = getattr(item, 'pen_color', None)
+                if color:
+                    acols[str(aid)] = color.name()
+
+            for k, d in data.bonds.items():
+                item = context.scene.bond_items.get(k)
+                color = getattr(item, 'pen_color', None)
+                if color:
+                    bcols[f"{k[0]}-{k[1]}"] = color.name()
+
+            for aid, d in data.atoms.items():
+                item = context.scene.atom_items.get(aid)
+                group_id = getattr(item, 'group_id', None)
+                if group_id is not None:
+                    agroups[str(aid)] = group_id
+
+            for k, d in data.bonds.items():
+                item = context.scene.bond_items.get(k)
+                group_id = getattr(item, 'group_id', None)
+                if group_id is not None:
+                    bgroups[f"{k[0]}-{k[1]}"] = group_id
 
         return {
             "plugin_version": PLUGIN_VERSION,
@@ -120,10 +146,10 @@ def initialize(context):
 
     def load_handler(data):
         if not data: return
-
+        
         reaction_items = data.get("items", []) if isinstance(data, dict) else data
         should_enter_mode = False
-
+        
         if isinstance(data, dict):
             mode_manager.auto_start_pref = data.get("auto_start_pref", False)
             should_enter_mode = data.get("reaction_mode_active", False) or \
@@ -131,57 +157,56 @@ def initialize(context):
                                 (len(reaction_items) > 0)
             if hasattr(mode_manager, "auto_start_action"):
                 mode_manager.auto_start_action.setChecked(mode_manager.auto_start_pref)
-
+            
         load_handler_core(main_window, reaction_items)
-
-        if should_enter_mode and not mode_manager.is_reaction_mode:
-            mode_manager.toggle_reaction_mode()
-
-        # Defer molecular property restore — the main app restores atoms/bonds
-        # AFTER load_handler returns, so mol_data.atoms is empty at this point.
-        def _restore_mol_props():
-            state_mgr = getattr(main_window, 'state_manager', None)
-            mol_data = state_mgr.data if state_mgr else getattr(main_window, 'data', None)
-            if not mol_data:
-                return
-
-            rs_cols = data.get("rs_colors", {}) if isinstance(data, dict) else {}
+        
+        # Restore molecular properties (colors and groups)
+        state_mgr = getattr(main_window, 'state_manager', None)
+        mol_data = state_mgr.data if state_mgr else getattr(main_window, 'data', None)
+        
+        if mol_data and context.scene:
+            rs_cols = data.get("rs_colors", {})
             ac_data = rs_cols.get("atoms", {})
             for aid_str, col in ac_data.items():
                 aid = int(aid_str)
-                if aid in mol_data.atoms:
-                    mol_data.atoms[aid]['item'].pen_color = QColor(col)
-                    mol_data.atoms[aid]['item'].update()
-
+                item = context.scene.atom_items.get(aid)
+                if item:
+                    item.pen_color = QColor(col)
+                    item.update()
+            
             bc_data = rs_cols.get("bonds", {})
             for key, col in bc_data.items():
                 try:
                     id1_s, id2_s = key.split('-')
                     k = (int(id1_s), int(id2_s))
-                    if k in mol_data.bonds:
-                        mol_data.bonds[k]['item'].pen_color = QColor(col)
-                        mol_data.bonds[k]['item'].update()
+                    item = context.scene.bond_items.get(k)
+                    if item:
+                        item.pen_color = QColor(col)
+                        item.update()
                 except Exception as _e:
-                    logging.warning("[__init__.py] bond color restore silenced: %s", _e)
+                    logging.warning("[__init__.py:166] silenced: %s", _e)
 
-            groups = data.get("groups", {}) if isinstance(data, dict) else {}
+            groups = data.get("groups", {})
             ag_data = groups.get("atoms", {})
             for aid_str, gid in ag_data.items():
                 aid = int(aid_str)
-                if aid in mol_data.atoms:
-                    mol_data.atoms[aid]['item'].group_id = gid
+                item = context.scene.atom_items.get(aid)
+                if item:
+                    item.group_id = gid
 
             bg_data = groups.get("bonds", {})
             for key, gid in bg_data.items():
                 try:
                     id1_s, id2_s = key.split('-')
                     k = (int(id1_s), int(id2_s))
-                    if k in mol_data.bonds:
-                        mol_data.bonds[k]['item'].group_id = gid
+                    item = context.scene.bond_items.get(k)
+                    if item:
+                        item.group_id = gid
                 except Exception as _e:
-                    logging.warning("[__init__.py] bond group restore silenced: %s", _e)
+                    logging.warning("[__init__.py:182] silenced: %s", _e)
 
-        QTimer.singleShot(0, _restore_mol_props)
+        if should_enter_mode and not mode_manager.is_reaction_mode:
+            mode_manager.toggle_reaction_mode()
 
     def reset_handler():
         """Reset state for new project."""

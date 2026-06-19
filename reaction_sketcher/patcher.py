@@ -116,16 +116,10 @@ def apply_core_patches(main_window):
         MainWindowUiManager = main_window.ui_manager.__class__
 
     if hasattr(main_window, 'state_manager'):
-        if AtomItem is None and main_window.state_manager.data.atoms:
-            for d in main_window.state_manager.data.atoms.values():
-                if d.get('item', None):
-                    AtomItem = d['item'].__class__
-                    break
-        if BondItem is None and main_window.state_manager.data.bonds:
-            for d in main_window.state_manager.data.bonds.values():
-                if d.get('item', None):
-                    BondItem = d['item'].__class__
-                    break
+        if AtomItem is None and hasattr(main_window, 'scene') and main_window.scene and main_window.scene.atom_items:
+            AtomItem = next(iter(main_window.scene.atom_items.values())).__class__
+        if BondItem is None and hasattr(main_window, 'scene') and main_window.scene and main_window.scene.bond_items:
+            BondItem = next(iter(main_window.scene.bond_items.values())).__class__
 
     # Final Fallback to standard imports
     if AtomItem is None or BondItem is None or MainWindowUiManager is None \
@@ -180,6 +174,24 @@ def apply_core_patches(main_window):
 
     # --- Connection to Selection Signal ---
     if MoleculeScene:
+        # Patch update_template_preview to handle deleted C++ Qt objects gracefully
+        orig_update_template_preview = getattr(MoleculeScene, "update_template_preview", None)
+        if orig_update_template_preview:
+            def patched_update_template_preview(self, *args, **kwargs):
+                from .utils import sip_isdeleted_safe
+                if hasattr(self, "atom_items") and self.atom_items:
+                    self.atom_items = {k: v for k, v in self.atom_items.items() if not sip_isdeleted_safe(v)}
+                if hasattr(self, "bond_items") and self.bond_items:
+                    self.bond_items = {k: v for k, v in self.bond_items.items() if not sip_isdeleted_safe(v)}
+                try:
+                    return orig_update_template_preview(self, *args, **kwargs)
+                except RuntimeError as e:
+                    if "deleted" in str(e):
+                        pass
+                    else:
+                        raise
+            patch_core(MoleculeScene, 'update_template_preview', patched_update_template_preview)
+
         def patched_scene_init(self, *args, **kwargs):
             # Capture the original init if we haven't already
             # Wait, MoleculeScene might already be initialized when we apply patches.
@@ -192,11 +204,10 @@ def apply_core_patches(main_window):
                 rmm = getattr(main_window, '_reaction_mode_manager', None)
                 if rmm and hasattr(rmm, '_sync_selection_visuals'):
                     # Disconnect specifically our slot if already connected (to avoid duplicates)
-                    try:
+                    try: 
                         main_window.scene.selectionChanged.disconnect(rmm._sync_selection_visuals)
-                    except TypeError:
-                        pass  # not connected — expected
-                    except RuntimeError as _e:
+                    except (TypeError, RuntimeError) as _e:
+                        # TypeError if not connected, RuntimeError if C++ object deleted
                         logging.warning("[patcher.py:205] silenced: %s", _e)
                     
                     # Connect our sync visual slot
@@ -392,7 +403,7 @@ def apply_core_patches(main_window):
             for atom_data in fragment_data.get('atoms', []):
                 pos = paste_center_pos + atom_data['rel_pos']
                 new_id = self.host.scene.create_atom(atom_data['symbol'], pos, charge=atom_data.get('charge', 0), radical=atom_data.get('radical', 0))
-                item = self.host.state_manager.data.atoms[new_id]['item']
+                item = self.host.scene.atom_items[new_id]
                 new_atoms.append(item)
                 item.setSelected(True)
             for bond_data in fragment_data.get('bonds', []):
@@ -496,10 +507,12 @@ def apply_core_patches(main_window):
 
     patch_core(MoleculeScene, 'delete_items', patched_scene_delete_items)
     def patched_atom_paint(self, painter, option, widget):
-        """Delegate to core paint, overlaying reaction-sketcher group/hover highlights."""
+        # ALWAYS use patched paint logic to ensure visibility and background handling
+        
         custom_color = getattr(self, 'pen_color', None)
-
+        
         if not self.is_visible:
+            # Still draw selection highlight even if atom is central to a bond (skeletal carbon)
             if getattr(self, 'has_problem', False):
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -510,7 +523,7 @@ def apply_core_patches(main_window):
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
-                painter.setPen(QPen(highlight_color, 5))
+                painter.setPen(QPen(highlight_color, 5)) 
                 painter.drawRect(self.boundingRect())
                 painter.restore()
             elif getattr(self, 'hovered', False):
@@ -519,28 +532,166 @@ def apply_core_patches(main_window):
                 painter.drawRect(self.boundingRect())
                 painter.restore()
             return
-
-        # Bonds are geometrically shortened around atom labels, so no background
-        # ellipse is needed — just call the core paint directly.
-        orig = _core_originals.get((AtomItem, 'paint'))
-        if orig:
-            if custom_color:
-                # Temporarily override pen color via the core's color attribute
-                old_color = getattr(self, 'color', None)
-                self.color = custom_color
-                try:
-                    orig(self, painter, option, widget)
-                finally:
-                    self.color = old_color
-            else:
-                orig(self, painter, option, widget)
         
-        # Overlay reaction-sketcher selection/hover highlights on top of core paint
-        if getattr(self, 'is_group_selected', False) and self.isSelected():
-            painter.save()
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(130, 100, 255, 120), 5))
-            painter.drawRect(self.boundingRect())
+        # Logic from original atom_item.py with custom color support
+        painter.save()
+        try:
+            painter.setFont(self.font)
+            fm = painter.fontMetrics()
+            
+            hydrogen_part = ""
+            if getattr(self, 'implicit_h_count', None) is not None and self.implicit_h_count > 0:
+                is_skeletal_carbon = (self.symbol == 'C' and self.charge == 0 and self.radical == 0 and len(self.bonds) > 0)
+                if not is_skeletal_carbon:
+                    hydrogen_part = "H"
+                    if self.implicit_h_count > 1:
+                        subscript_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+                        hydrogen_part += str(self.implicit_h_count).translate(subscript_map)
+
+            flip_text = False
+            if hydrogen_part and self.bonds:
+                my_pos_x = self.pos().x()
+                total_dx = 0.0
+                for bond in self.bonds:
+                    try:
+                        other_atom = bond.atom1 if bond.atom2 is self else bond.atom2
+                        if other_atom:
+                            total_dx += (other_atom.pos().x() - my_pos_x)
+                    except: continue
+                if total_dx > 0: flip_text = True
+
+            if flip_text:
+                display_text = hydrogen_part + self.symbol
+                alignment_flag = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            else:
+                display_text = self.symbol + hydrogen_part
+                alignment_flag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+
+            text_rect = fm.boundingRect(display_text)
+            text_rect.adjust(-2, -2, 2, 2)
+            symbol_rect = fm.boundingRect(self.symbol)
+
+            if not hydrogen_part:
+                alignment_flag = Qt.AlignmentFlag.AlignCenter
+                text_rect.moveCenter(QPointF(0, 0).toPoint())
+            elif flip_text:
+                offset_x = symbol_rect.width() // 2
+                text_rect.moveTo(offset_x - text_rect.width(), -text_rect.height() // 2)
+            else:
+                offset_x = -symbol_rect.width() // 2
+                text_rect.moveTo(offset_x, -text_rect.height() // 2)
+
+            # --- Background Logic ---
+            bg_rect = text_rect.adjusted(-5, -8, 5, 8)
+            
+            # Check for SVG Export
+            is_svg = False
+            try:
+                # Type 10 is SVG
+                if painter.paintEngine() and painter.paintEngine().type() == 10: 
+                    is_svg = True
+                elif painter.device() and type(painter.device()).__name__ == "QSvgGenerator":
+                    is_svg = True
+            except Exception as _e:
+                logging.warning("[patcher.py:593] silenced: %s", _e)
+
+            if is_svg:
+                # SVG: Use background color from settings to hide bonds (Clear mode fails in SVG)
+                bg_color = QColor(255, 255, 255)  # Default white
+                try:
+                    if self.scene() and self.scene().views():
+                        win = self.scene().views()[0].window()
+                        if win and hasattr(win, 'settings'):
+                            bg_color_str = win.settings.get('background_color_2d', '#FFFFFF')
+                            bg_color = QColor(bg_color_str)
+                except Exception as _e:
+                    logging.warning("[patcher.py:604] silenced: %s", _e)
+                painter.setBrush(bg_color)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(bg_rect)
+            else:
+                # Normal/PNG: Use Clear mode for transparency if background is empty
+                bg_brush = self.scene().backgroundBrush() if self.scene() else QBrush(Qt.BrushStyle.NoBrush)
+                if bg_brush.style() == Qt.BrushStyle.NoBrush:
+                    painter.save()
+                    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+                    painter.setBrush(QColor(0, 0, 0, 255))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawEllipse(bg_rect)
+                    painter.restore()
+                else:
+                    painter.setBrush(bg_brush)
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawEllipse(bg_rect)
+
+            if getattr(self, 'has_problem', False):
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
+                painter.drawRect(self.boundingRect())
+            elif self.isSelected():
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                # Use thinner purple/blue highlight
+                highlight_color = QColor(130, 100, 255, 120) if getattr(self, 'is_group_selected', False) else QColor(0, 120, 255, 120)
+                painter.setPen(QPen(highlight_color, 5))
+                painter.drawRect(self.boundingRect())
+            elif getattr(self, 'hovered', False):
+                painter.setPen(QPen(QColor(144, 238, 144, 200), 3))
+                painter.drawRect(self.boundingRect())
+
+            if custom_color:
+                painter.setPen(QPen(custom_color))
+            else:
+                try:
+                    from .constants import CPK_COLORS
+                except ImportError:
+                    try:
+                        from moleditpy.utils.constants import CPK_COLORS
+                    except ImportError:
+                        CPK_COLORS = {'C': '#222222', 'O': 'red', 'N': 'blue', 'H': '#222222', 'S': '#D4A017', 'DEFAULT': '#222222'}
+
+                color = QColor(CPK_COLORS.get(self.symbol, CPK_COLORS.get('DEFAULT', '#222222')))
+                
+                try:
+                    if self.scene() and self.scene().views():
+                        win = self.scene().views()[0].window()
+                        if win and hasattr(win, 'settings'):
+                             if self.symbol == 'H' or win.settings.get('atom_use_bond_color_2d', False):
+                                 bond_col = win.settings.get('bond_color_2d', '#222222')
+                                 color = QColor(bond_col)
+                except Exception as _e:
+                    logging.warning("[patcher.py:658] silenced: %s", _e)
+                
+                if getattr(self, "color", None) is not None and self.color:
+                     c = self.color
+                     if isinstance(c, QColor): color = c
+                     elif isinstance(c, str): color = QColor(c)
+
+                painter.setPen(QPen(color))
+                
+            painter.drawText(text_rect, int(alignment_flag), display_text)
+            
+            if self.charge != 0:
+                c_str = "+" if self.charge == 1 else ("-" if self.charge == -1 else f"{abs(self.charge)}{'+' if self.charge > 0 else '-'}")
+                painter.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+                cfm = painter.fontMetrics()
+                cr = cfm.boundingRect(c_str)
+                if flip_text:
+                    cp = QPointF(text_rect.left() - cr.width(), text_rect.top() + cr.height() - 2)
+                else:
+                    cp = QPointF(text_rect.right(), text_rect.top() + cr.height() - 2)
+                painter.setPen(Qt.GlobalColor.black)
+                painter.drawText(cp, c_str)
+
+            if self.radical > 0:
+                painter.setBrush(QBrush(Qt.GlobalColor.black))
+                painter.setPen(Qt.PenStyle.NoPen)
+                ry = text_rect.top() - 5
+                if self.radical == 1:
+                    painter.drawEllipse(QPointF(text_rect.center().x(), ry), 3, 3)
+                elif self.radical == 2:
+                    painter.drawEllipse(QPointF(text_rect.center().x() - 5, ry), 3, 3)
+                    painter.drawEllipse(QPointF(text_rect.center().x() + 5, ry), 3, 3)
+        finally:
             painter.restore()
 
     patch_core(AtomItem, 'paint', patched_atom_paint)
@@ -646,7 +797,7 @@ def apply_core_patches(main_window):
             
             # If nothing selected, rotate everything
             if not target_atoms and not target_reaction_items:
-                target_atoms = [data['item'] for data in self.host.state_manager.data.atoms.values() if data.get('item')]
+                target_atoms = list(self.host.scene.atom_items.values())
                 # Filter out deleted atoms if any
                 target_atoms = [a for a in target_atoms if a.scene() is not None]
                 
@@ -955,9 +1106,19 @@ def apply_core_patches(main_window):
     def patched_get_current_state(self):
         state = _core_originals[(MainWindowAppState, 'get_current_state')](self)
         
-        # Group IDs for atoms and bonds
-        agroups = {str(aid): getattr(d['item'], 'group_id', None) for aid, d in self.data.atoms.items() if hasattr(d['item'], 'group_id')}
-        bgroups = {f"{k[0]}-{k[1]}": getattr(d['item'], 'group_id', None) for k, d in self.data.bonds.items() if hasattr(d['item'], 'group_id')}
+        agroups = {}
+        bgroups = {}
+        if hasattr(self.host, 'scene') and self.host.scene:
+            agroups = {
+                str(aid): getattr(item, 'group_id', None)
+                for aid, item in self.host.scene.atom_items.items()
+                if hasattr(item, 'group_id')
+            }
+            bgroups = {
+                f"{k[0]}-{k[1]}": getattr(item, 'group_id', None)
+                for k, item in self.host.scene.bond_items.items()
+                if hasattr(item, 'group_id')
+            }
         state['rs_atom_groups'] = agroups
         state['rs_bond_groups'] = bgroups
         
@@ -980,8 +1141,11 @@ def apply_core_patches(main_window):
         agroups = state_data.get('rs_atom_groups', {})
         for aid_str, gid in agroups.items():
             aid = int(aid_str) if aid_str.isdigit() else aid_str
-            if aid in self.data.atoms:
-                self.data.atoms[aid]['item'].group_id = gid
+            scene = getattr(self.host, 'scene', None)
+            if scene:
+                item = scene.atom_items.get(aid)
+                if item:
+                    item.group_id = gid
 
         bgroups = state_data.get('rs_bond_groups', {})
         for key, gid in bgroups.items():
@@ -990,8 +1154,11 @@ def apply_core_patches(main_window):
                 id1 = int(id1_str) if id1_str.isdigit() else id1_str
                 id2 = int(id2_str) if id2_str.isdigit() else id2_str
                 k = (id1, id2)
-                if k in self.data.bonds:
-                    self.data.bonds[k]['item'].group_id = gid
+                scene = getattr(self.host, 'scene', None)
+                if scene:
+                    item = scene.bond_items.get(k)
+                    if item:
+                        item.group_id = gid
             except: continue
 
         for item in list(self.host.scene.items()):
@@ -1042,11 +1209,24 @@ def apply_core_patches(main_window):
         data = state_mgr.data
         host = state_mgr.host
         
+        scene = getattr(host, 'scene', None)
+        atoms_data = {}
+        for k, v in data.atoms.items():
+            item = scene.atom_items.get(k) if scene else None
+            pos_x = item.pos().x() if item else v['pos'][0]
+            pos_y = item.pos().y() if item else v['pos'][1]
+            color_name = getattr(item, 'pen_color', QColor()).name() if item else QColor().name()
+            atoms_data[k] = (v['symbol'], pos_x, pos_y, v.get('charge', 0), v.get('radical', 0), color_name)
+
+        bonds_data = {}
+        for k, v in data.bonds.items():
+            item = scene.bond_items.get(k) if scene else None
+            color_name = getattr(item, 'pen_color', QColor()).name() if item else QColor().name()
+            bonds_data[k] = (v['order'], v.get('stereo', 0), color_name)
+
         current_comp = {
-            'atoms': {k: (v['symbol'], v['item'].pos().x(), v['item'].pos().y(), v.get('charge', 0), v.get('radical', 0), 
-                          getattr(v['item'], 'pen_color', QColor()).name()) for k, v in data.atoms.items()},
-            'bonds': {k: (v['order'], v.get('stereo', 0), 
-                          getattr(v['item'], 'pen_color', QColor()).name()) for k, v in data.bonds.items()},
+            'atoms': atoms_data,
+            'bonds': bonds_data,
             '_next_atom_id': data._next_atom_id,
             'mol_3d': host.view_3d_manager.current_mol.ToBinary() if host.view_3d_manager.current_mol else None,
             'mol_3d_atom_ids': curr_state.get('mol_3d_atom_ids', []),
@@ -1512,9 +1692,8 @@ def apply_core_patches(main_window):
                 has_png = any(a.text() == "Export PNG" for a in rmm.property_toolbar.actions())
                 if not has_png:
                     rmm.property_toolbar.addSeparator()
-                    _em = getattr(main_window, 'export_manager', None)
-                    if _em is not None and hasattr(_em, 'export_2d_png'):
-                        rmm.property_toolbar.addAction("Export PNG", lambda: main_window.export_manager.export_2d_png())
+                    if hasattr(main_window, 'export_2d_png'):
+                        rmm.property_toolbar.addAction("Export PNG", lambda: main_window.export_2d_png())
                     if hasattr(main_window, 'copy_2d_image_to_clipboard'):
                         rmm.property_toolbar.addAction("Copy PNG", lambda: main_window.copy_2d_image_to_clipboard())
 
