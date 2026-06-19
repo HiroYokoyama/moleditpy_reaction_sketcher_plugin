@@ -1227,7 +1227,7 @@ def apply_core_patches(main_window):
         current_comp = {
             'atoms': atoms_data,
             'bonds': bonds_data,
-            '_next_atom_id': data._next_atom_id,
+            '_next_atom_id': data.next_atom_id,
             'mol_3d': host.view_3d_manager.current_mol.ToBinary() if host.view_3d_manager.current_mol else None,
             'mol_3d_atom_ids': curr_state.get('mol_3d_atom_ids', []),
             'rs_items': curr_state.get('rs_items', []),
