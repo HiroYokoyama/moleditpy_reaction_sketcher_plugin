@@ -5,6 +5,7 @@
     "last_open_path": "hasattr-guarded V2 compat — mode_manager.py:817",
     "activate_select_mode": "hasattr-guarded V2 compat — mode_manager.py:2178",
     "main_window_app_state": "hasattr-guarded V2 compat — patcher.py:56",
-    "copy_2d_image_to_clipboard": "hasattr-guarded V2 compat — patcher.py:1659"
+    "copy_2d_image_to_clipboard": "hasattr-guarded V2 compat — patcher.py:1659",
+    "export_2d_png": "hasattr-guarded V2 compat — patcher.py:1696"
   }
 }

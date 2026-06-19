@@ -3,6 +3,7 @@ tests/test_load_handler_core.py -- tests for utils.load_handler_core().
 
 Uses a real QGraphicsScene so items are actually added and can be counted.
 """
+
 import pytest
 from PyQt6.QtCore import QPointF
 
@@ -44,7 +45,13 @@ class TestLoadHandlerCoreArrows:
         assert len(mock_scene.items()) >= 1
 
     def test_loads_dashed_arrow(self, mock_main_window, mock_scene):
-        d = {"type": "arrow_dashed", "start_x": 0, "start_y": 0, "end_x": 80, "end_y": 0}
+        d = {
+            "type": "arrow_dashed",
+            "start_x": 0,
+            "start_y": 0,
+            "end_x": 80,
+            "end_y": 0,
+        }
         load_handler_core(mock_main_window, [d])
         assert len(mock_scene.items()) >= 1
 
@@ -64,11 +71,15 @@ class TestLoadHandlerCoreSymbols:
         assert len(mock_scene.items()) >= 1
 
     def test_plus_with_color(self, mock_main_window, mock_scene):
-        load_handler_core(mock_main_window, [{"type": "plus", "x": 0, "y": 0, "color": "#ff0000"}])
+        load_handler_core(
+            mock_main_window, [{"type": "plus", "x": 0, "y": 0, "color": "#ff0000"}]
+        )
         assert len(mock_scene.items()) >= 1
 
     def test_plus_with_size(self, mock_main_window, mock_scene):
-        load_handler_core(mock_main_window, [{"type": "plus", "x": 0, "y": 0, "size": 25}])
+        load_handler_core(
+            mock_main_window, [{"type": "plus", "x": 0, "y": 0, "size": 25}]
+        )
         assert len(mock_scene.items()) >= 1
 
 
@@ -89,7 +100,13 @@ class TestLoadHandlerCoreShapes:
         assert len(mock_scene.items()) >= 1
 
     def test_loads_curved_line(self, mock_main_window, mock_scene):
-        d = {"type": "line_curved", "start_x": 0, "start_y": 0, "end_x": 100, "end_y": 0}
+        d = {
+            "type": "line_curved",
+            "start_x": 0,
+            "start_y": 0,
+            "end_x": 100,
+            "end_y": 0,
+        }
         load_handler_core(mock_main_window, [d])
         assert len(mock_scene.items()) >= 1
 
@@ -106,7 +123,13 @@ class TestLoadHandlerCoreText:
         assert len(mock_scene.items()) >= 1
 
     def test_text_with_html(self, mock_main_window, mock_scene):
-        d = {"type": "text", "text": "H2O", "x": 0, "y": 0, "html": "<b>H<sub>2</sub>O</b>"}
+        d = {
+            "type": "text",
+            "text": "H2O",
+            "x": 0,
+            "y": 0,
+            "html": "<b>H<sub>2</sub>O</b>",
+        }
         load_handler_core(mock_main_window, [d])
         assert len(mock_scene.items()) >= 1
 
@@ -128,6 +151,13 @@ class TestLoadHandlerCoreRobustness:
         assert len(mock_scene.items()) >= 2  # plus + minus
 
     def test_item_with_rotation(self, mock_main_window, mock_scene):
-        d = {"type": "arrow", "start_x": 0, "start_y": 0, "end_x": 100, "end_y": 0, "rotation": 45.0}
+        d = {
+            "type": "arrow",
+            "start_x": 0,
+            "start_y": 0,
+            "end_x": 100,
+            "end_y": 0,
+            "rotation": 45.0,
+        }
         load_handler_core(mock_main_window, [d])
         assert len(mock_scene.items()) >= 1

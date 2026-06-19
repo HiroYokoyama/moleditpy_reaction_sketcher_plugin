@@ -13,6 +13,7 @@ CI setup
       run: git clone --depth 1 https://github.com/HiroYokoyama/python_molecular_editor.git
              ../python_molecular_editor || true
 """
+
 import sys
 import os
 import types
@@ -23,6 +24,7 @@ from unittest.mock import MagicMock
 # Stub Qt before importing the plugin
 # conftest.py already installs stubs  Ethis function is idempotent.
 # ---------------------------------------------------------------------------
+
 
 def _install_stubs():
     if "PyQt6" in sys.modules and hasattr(sys.modules["PyQt6"], "__file__"):
@@ -67,6 +69,7 @@ from reaction_sketcher import initialize, PLUGIN_NAME, PLUGIN_VERSION
 # Stub PluginContext
 # ---------------------------------------------------------------------------
 
+
 class _StubContext:
     def __init__(self):
         self._menu_actions = []
@@ -101,18 +104,32 @@ class _StubContext:
         mw.data = None
         return mw
 
-    def register_file_opener(self, ext, fn, priority=0): pass
-    def register_drop_handler(self, fn, priority=0): pass
-    def add_export_action(self, label, fn): pass
-    def add_analysis_tool(self, label, fn): pass
-    def add_toolbar_action(self, fn, text, icon=None, tooltip=None): pass
-    def register_window(self, key, win): pass
-    def get_window(self, key): return None
+    def register_file_opener(self, ext, fn, priority=0):
+        pass
+
+    def register_drop_handler(self, fn, priority=0):
+        pass
+
+    def add_export_action(self, label, fn):
+        pass
+
+    def add_analysis_tool(self, label, fn):
+        pass
+
+    def add_toolbar_action(self, fn, text, icon=None, tooltip=None):
+        pass
+
+    def register_window(self, key, win):
+        pass
+
+    def get_window(self, key):
+        return None
 
 
 # ---------------------------------------------------------------------------
 # Tests: metadata
 # ---------------------------------------------------------------------------
+
 
 class TestMetadata(unittest.TestCase):
     def test_plugin_name(self):
@@ -128,6 +145,7 @@ class TestMetadata(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: initialize contract
 # ---------------------------------------------------------------------------
+
 
 class TestInitialize(unittest.TestCase):
     def setUp(self):
@@ -169,6 +187,7 @@ class TestInitialize(unittest.TestCase):
 # Tests: save handler contract
 # ---------------------------------------------------------------------------
 
+
 class TestSaveHandler(unittest.TestCase):
     def setUp(self):
         self.ctx = _StubContext()
@@ -199,6 +218,7 @@ class TestSaveHandler(unittest.TestCase):
 # Tests: load handler contract
 # ---------------------------------------------------------------------------
 
+
 class TestLoadHandler(unittest.TestCase):
     def setUp(self):
         self.ctx = _StubContext()
@@ -220,6 +240,7 @@ class TestLoadHandler(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: reset handler contract
 # ---------------------------------------------------------------------------
+
 
 class TestResetHandler(unittest.TestCase):
     def setUp(self):
@@ -243,8 +264,14 @@ class TestResetHandler(unittest.TestCase):
 
 _MAIN_APP_CANDIDATES = [
     os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..",
-                     "python_molecular_editor", "moleditpy", "src")
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "python_molecular_editor",
+            "moleditpy",
+            "src",
+        )
     ),
     os.environ.get("CI_MAIN_APP_SRC", ""),
 ]
@@ -256,20 +283,22 @@ HAS_MAIN_APP = _MAIN_APP_SRC is not None
 
 try:
     import pytest
+
     _skipif = pytest.mark.skipif(
         not HAS_MAIN_APP,
         reason="main app not found; clone python_molecular_editor or set CI_MAIN_APP_SRC",
     )
 except ImportError:
+
     def _skipif(cls):
         return unittest.skip("pytest not available")(cls)
-
 
 
 def _clear_qt_stubs():
     """Remove fake PyQt6 stub modules so real PyQt6 can be imported by moleditpy."""
     to_remove = [
-        k for k in list(sys.modules)
+        k
+        for k in list(sys.modules)
         if k.startswith("PyQt6") and not hasattr(sys.modules[k], "__file__")
     ]
     for k in to_remove:
@@ -277,6 +306,7 @@ def _clear_qt_stubs():
     # Clear any moleditpy import that may have been attempted with stubs
     for k in [k for k in list(sys.modules) if k.startswith("moleditpy")]:
         del sys.modules[k]
+
 
 @_skipif
 class TestWithRealPluginContext(unittest.TestCase):
@@ -289,8 +319,13 @@ class TestWithRealPluginContext(unittest.TestCase):
         # Load plugin_interface.py directly to avoid triggering moleditpy/__init__.py
         # which imports PyQt6 and conflicts with PySide6 loaded by pytest-qt on Windows.
         import importlib.util as _ilu
-        _pi_path = os.path.join(_MAIN_APP_SRC, 'moleditpy', 'plugins', 'plugin_interface.py')
-        _spec = _ilu.spec_from_file_location('moleditpy.plugins.plugin_interface', _pi_path)
+
+        _pi_path = os.path.join(
+            _MAIN_APP_SRC, "moleditpy", "plugins", "plugin_interface.py"
+        )
+        _spec = _ilu.spec_from_file_location(
+            "moleditpy.plugins.plugin_interface", _pi_path
+        )
         _mod = _ilu.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
         cls.PluginContext = _mod.PluginContext
@@ -314,9 +349,12 @@ class TestWithRealPluginContext(unittest.TestCase):
 
     def test_stub_interface_matches_real(self):
         for method in [
-            "add_menu_action", "register_save_handler",
-            "register_load_handler", "register_document_reset_handler",
-            "show_status_message", "get_main_window",
+            "add_menu_action",
+            "register_save_handler",
+            "register_load_handler",
+            "register_document_reset_handler",
+            "show_status_message",
+            "get_main_window",
         ]:
             self.assertTrue(
                 hasattr(self.PluginContext, method),

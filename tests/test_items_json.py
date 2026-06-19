@@ -4,6 +4,7 @@ tests/test_items_json.py -- create_json_data() round-trip tests for all item typ
 Each item is constructed, serialized to a dict, and the dict is validated for
 required keys and correct type tag.  No scene/main_window is needed.
 """
+
 import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
@@ -27,12 +28,13 @@ from reaction_sketcher.items import (
 )
 
 START = QPointF(0, 0)
-END   = QPointF(100, 50)
+END = QPointF(100, 50)
 
 
 # ---------------------------------------------------------------------------
 # Arrow items
 # ---------------------------------------------------------------------------
+
 
 class TestReactionArrowItemJson:
     def test_type_tag(self, qapp):
@@ -57,17 +59,26 @@ class TestReactionArrowItemJson:
 
 class TestReactionResonanceArrowJson:
     def test_type_tag(self, qapp):
-        assert ReactionResonanceArrowItem(START, END).create_json_data()["type"] == "arrow_res"
+        assert (
+            ReactionResonanceArrowItem(START, END).create_json_data()["type"]
+            == "arrow_res"
+        )
 
 
 class TestReactionEquilibriumArrowJson:
     def test_type_tag(self, qapp):
-        assert ReactionEquilibriumArrowItem(START, END).create_json_data()["type"] == "arrow_eq"
+        assert (
+            ReactionEquilibriumArrowItem(START, END).create_json_data()["type"]
+            == "arrow_eq"
+        )
 
 
 class TestReactionRetroArrowJson:
     def test_type_tag(self, qapp):
-        assert ReactionRetroArrowItem(START, END).create_json_data()["type"] == "arrow_retro"
+        assert (
+            ReactionRetroArrowItem(START, END).create_json_data()["type"]
+            == "arrow_retro"
+        )
 
 
 class TestReactionNoArrowJson:
@@ -77,7 +88,10 @@ class TestReactionNoArrowJson:
 
 class TestReactionDashedArrowJson:
     def test_type_tag(self, qapp):
-        assert ReactionDashedArrowItem(START, END).create_json_data()["type"] == "arrow_dashed"
+        assert (
+            ReactionDashedArrowItem(START, END).create_json_data()["type"]
+            == "arrow_dashed"
+        )
 
     def test_has_position_keys(self, qapp):
         d = ReactionDashedArrowItem(START, END).create_json_data()
@@ -88,6 +102,7 @@ class TestReactionDashedArrowJson:
 # ---------------------------------------------------------------------------
 # Curved arrow
 # ---------------------------------------------------------------------------
+
 
 class TestReactionCurvedArrowJson:
     def test_double_type_tag(self, qapp):
@@ -106,6 +121,7 @@ class TestReactionCurvedArrowJson:
 # ---------------------------------------------------------------------------
 # Simple symbols
 # ---------------------------------------------------------------------------
+
 
 class TestReactionPlusItemJson:
     def test_type_tag(self, qapp):
@@ -134,6 +150,7 @@ class TestReactionMinusItemJson:
 # Shape items
 # ---------------------------------------------------------------------------
 
+
 class TestReactionBracketItemJson:
     def test_type_tag(self, qapp):
         item = ReactionBracketItem(QPointF(0, 0), QPointF(50, 80))
@@ -160,6 +177,7 @@ class TestReactionCircleItemJson:
 # Line items
 # ---------------------------------------------------------------------------
 
+
 class TestReactionLineItemJson:
     def test_type_tag(self, qapp):
         assert ReactionLineItem(START, END).create_json_data()["type"] == "line"
@@ -172,7 +190,10 @@ class TestReactionLineItemJson:
 
 class TestReactionCurvedLineItemJson:
     def test_type_tag(self, qapp):
-        assert ReactionCurvedLineItem(START, END).create_json_data()["type"] == "line_curved"
+        assert (
+            ReactionCurvedLineItem(START, END).create_json_data()["type"]
+            == "line_curved"
+        )
 
     def test_has_control_point(self, qapp):
         d = ReactionCurvedLineItem(START, END).create_json_data()
@@ -182,6 +203,7 @@ class TestReactionCurvedLineItemJson:
 # ---------------------------------------------------------------------------
 # Freehand
 # ---------------------------------------------------------------------------
+
 
 class TestReactionFreehandItemJson:
     def test_type_tag(self, qapp):
@@ -205,6 +227,7 @@ class TestReactionFreehandItemJson:
 # ---------------------------------------------------------------------------
 # Text
 # ---------------------------------------------------------------------------
+
 
 class TestReactionTextItemJson:
     def test_type_tag(self, qapp):

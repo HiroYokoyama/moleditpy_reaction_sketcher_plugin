@@ -3,6 +3,7 @@ tests/test_save_handler.py -- tests for the save/load/reset handlers in __init__
 
 All Qt and MoleditPy dependencies are mocked so no display is needed.
 """
+
 import sys
 import os
 import types
@@ -39,12 +40,21 @@ def _load_init_mocked():
     if _items_saved is None:
         items_mock = MagicMock()
         for cls_name in (
-            "ReactionArrowItem", "ReactionPlusItem", "ReactionTextItem",
-            "ReactionMinusItem", "ReactionResonanceArrowItem",
-            "ReactionEquilibriumArrowItem", "ReactionRetroArrowItem",
-            "ReactionNoArrowItem", "ReactionCurvedArrowItem",
-            "ReactionBracketItem", "ReactionCircleItem", "ReactionLineItem",
-            "ReactionCurvedLineItem", "ReactionFreehandItem", "ReactionDashedArrowItem",
+            "ReactionArrowItem",
+            "ReactionPlusItem",
+            "ReactionTextItem",
+            "ReactionMinusItem",
+            "ReactionResonanceArrowItem",
+            "ReactionEquilibriumArrowItem",
+            "ReactionRetroArrowItem",
+            "ReactionNoArrowItem",
+            "ReactionCurvedArrowItem",
+            "ReactionBracketItem",
+            "ReactionCircleItem",
+            "ReactionLineItem",
+            "ReactionCurvedLineItem",
+            "ReactionFreehandItem",
+            "ReactionDashedArrowItem",
         ):
             setattr(items_mock, cls_name, type(cls_name, (), {}))
         sys.modules["reaction_sketcher.items"] = items_mock
@@ -106,7 +116,10 @@ class TestInitialize:
     def test_menu_action_path(self):
         ctx, _ = _make_context_and_mw()
         _init.initialize(ctx)
-        path = ctx.add_menu_action.call_args[1].get("path") or ctx.add_menu_action.call_args[0][0]
+        path = (
+            ctx.add_menu_action.call_args[1].get("path")
+            or ctx.add_menu_action.call_args[0][0]
+        )
         assert "Reaction Sketcher" in path
 
     def test_shows_status_message(self):
@@ -174,7 +187,9 @@ class TestLoadHandler:
         handler = self._get_load_handler()
         handler({})  # should not raise
 
-    @pytest.mark.skip(reason="triggers real ModeManager.toggle_reaction_mode via auto_start_pref; complex Qt interaction not worth stubbing")
+    @pytest.mark.skip(
+        reason="triggers real ModeManager.toggle_reaction_mode via auto_start_pref; complex Qt interaction not worth stubbing"
+    )
     def test_restores_auto_start_pref(self):
         ctx, mw = _make_context_and_mw()
         _init.initialize(ctx)

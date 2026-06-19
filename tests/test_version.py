@@ -1,6 +1,7 @@
 """
 tests/test_version.py -- plugin metadata sanity checks (no Qt required).
 """
+
 import re
 import sys
 import os

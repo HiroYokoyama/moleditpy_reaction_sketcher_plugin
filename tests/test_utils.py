@@ -1,6 +1,7 @@
 """
 tests/test_utils.py -- unit tests for reaction_sketcher/utils.py.
 """
+
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -25,6 +26,7 @@ class TestSipIsdeletedSafe:
             # Force re-import by patching the import inside the function
             import importlib
             import reaction_sketcher.utils as utils_mod
+
             importlib.reload(utils_mod)
             # The reload may or may not hit the cached branch; just verify no crash
             result = utils_mod.sip_isdeleted_safe(MagicMock())
