@@ -42,12 +42,12 @@ from .utils import load_handler_core
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "3.0.0"
+PLUGIN_VERSION = "4.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 )
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=3.0.0, <5.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 
 REACTION_ITEM_TYPES = (
     ReactionArrowItem,

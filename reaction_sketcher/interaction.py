@@ -678,7 +678,7 @@ class InteractionHandler(QObject):
             self._drag_start_with_shift = False
 
             if self._did_move:
-                self.main_window.scene.update_all_items()
+                self.context.refresh_2d_scene()
                 self.context.push_undo_checkpoint()
                 self._did_move = False
             else:

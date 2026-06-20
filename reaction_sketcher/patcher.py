@@ -524,12 +524,14 @@ def apply_core_patches(main_window, context=None):
             mime_data = QMimeData()
             mime_data.setData(CLIPBOARD_MIME_TYPE, byte_array)
             QApplication.clipboard().setMimeData(mime_data)
-            self.host.statusBar().showMessage(
-                f"Copied selection ({len(fragment_atoms)} atoms, {len(fragment_rs_items)} reaction items)."
-            )
+            if context:
+                context.show_status_message(
+                    f"Copied selection ({len(fragment_atoms)} atoms, {len(fragment_rs_items)} reaction items)."
+                )
 
         except Exception as e:
-            self.host.statusBar().showMessage(f"Error during patched copy: {e}")
+            if context:
+                context.show_status_message(f"Error during patched copy: {e}")
 
     patch_core(MainWindowEditActions, "copy_selection", patched_copy_selection)
 
@@ -602,11 +604,13 @@ def apply_core_patches(main_window, context=None):
                 load_handler_core(self.host, rs_items_data)
 
             self.push_undo_state()
-            self.host.statusBar().showMessage("Pasted selection.")
+            if context:
+                context.show_status_message("Pasted selection.")
             if hasattr(self.host, "ui_manager"):
                 self.host.ui_manager.activate_select_mode()
         except Exception as e:
-            self.host.statusBar().showMessage(f"Error during patched paste: {e}")
+            if context:
+                context.show_status_message(f"Error during patched paste: {e}")
 
     patch_core(
         MainWindowEditActions, "paste_from_clipboard", patched_paste_from_clipboard
@@ -1083,7 +1087,8 @@ def apply_core_patches(main_window, context=None):
                         target_reaction_items.append(item)
 
             if not target_atoms and not target_reaction_items:
-                self.host.statusBar().showMessage("No items to rotate.")
+                if context:
+                    context.show_status_message("No items to rotate.")
                 return
 
             # Calculate Center
@@ -1127,13 +1132,15 @@ def apply_core_patches(main_window, context=None):
             self.host.scene.update_connected_bonds(target_atoms)
 
             self.push_undo_state()
-            self.host.statusBar().showMessage(
-                f"Rotated {len(target_atoms) + len(target_reaction_items)} items by {angle_degrees} degrees."
-            )
-            self.host.scene.update_all_items()
+            if context:
+                context.show_status_message(
+                    f"Rotated {len(target_atoms) + len(target_reaction_items)} items by {angle_degrees} degrees."
+                )
+                context.refresh_2d_scene()
 
         except Exception as e:
-            self.host.statusBar().showMessage(f"Error rotating: {e}")
+            if context:
+                context.show_status_message(f"Error rotating: {e}")
 
     patch_core(MainWindowEditActions, "rotate_molecule_2d", patched_rotate_molecule_2d)
 
@@ -1174,9 +1181,10 @@ def apply_core_patches(main_window, context=None):
         try:
             from rdkit.Chem import AllChem, rdmolops
         except ImportError:
-            self.host.statusBar().showMessage(
-                "Error: RDKit is required for structure optimization."
-            )
+            if context:
+                context.show_status_message(
+                    "Error: RDKit is required for structure optimization."
+                )
             return
 
         host = self.host
@@ -1185,23 +1193,24 @@ def apply_core_patches(main_window, context=None):
         )
         data = getattr(getattr(host, "state_manager", None), "data", None)
         if not data:
-            host.statusBar().showMessage("Error: Missing molecular data.")
+            if context:
+                context.show_status_message("Error: Missing molecular data.")
             return
 
-        host.statusBar().showMessage("Optimizing 2D structure (CoG Preserved)...")
+        if context:
+            context.show_status_message("Optimizing 2D structure (CoG Preserved)...")
         if scene and hasattr(scene, "clear_all_problem_flags"):
             scene.clear_all_problem_flags()
         if not data.atoms:
-            host.statusBar().showMessage("Error: No atoms to optimize.")
+            if context:
+                context.show_status_message("Error: No atoms to optimize.")
             return
 
         try:
             mol = data.to_rdkit_mol()
             if mol is None or mol.GetNumAtoms() == 0:
-                if hasattr(host, "compute_manager") and hasattr(
-                    host.compute_manager, "check_chemistry_problems_fallback"
-                ):
-                    host.compute_manager.check_chemistry_problems_fallback()
+                if context:
+                    context.check_chemistry_problems()
                 return
 
             frags = rdmolops.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
@@ -1272,9 +1281,10 @@ def apply_core_patches(main_window, context=None):
                 target_frag_indices = set(range(len(frags)))
 
             if not target_frag_indices:
-                host.statusBar().showMessage(
-                    "No valid atoms selected for optimization."
-                )
+                if context:
+                    context.show_status_message(
+                        "No valid atoms selected for optimization."
+                    )
                 return
 
             orig_cogs = {}
@@ -1370,23 +1380,24 @@ def apply_core_patches(main_window, context=None):
                 # Pattern followed, no 3D manager is okay
                 pass
 
-            init_mgr = getattr(host, "init_manager", None)
-            scene_obj = getattr(init_mgr, "scene", None) if init_mgr else scene
-            if scene_obj:
-                scene_obj.update_all_items()
-            else:
-                print("Error: no scene available for update")
+            if context:
+                context.refresh_2d_scene()
 
             if target_atom_ids:
-                host.statusBar().showMessage(
-                    f"Optimized {updated_count} selected fragment(s)."
-                )
+                if context:
+                    context.show_status_message(
+                        f"Optimized {updated_count} selected fragment(s)."
+                    )
             else:
-                host.statusBar().showMessage(f"Optimized {updated_count} fragment(s).")
+                if context:
+                    context.show_status_message(
+                        f"Optimized {updated_count} fragment(s)."
+                    )
             host.edit_actions_manager.push_undo_state()
 
         except Exception as e:
-            host.statusBar().showMessage(f"Error during CoG optimization: {e}")
+            if context:
+                context.show_status_message(f"Error during CoG optimization: {e}")
         finally:
             if hasattr(host, "init_manager") and host.init_manager.view_2d:
                 host.init_manager.view_2d.setFocus()
@@ -1745,7 +1756,8 @@ def apply_core_patches(main_window, context=None):
             if not self.host.state_manager.data.atoms and not any(
                 hasattr(i, "create_json_data") for i in self.host.scene.items()
             ):
-                self.host.statusBar().showMessage("Nothing to export.")
+                if context:
+                    context.show_status_message("Nothing to export.")
                 return
 
             default_name = "untitled-2d"
@@ -1784,9 +1796,11 @@ def apply_core_patches(main_window, context=None):
                 self, is_transparent=(reply == QMessageBox.StandardButton.Yes)
             )
             if image and image.save(filePath, "PNG"):
-                self.host.statusBar().showMessage(f"2D view exported to {filePath}")
+                if context:
+                    context.show_status_message(f"2D view exported to {filePath}")
             else:
-                self.host.statusBar().showMessage("Failed to save image.")
+                if context:
+                    context.show_status_message("Failed to save image.")
 
         patch_core(MainWindowExport, "export_2d_png", patched_export_2d_png)
 
@@ -1794,7 +1808,8 @@ def apply_core_patches(main_window, context=None):
             if not self.host.state_manager.data.atoms and not any(
                 hasattr(i, "create_json_data") for i in self.host.scene.items()
             ):
-                self.host.statusBar().showMessage("Nothing to copy.")
+                if context:
+                    context.show_status_message("Nothing to copy.")
                 return
 
             # Default to Transparent for Clipboard as it is the most common desired behavior for passing to PPT/etc.
@@ -1814,26 +1829,30 @@ def apply_core_patches(main_window, context=None):
                 mime.setData("image/png", qba)
 
                 QApplication.clipboard().setMimeData(mime)
-                self.host.statusBar().showMessage(
-                    "Copied 2D view to clipboard (Transparent)"
-                )
+                if context:
+                    context.show_status_message(
+                        "Copied 2D view to clipboard (Transparent)"
+                    )
             else:
-                self.host.statusBar().showMessage("Failed to copy image.")
+                if context:
+                    context.show_status_message("Failed to copy image.")
 
         patch_core(MainWindowExport, "copy_to_clipboard", patched_copy_to_clipboard)
 
         # Patch export_2d_svg to INCLUDE reaction items
         def patched_export_2d_svg(self):
             if QSvgGenerator is None:
-                self.host.statusBar().showMessage(
-                    "SVG export not available (QtSvg missing)."
-                )
+                if context:
+                    context.show_status_message(
+                        "SVG export not available (QtSvg missing)."
+                    )
                 return
 
             if not self.host.state_manager.data.atoms and not any(
                 hasattr(i, "create_json_data") for i in self.host.scene.items()
             ):
-                self.host.statusBar().showMessage("Nothing to export.")
+                if context:
+                    context.show_status_message("Nothing to export.")
                 return
 
             default_name = "untitled-2d"
@@ -1899,9 +1918,10 @@ def apply_core_patches(main_window, context=None):
                     molecule_bounds = molecule_bounds.united(item_bounds)
 
             if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
-                self.host.statusBar().showMessage(
-                    "Error: Could not determine molecule bounds for export."
-                )
+                if context:
+                    context.show_status_message(
+                        "Error: Could not determine molecule bounds for export."
+                    )
                 return
 
             # Minimal padding (2px)
@@ -1939,9 +1959,10 @@ def apply_core_patches(main_window, context=None):
                 self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items:
                     item.setSelected(True)
-                self.host.statusBar().showMessage(
-                    "Failed to start SVG painter. Check file access."
-                )
+                if context:
+                    context.show_status_message(
+                        "Failed to start SVG painter. Check file access."
+                    )
                 return
 
             try:
@@ -1963,7 +1984,8 @@ def apply_core_patches(main_window, context=None):
                     and self.original_focus
                 ):
                     self.original_focus.setFocus()
-            self.host.statusBar().showMessage(f"2D view exported to {filePath}")
+            if context:
+                context.show_status_message(f"2D view exported to {filePath}")
 
         patch_core(MainWindowExport, "export_2d_svg", patched_export_2d_svg)
 
@@ -1984,9 +2006,10 @@ def apply_core_patches(main_window, context=None):
                 mime.setData("image/png", qba)
 
                 QApplication.clipboard().setMimeData(mime)
-                self.host.statusBar().showMessage(
-                    "2D Image copied to clipboard (Transparent).", 2000
-                )
+                if context:
+                    context.show_status_message(
+                        "2D Image copied to clipboard (Transparent).", 2000
+                    )
 
         # We'll add this to MainWindowEditActions so it's easily accessible via Ctrl+Shift+C
         patch_core(
@@ -2005,15 +2028,17 @@ def apply_core_patches(main_window, context=None):
         # Patch copy_svg_to_clipboard to INCLUDE reaction items
         def patched_copy_svg_to_clipboard(self):
             if QSvgGenerator is None:
-                self.host.statusBar().showMessage(
-                    "SVG copy not available (QtSvg missing)."
-                )
+                if context:
+                    context.show_status_message(
+                        "SVG copy not available (QtSvg missing)."
+                    )
                 return
 
             if not self.host.state_manager.data.atoms and not any(
                 hasattr(i, "create_json_data") for i in self.host.scene.items()
             ):
-                self.host.statusBar().showMessage("Nothing to copy.")
+                if context:
+                    context.show_status_message("Nothing to copy.")
                 return
 
             # Get items to export: selected items if any, otherwise all visible
@@ -2047,9 +2072,10 @@ def apply_core_patches(main_window, context=None):
                     molecule_bounds = molecule_bounds.united(item_bounds)
 
             if molecule_bounds.isEmpty() or not molecule_bounds.isValid():
-                self.host.statusBar().showMessage(
-                    "Error: Could not determine molecule bounds for copy."
-                )
+                if context:
+                    context.show_status_message(
+                        "Error: Could not determine molecule bounds for copy."
+                    )
                 return
 
             # Minimal padding (2px) - Consistent with PNG
@@ -2106,7 +2132,8 @@ def apply_core_patches(main_window, context=None):
             # Also set text for compatibility
             mime.setText(buffer.data().data().decode("utf-8"))
             QApplication.clipboard().setMimeData(mime)
-            self.host.statusBar().showMessage("Reaction copied to clipboard (SVG)")
+            if context:
+                context.show_status_message("Reaction copied to clipboard (SVG)")
 
         patch_core(
             MainWindowExport, "copy_svg_to_clipboard", patched_copy_svg_to_clipboard

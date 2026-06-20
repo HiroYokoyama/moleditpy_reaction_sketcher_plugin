@@ -851,7 +851,7 @@ class ModeManager(QObject):
             items = []
 
         if not items:
-            self.main_window.statusBar().showMessage("No reaction items to export.")
+            self.context.show_status_message("No reaction items to export.")
             return
 
         from PyQt6.QtWidgets import QFileDialog
@@ -880,11 +880,9 @@ class ModeManager(QObject):
         if f.open(QIODevice.OpenModeFlag.WriteOnly):
             f.write(data)
             f.close()
-            self.main_window.statusBar().showMessage(
-                f"Reaction exported to {filename}", 3000
-            )
+            self.context.show_status_message(f"Reaction exported to {filename}", 3000)
         else:
-            self.main_window.statusBar().showMessage(f"Failed to write to {filename}")
+            self.context.show_status_message(f"Failed to write to {filename}")
 
     def copy_to_clipboard(self):
         # Synchronize logic with SVG export/copy to ensure consistency.
@@ -900,7 +898,7 @@ class ModeManager(QObject):
             items = [i for i in selected if self._is_content_item(i)]
 
         if not items:
-            self.main_window.statusBar().showMessage("No content items to copy.")
+            self.context.show_status_message("No content items to copy.")
             return
 
         data = self._generate_png_data(items)
@@ -915,7 +913,7 @@ class ModeManager(QObject):
         mime.setImageData(img_from_data)
 
         QGuiApplication.clipboard().setMimeData(mime)
-        self.main_window.statusBar().showMessage("Reaction copied as Image", 3000)
+        self.context.show_status_message("Reaction copied as Image", 3000)
 
     def export_svg(self, items=None, filename=None):
         if hasattr(self.main_window, "export_2d_svg") and not items:
@@ -943,7 +941,7 @@ class ModeManager(QObject):
         items = [i for i in items if self._is_content_item(i)]
 
         if not items:
-            self.main_window.statusBar().showMessage("No reaction items to export.")
+            self.context.show_status_message("No reaction items to export.")
             return
 
         if filename is None:
@@ -975,9 +973,9 @@ class ModeManager(QObject):
         if f.open(QIODevice.OpenModeFlag.WriteOnly):
             f.write(data)
             f.close()
-            self.main_window.statusBar().showMessage(f"Reaction exported to {filename}")
+            self.context.show_status_message(f"Reaction exported to {filename}")
         else:
-            self.main_window.statusBar().showMessage(f"Failed to write to {filename}")
+            self.context.show_status_message(f"Failed to write to {filename}")
 
     def copy_svg_to_clipboard(self):
         # Determine items to copy: Selected OR All content
@@ -991,7 +989,7 @@ class ModeManager(QObject):
             items = [i for i in selected if self._is_content_item(i)]
 
         if not items:
-            self.main_window.statusBar().showMessage("No content items to copy.")
+            self.context.show_status_message("No content items to copy.")
             return
 
         data = self._generate_svg_data(items)
@@ -999,7 +997,7 @@ class ModeManager(QObject):
         mime = QMimeData()
         mime.setData("image/svg+xml", data)
         mime.setText(data.data().decode("utf-8"))
-        self.main_window.statusBar().showMessage("Reaction copied as SVG", 3000)
+        self.context.show_status_message("Reaction copied as SVG", 3000)
         QGuiApplication.clipboard().setMimeData(mime)
 
     def get_reaction_bounds(self, items):
@@ -1846,10 +1844,9 @@ class ModeManager(QObject):
                                 item.group_id = new_group
 
                         # Show status message
-                        if hasattr(self.main_window, "statusBar"):
-                            self.main_window.statusBar().showMessage(
-                                f"Grouped {len(items)} items", 3000
-                            )
+                        self.context.show_status_message(
+                            f"Grouped {len(items)} items", 3000
+                        )
 
                         self.main_window.edit_actions_manager.push_undo_state()
                 except Exception:
@@ -1873,10 +1870,9 @@ class ModeManager(QObject):
                                 ungrouped_count += 1
 
                         # Show status message
-                        if hasattr(self.main_window, "statusBar"):
-                            self.main_window.statusBar().showMessage(
-                                f"Ungrouped {ungrouped_count} items", 3000
-                            )
+                        self.context.show_status_message(
+                            f"Ungrouped {ungrouped_count} items", 3000
+                        )
 
                         if ungrouped_count > 0:
                             self.main_window.edit_actions_manager.push_undo_state()
@@ -2485,7 +2481,7 @@ class ModeManager(QObject):
 
         # Disable 3D actions immediately when entering reaction mode
         self.set_3d_action_state(False)
-        self.main_window.statusBar().showMessage("Reaction Sketching Mode Active", 3000)
+        self.context.show_status_message("Reaction Sketching Mode Active", 3000)
 
     def exit_reaction_mode(self):
         # Restore layout
@@ -2499,7 +2495,7 @@ class ModeManager(QObject):
             self.main_window.init_manager.splitter.setSizes([total // 2, total // 2])
 
         self.set_3d_action_state(True)
-        self.main_window.statusBar().showMessage("Returned to Molecular Mode", 3000)
+        self.context.show_status_message("Returned to Molecular Mode", 3000)
         self.is_reaction_mode = False
 
         # Hide toolbars
@@ -2579,10 +2575,7 @@ class ModeManager(QObject):
             item.update()
 
         # Show status message
-        if hasattr(self.main_window, "statusBar"):
-            self.main_window.statusBar().showMessage(
-                f"Grouped {len(groupable)} items", 3000
-            )
+        self.context.show_status_message(f"Grouped {len(groupable)} items", 3000)
 
         if self.interaction_handler:
             self.interaction_handler.update_group_overlay(groupable)
@@ -2615,10 +2608,8 @@ class ModeManager(QObject):
             item.update()
 
         # Show status message
-        if hasattr(self.main_window, "statusBar") and ungrouped_count > 0:
-            self.main_window.statusBar().showMessage(
-                f"Ungrouped {ungrouped_count} items", 3000
-            )
+        if ungrouped_count > 0:
+            self.context.show_status_message(f"Ungrouped {ungrouped_count} items", 3000)
 
         if self.interaction_handler:
             self.interaction_handler.update_group_overlay([])
@@ -2929,7 +2920,7 @@ class ModeManager(QObject):
         ):
             self.main_window.edit_3d_manager.update_2d_measurement_labels()
 
-        self.main_window.scene.update_all_items()
+        self.context.refresh_2d_scene()
 
         # Push undo AFTER change completes
         mgr_edit = getattr(self.main_window, "edit_actions_manager", None)
@@ -3030,7 +3021,7 @@ class ModeManager(QObject):
         ):
             self.main_window.edit_3d_manager.update_2d_measurement_labels()
 
-        self.main_window.scene.update_all_items()
+        self.context.refresh_2d_scene()
 
         mgr_edit = getattr(self.main_window, "edit_actions_manager", None)
         if mgr_edit:
@@ -3571,7 +3562,7 @@ class ModeManager(QObject):
             self.main_window.main_window_edit_actions.copy_selection()
         else:
             # Fallback (should not happen if patched)
-            self.main_window.statusBar().showMessage(
+            self.context.show_status_message(
                 "Copy failed: Edit actions not found", 3000
             )
 
@@ -3631,6 +3622,6 @@ class ModeManager(QObject):
             self.main_window.main_window_edit_actions.paste_from_clipboard()
         else:
             # Fallback (should not happen if patched)
-            self.main_window.statusBar().showMessage(
+            self.context.show_status_message(
                 "Paste failed: Edit actions not found", 3000
             )
