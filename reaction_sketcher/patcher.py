@@ -70,7 +70,7 @@ def _revert(target_dict):
     target_dict.clear()
 
 
-def apply_core_patches(main_window):
+def apply_core_patches(main_window, context=None):
     """Applies infrastructure patches (Undo, Delete, IO, Rendering, State) that should be persistent."""
     # Dynamic Class Resolution to handle package path variations (moleditpy vs modules)
     MainWindow = main_window.__class__
@@ -1607,20 +1607,18 @@ def apply_core_patches(main_window):
             self.undo_stack.append(state)
             self.redo_stack.clear()
 
-            # Use host or state_mgr for UI/Persistence updates (V3 uses state_mgr, older might use host or self)
             target_obj = host if hasattr(host, "initialization_complete") else state_mgr
             if getattr(target_obj, "initialization_complete", True):
-                if hasattr(state_mgr, "has_unsaved_changes"):
-                    state_mgr.has_unsaved_changes = True
-                elif hasattr(host, "has_unsaved_changes"):
-                    host.has_unsaved_changes = True
-
-                # V3: window title update is on state_manager
-                title_func = getattr(state_mgr, "update_window_title", None)
-                if title_func:
-                    title_func()
+                if context is not None:
+                    context.mark_project_modified()
                 else:
-                    print("Error: state_manager missing 'update_window_title'")
+                    if hasattr(state_mgr, "has_unsaved_changes"):
+                        state_mgr.has_unsaved_changes = True
+                    elif hasattr(host, "has_unsaved_changes"):
+                        host.has_unsaved_changes = True
+                    title_func = getattr(state_mgr, "update_window_title", None)
+                    if title_func:
+                        title_func()
 
         # 1. Update Implicit Hydrogens (On self if EditActionsManager, or state_mgr in some versions)
         h_func = getattr(self, "update_implicit_hydrogens", None)

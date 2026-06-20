@@ -68,9 +68,10 @@ import logging
 
 
 class ModeManager(QObject):
-    def __init__(self, main_window):
+    def __init__(self, main_window, context=None):
         super().__init__()
         self.main_window = main_window
+        self.context = context
         self.reaction_toolbar = None
         self.property_toolbar = None
         self.original_splitter_sizes = None
@@ -2475,7 +2476,7 @@ class ModeManager(QObject):
             self.property_toolbar.show()
 
         # Apply patches (Core and Interaction) dynamically
-        apply_core_patches(self.main_window)
+        apply_core_patches(self.main_window, self.context)
         apply_interaction_patches(self.main_window)
         # Rebind button/menu signals because Qt keeps pre-patch bound callables.
         self._rewire_cleanup_2d_triggers()

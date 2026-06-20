@@ -47,6 +47,7 @@ PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 )
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=3.0.0, <5.0.0"
 
 REACTION_ITEM_TYPES = (
     ReactionArrowItem,
@@ -77,7 +78,7 @@ def initialize(context):
     # (Patches are now only applied when entering reaction mode)
 
     # Initialize components with context awareness
-    mode_manager = ModeManager(main_window)
+    mode_manager = ModeManager(main_window, context)
     interaction_handler = InteractionHandler(context, main_window, mode_manager)
     mode_manager.interaction_handler = interaction_handler
 
