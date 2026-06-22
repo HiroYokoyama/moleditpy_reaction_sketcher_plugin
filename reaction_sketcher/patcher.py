@@ -40,8 +40,6 @@ except ImportError:
 
 from .utils import sip_isdeleted_safe
 import logging
-from rdkit import Chem
-from rdkit.Chem import rdmolops, AllChem
 
 # Storage for original methods
 _core_originals = {}
@@ -1355,17 +1353,26 @@ def apply_core_patches(main_window, context=None):
                         atom_entry["pos"] = local_pos
                 updated_count += 1
 
-            for bond_data in data.bonds.values():
-                bond_item = bond_data.get("item", None) if bond_data else None
+            _bond_items_dict = (
+                getattr(
+                    getattr(host, "init_manager", None), "scene", scene
+                ).bond_items
+                if scene
+                else {}
+            )
+            for bond_item in _bond_items_dict.values():
                 if not bond_item or sip_isdeleted_safe(bond_item):
+                    continue
+                if not bond_item.scene():
                     continue
                 update_pos_func = getattr(bond_item, "update_position", None)
                 if update_pos_func:
                     update_pos_func()
-                else:
-                    print(f"Error: bond_item missing 'update_position'")
 
             self.resolve_overlapping_groups()
+
+            if scene and hasattr(scene, "update_all_items"):
+                scene.update_all_items()
 
             mgr_3d = getattr(host, "edit_3d_manager", None)
             if mgr_3d:
@@ -1374,13 +1381,6 @@ def apply_core_patches(main_window, context=None):
                 )
                 if update_labels_func:
                     update_labels_func()
-                else:
-                    print(
-                        "Error: edit_3d_manager missing 'update_2d_measurement_labels'"
-                    )
-            else:
-                # Pattern followed, no 3D manager is okay
-                pass
 
             if context:
                 context.refresh_2d_scene()
