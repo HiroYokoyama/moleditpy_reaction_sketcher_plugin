@@ -42,7 +42,7 @@ from .utils import load_handler_core
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "3.0.1"
+PLUGIN_VERSION = "3.0.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
@@ -220,7 +220,7 @@ def initialize(context):
                         item.pen_color = QColor(col)
                         item.update()
                 except Exception as _e:
-                    logging.warning("[__init__.py:166] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
 
             groups = data.get("groups", {})
             ag_data = groups.get("atoms", {})
@@ -239,7 +239,7 @@ def initialize(context):
                     if item:
                         item.group_id = gid
                 except Exception as _e:
-                    logging.warning("[__init__.py:182] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
 
         if should_enter_mode and not mode_manager.is_reaction_mode:
             mode_manager.toggle_reaction_mode()

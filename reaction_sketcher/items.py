@@ -2489,7 +2489,7 @@ class ReactionTextItem(QGraphicsTextItem):
                     ):
                         mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
             except Exception as _e:
-                logging.warning("[items.py:2026] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             # Set cursor to click position
             # QGraphicsTextItem doesn't have cursorForPosition. Use document layout.
@@ -2537,7 +2537,7 @@ class ReactionTextItem(QGraphicsTextItem):
                 ):
                     mw.ui_manager._reaction_mode_manager.enable_main_window_shortcuts()
         except Exception as _e:
-            logging.warning("[items.py:2068] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
     @property
     def size(self):
@@ -2572,7 +2572,7 @@ class ReactionTextItem(QGraphicsTextItem):
                     ):
                         mw.ui_manager._reaction_mode_manager.apply_text_style("bold")
                 except Exception as _e:
-                    logging.warning("[items.py:2098] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 event.accept()
                 return
             elif has_ctrl and event.key() == Qt.Key.Key_I:
@@ -2588,7 +2588,7 @@ class ReactionTextItem(QGraphicsTextItem):
                     ):
                         mw.ui_manager._reaction_mode_manager.apply_text_style("italic")
                 except Exception as _e:
-                    logging.warning("[items.py:2109] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 event.accept()
                 return
             elif has_ctrl and event.key() == Qt.Key.Key_U:
@@ -2606,7 +2606,7 @@ class ReactionTextItem(QGraphicsTextItem):
                             "underline"
                         )
                 except Exception as _e:
-                    logging.warning("[items.py:2120] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 event.accept()
                 return
             elif has_ctrl and (
@@ -2630,7 +2630,7 @@ class ReactionTextItem(QGraphicsTextItem):
                         else:
                             mw.ui_manager._reaction_mode_manager.toggle_subscript()
                 except Exception as _e:
-                    logging.warning("[items.py:2137] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 event.accept()
                 return
 
@@ -2656,7 +2656,7 @@ class ReactionTextItem(QGraphicsTextItem):
                                 action.trigger()
                                 break
                 except Exception as _e:
-                    logging.warning("[items.py:2156] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
 
                 event.accept()
                 return
@@ -2748,7 +2748,7 @@ class ReactionTextItem(QGraphicsTextItem):
                     ):
                         mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
             except Exception as _e:
-                logging.warning("[items.py:2234] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
     def paint(self, painter, option, widget):
         # Handle custom selection highlight
@@ -2952,7 +2952,7 @@ class ReactionGroupOverlay(QGraphicsItem):
         try:
             scene.changed.connect(self.on_scene_changed)
         except Exception as _e:
-            logging.warning("[items.py:2429] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
     def _disconnect_scene(self, scene):
         if scene is None:
@@ -2962,7 +2962,7 @@ class ReactionGroupOverlay(QGraphicsItem):
         except TypeError:
             pass  # not connected — expected
         except Exception as _e:
-            logging.warning("[items.py:2434] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
     def on_scene_changed(self, region):
         if self._updating:

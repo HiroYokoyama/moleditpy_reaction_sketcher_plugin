@@ -183,7 +183,7 @@ class ModeManager(QObject):
 
             except Exception as e:
                 # print(f"Error loading defaults: {e}")
-                logging.warning("[mode_manager.py:138] silenced: %s", e)
+                logging.warning("silenced: %s", e)
 
     def setup_shortcuts(self):
         """Setup keyboard shortcuts for grouping etc."""
@@ -236,7 +236,7 @@ class ModeManager(QObject):
             try:
                 btn.clicked.disconnect()
             except Exception as _e:
-                logging.warning("[mode_manager.py:192] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
             btn.clicked.connect(target)
         else:
             print("Error: init_manager missing 'cleanup_button'")
@@ -246,7 +246,7 @@ class ModeManager(QObject):
             try:
                 cleanup_action.triggered.disconnect()
             except Exception as _e:
-                logging.warning("[mode_manager.py:202] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
             cleanup_action.triggered.connect(target)
         else:
             print("Error: 'Clean Up 2D' action not found in menu")
@@ -1140,7 +1140,7 @@ class ModeManager(QObject):
                     )
                     f = c.charFormat().font()
             except Exception as _e:
-                logging.warning("[mode_manager.py:1061] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             idx = self.font_combo.findText(f.family())
             if idx >= 0:
@@ -1173,7 +1173,7 @@ class ModeManager(QObject):
             except TypeError:
                 pass  # not connected — expected
             except Exception as _e:
-                logging.warning("[mode_manager.py:1088] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
             first_text.cursorChanged.connect(self.sync_property_toolbar)
         else:
             self.font_combo.setEnabled(False)
@@ -1204,9 +1204,9 @@ class ModeManager(QObject):
                 except TypeError:
                     pass  # not connected — expected
                 except (AttributeError, RuntimeError) as _e:
-                    logging.warning("[mode_manager.py:1114] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
         except (AttributeError, RuntimeError) as _e:
-            logging.warning("[mode_manager.py:1116] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
     def _apply_text_format_property(self, property_name):
         """Helper to apply a specific text property safely."""
@@ -1300,7 +1300,7 @@ class ModeManager(QObject):
                 self.sync_property_toolbar()
 
         except Exception as e:
-            logging.warning("[mode_manager.py:1212] silenced: %s", e)
+            logging.warning("silenced: %s", e)
 
     def apply_properties(self):
         if self._updating_props:
@@ -1596,7 +1596,7 @@ class ModeManager(QObject):
                                     current_style = item.head_style
                                 break
             except Exception as _e:
-                logging.warning("[mode_manager.py:1437] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             # Determine if we should show straight or curved icons based on the tool
             icon_type = "curved" if "curved" in tool_name else "straight"
@@ -1663,7 +1663,7 @@ class ModeManager(QObject):
                             neg_style = item.negation_style
                             break
             except Exception as _e:
-                logging.warning("[mode_manager.py:1479] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             # Slash
             act_slash = menu.addAction(
@@ -1718,7 +1718,7 @@ class ModeManager(QObject):
                             curr_type = item.bracket_type
                             break
             except Exception as _e:
-                logging.warning("[mode_manager.py:1516] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             act_sq = menu.addAction("Square [ ]")
             act_sq.setCheckable(True)
@@ -1780,7 +1780,7 @@ class ModeManager(QObject):
                             curr_style = getattr(item, "line_style", "solid")
                             break
             except Exception as _e:
-                logging.warning("[mode_manager.py:1575] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             variants = [
                 ("Solid Rectangle", "rectangle", "solid"),
@@ -1817,7 +1817,7 @@ class ModeManager(QObject):
                         if modified:
                             self.main_window.edit_actions_manager.push_undo_state()
                 except Exception as _e:
-                    logging.warning("[mode_manager.py:1607] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
 
             act_chem.triggered.connect(format_chem)
             menu.addSeparator()
@@ -1934,7 +1934,7 @@ class ModeManager(QObject):
                         event.accept()
                         return True
                 except Exception as _e:
-                    logging.warning("[mode_manager.py:1712] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
         return super().eventFilter(obj, event)
 
     def disable_main_window_shortcuts(self):
@@ -1980,7 +1980,7 @@ class ModeManager(QObject):
                     try:
                         action.setEnabled(True)
                     except Exception as _e:
-                        logging.warning("[mode_manager.py:1752] silenced: %s", _e)
+                        logging.warning("silenced: %s", _e)
                 self._disabled_actions_state = []
 
             # 2. Remove Event Filter
@@ -2341,7 +2341,7 @@ class ModeManager(QObject):
             if modified:
                 self.main_window.edit_actions_manager.push_undo_state()
         except Exception as _e:
-            logging.warning("[mode_manager.py:2122] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
     def set_curved_head_style(self, style):
         try:
@@ -3311,12 +3311,19 @@ class ModeManager(QObject):
                         new_id = scene.create_atom(
                             symbol, pos, charge=charge, radical=radical
                         )
-                        if new_id and new_id in self.main_window.data.atoms:
-                            new_atom_item = self.main_window.data.atoms[new_id]["item"]
-                            old_to_new_atom[atom_id] = new_atom_item
-                            new_items.append(new_atom_item)
+                        if new_id:
+                            new_atom_item = (
+                                scene.atom_items.get(new_id, None)
+                                if hasattr(scene, "atom_items")
+                                else self.main_window.data.atoms[new_id].get(
+                                    "item", None
+                                )
+                            )
+                            if new_atom_item:
+                                old_to_new_atom[atom_id] = new_atom_item
+                                new_items.append(new_atom_item)
                     except Exception as _e:
-                        logging.warning("[mode_manager.py:3004] silenced: %s", _e)
+                        logging.warning("silenced: %s", _e)
 
                 # Create bonds between the new atoms
                 for (id1, id2), bond_data in list(self.main_window.data.bonds.items()):
@@ -3334,11 +3341,9 @@ class ModeManager(QObject):
                                     bond_stereo=stereo,
                                 )
                             except Exception as _e:
-                                logging.warning(
-                                    "[mode_manager.py:3017] silenced: %s", _e
-                                )
+                                logging.warning("silenced: %s", _e)
             except Exception as _e:
-                logging.warning("[mode_manager.py:3019] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
         # === 2. Handle Reaction Items ===
         snapshot = []
@@ -3536,7 +3541,7 @@ class ModeManager(QObject):
 
             except Exception as e:
                 # print(f"Error duplicating item {item_type}: {e}")
-                logging.warning("[mode_manager.py:3167] silenced: %s", e)
+                logging.warning("silenced: %s", e)
 
         return new_items
         """Copy selected items to system clipboard."""

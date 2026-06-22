@@ -209,7 +209,7 @@ class InteractionHandler(QObject):
                     ):
                         return False
             except Exception as _e:
-                logging.warning("[interaction.py:166] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             # Check for clickable items
             top_item = None

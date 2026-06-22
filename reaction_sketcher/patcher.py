@@ -130,22 +130,22 @@ def apply_core_patches(main_window, context=None):
             try:
                 AtomItem = sys.modules[mod_name].AtomItem
             except Exception as _e:
-                logging.warning("[patcher.py:112] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
         if mod_name.endswith("modules.bond_item") or mod_name.endswith("ui.bond_item"):
             try:
                 BondItem = sys.modules[mod_name].BondItem
             except Exception as _e:
-                logging.warning("[patcher.py:115] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
         if mod_name.endswith("modules.main_window_ui_manager"):
             try:
                 MainWindowUiManager = sys.modules[mod_name].MainWindowUiManager
             except Exception as _e:
-                logging.warning("[patcher.py:118] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
         if mod_name.endswith("ui.ui_manager") and MainWindowUiManager is None:
             try:
                 MainWindowUiManager = sys.modules[mod_name].UIManager
             except Exception as _e:
-                logging.warning("[patcher.py:121] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
     # Fallback to instance inspection if available (Safest)
     if hasattr(main_window, "ui_manager") and MainWindowUiManager is None:
@@ -223,7 +223,7 @@ def apply_core_patches(main_window, context=None):
             try:
                 rmm._handle_main_mode_change(mode_str)
             except Exception as _e:
-                logging.warning("[patcher.py:185] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
     patch_core(MainWindowUiManager, "set_mode", patched_set_mode)
 
@@ -282,14 +282,14 @@ def apply_core_patches(main_window, context=None):
                         )
                     except (TypeError, RuntimeError) as _e:
                         # TypeError if not connected, RuntimeError if C++ object deleted
-                        logging.debug("[patcher.py:205] silenced: %s", _e)
+                        logging.debug("silenced: %s", _e)
 
                     # Connect our sync visual slot
                     main_window.scene.selectionChanged.connect(
                         rmm._sync_selection_visuals
                     )
             except Exception as _e:
-                logging.warning("[patcher.py:211] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
     def patched_bond_bounding_rect(self):
         line = self.get_line_in_local_coords()
@@ -302,7 +302,7 @@ def apply_core_patches(main_window, context=None):
                 if win and hasattr(win, "settings"):
                     settings = win.settings
         except Exception as _e:
-            logging.warning("[patcher.py:224] silenced: %s", _e)
+            logging.warning("silenced: %s", _e)
 
         if settings:
             if getattr(self, "order", 1) == 3:
@@ -677,7 +677,7 @@ def apply_core_patches(main_window, context=None):
                     if item.scene() == scene:
                         scene.removeItem(item)
                 except Exception as _e:
-                    logging.warning("[patcher.py:485] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
 
             # If we only had reaction items, we must still push undo state
             if not core_items_to_delete:
@@ -687,7 +687,7 @@ def apply_core_patches(main_window, context=None):
                     elif main_window:
                         main_window.edit_actions_manager.push_undo_state()
                 except Exception as _e:
-                    logging.warning("[patcher.py:495] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 return True
 
         # 3. Call original delete_items for Atoms/Bonds
@@ -810,7 +810,7 @@ def apply_core_patches(main_window, context=None):
                 ):
                     is_svg = True
             except Exception as _e:
-                logging.warning("[patcher.py:593] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             if is_svg:
                 # SVG: Use background color from settings to hide bonds (Clear mode fails in SVG)
@@ -824,7 +824,7 @@ def apply_core_patches(main_window, context=None):
                             )
                             bg_color = QColor(bg_color_str)
                 except Exception as _e:
-                    logging.warning("[patcher.py:604] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 painter.setBrush(bg_color)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(bg_rect)
@@ -899,7 +899,7 @@ def apply_core_patches(main_window, context=None):
                                 bond_col = win.settings.get("bond_color_2d", "#222222")
                                 color = QColor(bond_col)
                 except Exception as _e:
-                    logging.warning("[patcher.py:658] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
 
                 if getattr(self, "color", None) is not None and self.color:
                     c = self.color
@@ -1220,7 +1220,7 @@ def apply_core_patches(main_window, context=None):
                     if rd_atom.HasProp("_original_atom_id"):
                         return rd_atom.GetIntProp("_original_atom_id")
                 except Exception as _e:
-                    logging.warning("[patcher.py:928] silenced: %s", _e)
+                    logging.warning("silenced: %s", _e)
                 try:
                     return rd_atom.GetIntProp("atom_id")
                 except Exception:
@@ -1231,7 +1231,7 @@ def apply_core_patches(main_window, context=None):
                     try:
                         return atom_item.scenePos()
                     except Exception as _e:
-                        logging.warning("[patcher.py:939] silenced: %s", _e)
+                        logging.warning("silenced: %s", _e)
                 return atom_item.pos()
 
             def set_atom_scene_pos(atom_item, target_scene_pos):
@@ -1298,7 +1298,11 @@ def apply_core_patches(main_window, context=None):
                     rd_atom = mol.GetAtomWithIdx(idx)
                     aid = resolve_atom_id(rd_atom, idx)
                     atom_entry = data.atoms.get(aid, None)
-                    atom_item = atom_entry.get("item", None) if atom_entry else None
+                    atom_item = None
+                    if scene and hasattr(scene, "atom_items"):
+                        atom_item = scene.atom_items.get(aid, None)
+                    if atom_item is None and atom_entry:
+                        atom_item = atom_entry.get("item", None)
                     if atom_item is None:
                         continue
                     pos = atom_scene_pos(atom_item)
@@ -1336,7 +1340,11 @@ def apply_core_patches(main_window, context=None):
                     rd_atom = mol.GetAtomWithIdx(idx)
                     aid = resolve_atom_id(rd_atom, idx)
                     atom_entry = data.atoms.get(aid, None)
-                    atom_item = atom_entry.get("item", None) if atom_entry else None
+                    atom_item = None
+                    if scene and hasattr(scene, "atom_items"):
+                        atom_item = scene.atom_items.get(aid, None)
+                    if atom_item is None and atom_entry:
+                        atom_item = atom_entry.get("item", None)
                     if atom_item is None:
                         continue
 
@@ -1354,9 +1362,7 @@ def apply_core_patches(main_window, context=None):
                 updated_count += 1
 
             _bond_items_dict = (
-                getattr(
-                    getattr(host, "init_manager", None), "scene", scene
-                ).bond_items
+                getattr(getattr(host, "init_manager", None), "scene", scene).bond_items
                 if scene
                 else {}
             )
@@ -1504,7 +1510,7 @@ def apply_core_patches(main_window, context=None):
                     if hasattr(main_window, "scene") and main_window.scene:
                         main_window.scene.update()
             except Exception as _e:
-                logging.warning("[patcher.py:1175] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
         patch_core(
             ComputeManager, "on_calculation_finished", patched_on_calculation_finished
@@ -1772,7 +1778,7 @@ def apply_core_patches(main_window, context=None):
                         + "-2d"
                     )
             except Exception as _e:
-                logging.warning("[patcher.py:1367] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(
                 self, "Export 2D as PNG", default_name, "PNG Files (*.png)"
@@ -1867,7 +1873,7 @@ def apply_core_patches(main_window, context=None):
                         + "-2d"
                     )
             except Exception as _e:
-                logging.warning("[patcher.py:1429] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(
                 self, "Export 2D as SVG", default_name, "SVG Files (*.svg)"

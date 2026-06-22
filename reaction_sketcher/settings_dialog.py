@@ -362,7 +362,7 @@ class AdvancedSettingsDialog(QDialog):
                     all_templates = data.get("templates", {})
                     self.templates = all_templates
             except Exception as _e:
-                logging.warning("[settings_dialog.py:324] silenced: %s", _e)
+                logging.warning("silenced: %s", _e)
 
         self.default_key = f"Default_{self.item_kind}"
 
@@ -495,7 +495,7 @@ class AdvancedSettingsDialog(QDialog):
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            logging.warning("[settings_dialog.py:443] silenced: %s", e)
+            logging.warning("silenced: %s", e)
 
     def get_settings(self):
         vals = self.get_current_values()

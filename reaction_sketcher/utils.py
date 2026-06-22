@@ -20,7 +20,7 @@ def sip_isdeleted_safe(obj):
 
         return sip.isdeleted(obj)
     except Exception as _e:
-        logging.warning("[utils.py:16] silenced: %s", _e)
+        logging.warning("silenced: %s", _e)
 
     # If we truly cannot check, assume it is NOT deleted to allow functionality.
     # The RuntimeError is worse than a potential crash in some cases,
