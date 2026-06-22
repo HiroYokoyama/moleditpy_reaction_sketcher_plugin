@@ -40,6 +40,8 @@ except ImportError:
 
 from .utils import sip_isdeleted_safe
 import logging
+from rdkit import Chem
+from rdkit.Chem import rdmolops, AllChem
 
 # Storage for original methods
 _core_originals = {}
