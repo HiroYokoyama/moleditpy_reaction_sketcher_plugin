@@ -66,9 +66,7 @@ The side toolbar provides categorized tools:
 - **Curve Control**: Use the orange control points to adjust the arc of curved arrows.
 - **Angle Snap**: Hold **Alt** to draw arrows at free angles.
 
-## License
+## License & Disclaimer
 This project is licensed under the GNU General Public License v3.0 (GPLv3).
 
-
-
-
+This is open-source software distributed under the GNU GPL v3 license. It is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate results for critical purposes (such as publications). If you encounter any bugs, please open an issue.
