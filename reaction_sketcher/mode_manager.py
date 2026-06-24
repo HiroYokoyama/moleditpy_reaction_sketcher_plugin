@@ -86,6 +86,8 @@ class ModeManager(QObject):
         self.width_spin = None
         self.color_btn = None
         self._updating_props = False
+        self._shortcuts_disabled = False
+        self._disabled_actions_state = []
         self.default_head_styles = {
             "arrow": "chevron",
             "arrow_eq": "harpoon",
@@ -228,7 +230,7 @@ class ModeManager(QObject):
         if mgr:
             target = mgr.clean_up_2d_structure
         else:
-            print("Error: main_window missing 'edit_actions_manager'")
+            logging.warning("Error: main_window missing 'edit_actions_manager'")
             return
 
         btn = getattr(self.main_window.init_manager, "cleanup_button", None)
@@ -239,7 +241,7 @@ class ModeManager(QObject):
                 logging.warning("silenced: %s", _e)
             btn.clicked.connect(target)
         else:
-            print("Error: init_manager missing 'cleanup_button'")
+            logging.warning("Error: init_manager missing 'cleanup_button'")
 
         cleanup_action = self._find_menu_action("Clean Up 2D")
         if cleanup_action is not None:
@@ -249,7 +251,7 @@ class ModeManager(QObject):
                 logging.warning("silenced: %s", _e)
             cleanup_action.triggered.connect(target)
         else:
-            print("Error: 'Clean Up 2D' action not found in menu")
+            logging.warning("Error: 'Clean Up 2D' action not found in menu")
 
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
@@ -1794,8 +1796,8 @@ class ModeManager(QObject):
                 act.setCheckable(True)
                 act.setChecked(curr_shape == stype and curr_style == lstyle)
 
-                def make_cb(s, l):
-                    return lambda: self.set_circle_variant(s, l)
+                def make_cb(s, ls):
+                    return lambda: self.set_circle_variant(s, ls)
 
                 act.triggered.connect(make_cb(stype, lstyle))
 
@@ -1849,8 +1851,8 @@ class ModeManager(QObject):
                         )
 
                         self.main_window.edit_actions_manager.push_undo_state()
-                except Exception:
-                    pass  # For debugging, can be removed
+                except Exception as _e:
+                    logging.warning("silenced: %s", _e)
 
             act_group.triggered.connect(group_items)
 
@@ -1876,8 +1878,8 @@ class ModeManager(QObject):
 
                         if ungrouped_count > 0:
                             self.main_window.edit_actions_manager.push_undo_state()
-                except Exception:
-                    pass  # For debugging, can be removed
+                except Exception as _e:
+                    logging.warning("silenced: %s", _e)
 
             act_ungroup.triggered.connect(ungroup_items)
             menu.addSeparator()
@@ -2223,7 +2225,7 @@ class ModeManager(QObject):
                     modified = True
 
                 except Exception as e:
-                    print(f"Error converting item: {e}")
+                    logging.warning("Error converting item: %s", e)
                     # Do NOT remove the old item if creation failed
 
             else:
@@ -2929,9 +2931,9 @@ class ModeManager(QObject):
             if push_undo_func:
                 push_undo_func()
             else:
-                print("Error: edit_actions_manager missing 'push_undo_state'")
+                logging.warning("Error: edit_actions_manager missing 'push_undo_state'")
         else:
-            print("Error: main_window missing 'edit_actions_manager'")
+            logging.warning("Error: main_window missing 'edit_actions_manager'")
 
     def distribute_items(self, axis):
         """Distribute selected items evenly (Groups/Molecules Rigidly)."""
@@ -3029,9 +3031,9 @@ class ModeManager(QObject):
             if push_undo_func:
                 push_undo_func()
             else:
-                print("Error: edit_actions_manager missing 'push_undo_state'")
+                logging.warning("Error: edit_actions_manager missing 'push_undo_state'")
         else:
-            print("Error: main_window missing 'edit_actions_manager'")
+            logging.warning("Error: main_window missing 'edit_actions_manager'")
 
     def toggle_subscript(self):
         self._toggle_text_format("sub")
@@ -3600,7 +3602,7 @@ class ModeManager(QObject):
                 if delete_func:
                     delete_func(items)
                 else:
-                    print("Error: scene missing 'delete_items'")
+                    logging.warning("Error: scene missing 'delete_items'")
 
     def paste_reaction_items(self):
         """Paste items from system clipboard."""

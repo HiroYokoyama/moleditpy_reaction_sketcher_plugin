@@ -106,8 +106,7 @@ def apply_core_patches(main_window, context=None):
         ComputeManager = main_window.compute_manager.__class__
 
     # Resolve ExportManager (V3: export_manager)
-    if hasattr(main_window, "export_manager"):
-        main_window.export_manager.__class__
+    # (ExportManager is resolved below via import)
 
     # AtomItem is resolved below via sys.modules
 
@@ -415,8 +414,6 @@ def apply_core_patches(main_window, context=None):
     # --- Copy Selection ---
     def patched_copy_selection(self):
         try:
-            pass
-
             selected_items = [
                 i for i in self.host.scene.selectedItems() if not sip_isdeleted_safe(i)
             ]
@@ -509,7 +506,8 @@ def apply_core_patches(main_window, context=None):
                             ]
                     fragment_rs_items.append(d)
 
-            import io, pickle
+            import io
+            import pickle
 
             data_to_pickle = {
                 "atoms": fragment_atoms,
@@ -545,7 +543,8 @@ def apply_core_patches(main_window, context=None):
             if not mime_data or not mime_data.hasFormat(CLIPBOARD_MIME_TYPE):
                 return
 
-            import io, pickle
+            import io
+            import pickle
 
             byte_array = mime_data.data(CLIPBOARD_MIME_TYPE)
             buffer = io.BytesIO(byte_array)
@@ -648,58 +647,6 @@ def apply_core_patches(main_window, context=None):
         lambda self: self.edit_actions_manager.delete_selection(),
     )
 
-    # --- Scene Delete Items ---
-    def patched_scene_delete_items(self, items_to_delete):
-        """Patched delete_items to filter and delete reaction items manually before calling original."""
-        if not items_to_delete:
-            return False
-
-        # 1. Identify Reaction Items (generic QGraphicsItems that are NOT Atom/Bond)
-        #    Reaction items usually have 'create_json_data' or are just standard items added by us.
-        #    To be safe, we look for items that are NOT AtomItem or BondItem.
-        reaction_items_to_delete = []
-        core_items_to_delete = []
-
-        for item in items_to_delete:
-            if sip_isdeleted_safe(item):
-                continue
-            if isinstance(item, (AtomItem, BondItem)):
-                core_items_to_delete.append(item)
-            else:
-                reaction_items_to_delete.append(item)
-
-        # 2. Delete Reaction Items manually
-        #    Since the main app's delete_items might ignore or not handle them well if they aren't atoms/bonds.
-        if reaction_items_to_delete:
-            scene = self
-            for item in reaction_items_to_delete:
-                try:
-                    if item.scene() == scene:
-                        scene.removeItem(item)
-                except Exception as _e:
-                    logging.warning("silenced: %s", _e)
-
-            # If we only had reaction items, we must still push undo state
-            if not core_items_to_delete:
-                try:
-                    if hasattr(scene, "push_undo_state"):
-                        scene.push_undo_state()
-                    elif main_window:
-                        main_window.edit_actions_manager.push_undo_state()
-                except Exception as _e:
-                    logging.warning("silenced: %s", _e)
-                return True
-
-        # 3. Call original delete_items for Atoms/Bonds
-        if (MoleculeScene, "delete_items") in _core_originals:
-            return _core_originals[(MoleculeScene, "delete_items")](
-                self, set(core_items_to_delete)
-            )
-
-        return False
-
-    patch_core(MoleculeScene, "delete_items", patched_scene_delete_items)
-
     def patched_atom_paint(self, painter, option, widget):
         # ALWAYS use patched paint logic to ensure visibility and background handling
 
@@ -765,7 +712,7 @@ def apply_core_patches(main_window, context=None):
                         other_atom = bond.atom1 if bond.atom2 is self else bond.atom2
                         if other_atom:
                             total_dx += other_atom.pos().x() - my_pos_x
-                    except:
+                    except (RuntimeError, AttributeError):
                         continue
                 if total_dx > 0:
                     flip_text = True
@@ -1007,8 +954,6 @@ def apply_core_patches(main_window, context=None):
 
     # --- Delete Items (Global) ---
     def patched_delete_items(self, items_to_delete):
-        pass
-
         core_items = []
         reaction_items = []
 
@@ -1126,7 +1071,7 @@ def apply_core_patches(main_window, context=None):
                 if rotate_func:
                     rotate_func(center, angle_degrees)
                 else:
-                    print(f"Error: item {item} missing 'rotate_around'")
+                    logging.warning("Error: item %s missing 'rotate_around'", item)
 
             # Update bonds
             self.host.scene.update_connected_bonds(target_atoms)
@@ -1301,8 +1246,6 @@ def apply_core_patches(main_window, context=None):
                     atom_item = None
                     if scene and hasattr(scene, "atom_items"):
                         atom_item = scene.atom_items.get(aid, None)
-                    if atom_item is None and atom_entry:
-                        atom_item = atom_entry.get("item", None)
                     if atom_item is None:
                         continue
                     pos = atom_scene_pos(atom_item)
@@ -1343,8 +1286,6 @@ def apply_core_patches(main_window, context=None):
                     atom_item = None
                     if scene and hasattr(scene, "atom_items"):
                         atom_item = scene.atom_items.get(aid, None)
-                    if atom_item is None and atom_entry:
-                        atom_item = atom_entry.get("item", None)
                     if atom_item is None:
                         continue
 
@@ -1477,7 +1418,7 @@ def apply_core_patches(main_window, context=None):
                     item = scene.bond_items.get(k)
                     if item:
                         item.group_id = gid
-            except:
+            except Exception:
                 continue
 
         for item in list(self.host.scene.items()):
@@ -1647,7 +1588,7 @@ def apply_core_patches(main_window, context=None):
         if h_func:
             h_func()
         else:
-            print(
+            logging.warning(
                 "Error: missing 'update_implicit_hydrogens' on self and state_manager"
             )
 
@@ -1656,14 +1597,14 @@ def apply_core_patches(main_window, context=None):
         if r_func:
             r_func()
         else:
-            print("Error: missing 'update_realtime_info' on state_manager")
+            logging.warning("Error: missing 'update_realtime_info' on state_manager")
 
         # 3. Update Undo Redo Actions (On self if EditActionsManager)
         u_func = getattr(self, "update_undo_redo_actions", None)
         if u_func:
             u_func()
         else:
-            print("Error: missing 'update_undo_redo_actions' on self")
+            logging.warning("Error: missing 'update_undo_redo_actions' on self")
 
     if MainWindowEditActions:
         patch_core(MainWindowEditActions, "push_undo_state", patched_push_undo_state)
@@ -1673,10 +1614,10 @@ def apply_core_patches(main_window, context=None):
     # --- MainWindowExport Patches (PNG/SVG/Clipboard) ---
     try:
         from modules.main_window_export import MainWindowExport
-    except:
+    except ImportError:
         try:
             from moleditpy.ui.export_logic import ExportManager as MainWindowExport
-        except:
+        except ImportError:
             MainWindowExport = None
 
     if MainWindowExport:
@@ -1959,7 +1900,7 @@ def apply_core_patches(main_window, context=None):
             # Clear selection to avoid highlights in export
             selected_items = self.host.scene.selectedItems()
             self.host.scene.clearSelection()
-            self.original_focus = self.host.scene.focusItem()
+            original_focus = self.host.scene.focusItem()
             self.host.scene.setFocusItem(None)
 
             painter = QPainter()
@@ -1967,6 +1908,8 @@ def apply_core_patches(main_window, context=None):
                 self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items:
                     item.setSelected(True)
+                if original_focus:
+                    original_focus.setFocus()
                 if context:
                     context.show_status_message(
                         "Failed to start SVG painter. Check file access."
@@ -1984,14 +1927,10 @@ def apply_core_patches(main_window, context=None):
                 painter.end()
                 self.host.scene.setBackgroundBrush(original_background)
                 # Restore selection
-                # Restore selection
                 for item in selected_items:
                     item.setSelected(True)
-                if (
-                    getattr(self, "original_focus", None) is not None
-                    and self.original_focus
-                ):
-                    self.original_focus.setFocus()
+                if original_focus:
+                    original_focus.setFocus()
             if context:
                 context.show_status_message(f"2D view exported to {filePath}")
 
@@ -2108,7 +2047,7 @@ def apply_core_patches(main_window, context=None):
 
             # Clear selection to avoid highlights
             self.host.scene.clearSelection()
-            self.original_focus = self.host.scene.focusItem()
+            original_focus = self.host.scene.focusItem()
             self.host.scene.setFocusItem(None)
 
             painter = QPainter()
@@ -2116,6 +2055,8 @@ def apply_core_patches(main_window, context=None):
                 self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items:
                     item.setSelected(True)
+                if original_focus:
+                    original_focus.setFocus()
                 return
 
             try:
@@ -2129,11 +2070,8 @@ def apply_core_patches(main_window, context=None):
                 self.host.scene.setBackgroundBrush(original_background)
                 for item in selected_items:
                     item.setSelected(True)
-                if (
-                    getattr(self, "original_focus", None) is not None
-                    and self.original_focus
-                ):
-                    self.original_focus.setFocus()
+                if original_focus:
+                    original_focus.setFocus()
 
             mime = QMimeData()
             mime.setData("image/svg+xml", buffer.data())
@@ -2156,17 +2094,15 @@ def apply_core_patches(main_window, context=None):
                 self.copy_2d_action.triggered.connect(self.copy_2d_image_to_clipboard)
                 self.addAction(self.copy_2d_action)
 
-        # We can hook into an existing initialization or just call it if we have 'main_window'
-        if hasattr(main_window, "setup_ui") or True:  # Just apply directly
-            patched_setup_copy_shortcut(main_window)
+        patched_setup_copy_shortcut(main_window)
 
         # --- ModeManager Toolbar Injection ---
         try:
             from .mode_manager import ModeManager
-        except:
+        except ImportError:
             try:
                 from plugins.reaction_sketcher.mode_manager import ModeManager
-            except:
+            except ImportError:
                 ModeManager = None
 
         if ModeManager:

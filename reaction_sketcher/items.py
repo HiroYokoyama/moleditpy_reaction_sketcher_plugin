@@ -912,7 +912,6 @@ class ReactionEquilibriumArrowItem(ReactionArrowItem):
         painter.drawLine(draw_l2_start, l2_end)
 
         # heads
-        head_len = self.head_size
         head_angle = self.head_angle
         painter.setBrush(self.pen_color)
         painter.setPen(QPen(self.pen_color, 1))
@@ -2695,14 +2694,6 @@ class ReactionTextItem(QGraphicsTextItem):
                     if not self.scene():
                         return
 
-                    # Detect atoms nearby
-                    other_atoms = [
-                        i
-                        for i in self.scene().items()
-                        if not sip_isdeleted_safe(i)
-                        and hasattr(i, "atom_id")
-                        and i != self
-                    ]
                     continue
 
                 if format_type == "sub":
@@ -2984,7 +2975,7 @@ class ReactionGroupOverlay(QGraphicsItem):
                         r = item.sceneBoundingRect()
                     else:
                         r = r.united(item.sceneBoundingRect())
-            except:
+            except RuntimeError:
                 continue
 
         # Add padding

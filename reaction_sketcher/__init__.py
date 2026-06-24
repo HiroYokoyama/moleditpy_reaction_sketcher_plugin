@@ -12,7 +12,7 @@
 """
 Reaction Sketcher Plugin
 Adds 2D reaction drawing tools to MoleditPy.
-Refactored for MoleditPy V3.0 API.
+Refactored for MoleditPy V4.0 API.
 """
 
 from functools import partial
@@ -42,7 +42,7 @@ from .utils import load_handler_core
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "3.0.2"
+PLUGIN_VERSION = "3.1.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
