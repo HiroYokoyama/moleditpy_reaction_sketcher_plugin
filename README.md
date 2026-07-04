@@ -1,6 +1,7 @@
-# Reaction Sketcher Plugin for MoleditPy
+﻿# Reaction Sketcher Plugin for MoleditPy
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml)
+[![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_reaction_sketcher_plugin/total)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/releases)
 
 ![Reaction Sketcher](img/main.png)
 
@@ -20,7 +21,7 @@ A comprehensive chemical reaction sketching tool for MoleditPy, allowing users t
   - Distribute items evenly: Horizontally or Vertically.
 - **Enhanced Properties Toolbar**:
   - **Typography**: Change Font family, Size, and Style (Bold, Italic, Underline).
-  - **Chemistry Mode**: Automatic subscripting for chemical formulas (e.g., `H2O` -> `H₂O`).
+  - **Chemistry Mode**: Automatic subscripting for chemical formulas (e.g., `H2O` -> `H竄０`).
   - **Styling**: Quick access to Line Width and Color for all reaction items.
 - **Enhanced Clipboard**: Copy and paste molecules alongside reaction items seamlessly.
 - **Undo/Redo Support**: Fully integrated with the main application's undo stack.
