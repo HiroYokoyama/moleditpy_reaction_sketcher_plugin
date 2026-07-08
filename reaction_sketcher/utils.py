@@ -256,9 +256,9 @@ def load_handler_core(main_window, reaction_items):
                 f.setUnderline(item_data.get("underline", False))
                 item.setFont(f)
 
-        if "rotation" in item_data:
-            item.setRotation(item_data["rotation"])
         if item:
+            if "rotation" in item_data:
+                item.setRotation(item_data["rotation"])
             if "group_id" in item_data:
                 item.group_id = item_data["group_id"]
             main_window.scene.addItem(item)

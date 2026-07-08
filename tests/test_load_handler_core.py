@@ -150,6 +150,16 @@ class TestLoadHandlerCoreRobustness:
         load_handler_core(mock_main_window, data)
         assert len(mock_scene.items()) >= 2  # plus + minus
 
+    def test_unknown_type_with_rotation_does_not_raise(
+        self, mock_main_window, mock_scene
+    ):
+        """Unknown item types combined with a 'rotation' key must not crash:
+        item stays None for unrecognized types, so setRotation() must be
+        guarded the same way group_id/addItem are."""
+        d = {"type": "nonexistent_item_type", "x": 0, "y": 0, "rotation": 45.0}
+        load_handler_core(mock_main_window, [d])  # should not raise
+        assert len(mock_scene.items()) == 0
+
     def test_item_with_rotation(self, mock_main_window, mock_scene):
         d = {
             "type": "arrow",
