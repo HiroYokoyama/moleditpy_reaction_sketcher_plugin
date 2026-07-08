@@ -200,7 +200,7 @@ def initialize(context):
         state_mgr = getattr(main_window, "state_manager", None)
         mol_data = state_mgr.data if state_mgr else getattr(main_window, "data", None)
 
-        if mol_data and context.scene:
+        if isinstance(data, dict) and mol_data and context.scene:
             rs_cols = data.get("rs_colors", {})
             ac_data = rs_cols.get("atoms", {})
             for aid_str, col in ac_data.items():

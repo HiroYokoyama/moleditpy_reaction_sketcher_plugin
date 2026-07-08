@@ -203,6 +203,22 @@ class TestLoadHandler:
         handler = self._get_load_handler()
         handler([])  # should not raise
 
+    def test_nonempty_list_data_does_not_raise(self):
+        """Legacy list format with actual items should not crash when restoring
+        molecular colors/groups (data.get() is only valid for dict payloads)."""
+        handler = self._get_load_handler()
+        handler(
+            [
+                {
+                    "type": "arrow",
+                    "start_x": 0,
+                    "start_y": 0,
+                    "end_x": 10,
+                    "end_y": 0,
+                }
+            ]
+        )  # should not raise
+
 
 class TestResetHandler:
     def test_reset_clears_reaction_items(self):
