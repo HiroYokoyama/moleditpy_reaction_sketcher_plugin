@@ -219,7 +219,7 @@ def initialize(context):
                     if item:
                         item.pen_color = QColor(col)
                         item.update()
-                except Exception as _e:
+                except (ValueError, KeyError) as _e:
                     logging.warning("silenced: %s", _e)
 
             groups = data.get("groups", {})
@@ -238,7 +238,7 @@ def initialize(context):
                     item = context.scene.bond_items.get(k)
                     if item:
                         item.group_id = gid
-                except Exception as _e:
+                except (ValueError, KeyError) as _e:
                     logging.warning("silenced: %s", _e)
 
         if should_enter_mode and not mode_manager.is_reaction_mode:
