@@ -2551,9 +2551,27 @@ class ReactionTextItem(QGraphicsTextItem):
         # Restore Movable flag
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
 
+        # ALWAYS restore the main-window shortcuts that edit-entry disabled,
+        # before any early return. Capturing mw while the scene ref is still
+        # valid. Otherwise the empty-text auto-delete path below returns early
+        # and leaves Save/undo/etc. permanently disabled with no text item left
+        # to trigger a re-enable.
+        mw = get_main_window(self.scene())
+        mgr = None
+        if mw is not None:
+            mgr = getattr(mw, "_reaction_mode_manager", None)
+            if mgr is None and hasattr(mw, "ui_manager"):
+                mgr = getattr(mw.ui_manager, "_reaction_mode_manager", None)
+        if mgr is not None:
+            try:
+                mgr.enable_main_window_shortcuts()
+            except (RuntimeError, AttributeError) as _e:
+                logging.warning("silenced: %s", _e)
+
         # Auto-delete if empty
         if not self.toPlainText().strip():
-            self.scene().removeItem(self)
+            if self.scene():
+                self.scene().removeItem(self)
             return
 
         # Clear selection to avoid confusion
@@ -2565,15 +2583,8 @@ class ReactionTextItem(QGraphicsTextItem):
         if self.scene() and hasattr(self.scene(), "on_text_edited"):
             self.scene().on_text_edited(self)
         try:
-            mw = get_main_window(self.scene())
             if mw:
                 mw.edit_actions_manager.push_undo_state()
-                if hasattr(mw, "_reaction_mode_manager"):
-                    mw._reaction_mode_manager.enable_main_window_shortcuts()
-                elif hasattr(mw, "ui_manager") and hasattr(
-                    mw.ui_manager, "_reaction_mode_manager"
-                ):
-                    mw.ui_manager._reaction_mode_manager.enable_main_window_shortcuts()
         except (RuntimeError, AttributeError) as _e:
             logging.warning("silenced: %s", _e)
 
