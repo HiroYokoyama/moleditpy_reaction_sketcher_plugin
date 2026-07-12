@@ -236,6 +236,8 @@ def load_handler_core(main_window, reaction_items):
                 item.shape_type = item_data["shape_type"]
             if "line_style" in item_data:
                 item.line_style = item_data["line_style"]
+            if item_data.get("fill_color") is not None:
+                item.fill_color = QColor(item_data["fill_color"])
 
         elif item_type == "text":
             item = ReactionTextItem(

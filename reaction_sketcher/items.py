@@ -2056,6 +2056,7 @@ class ReactionCircleItem(QGraphicsItem):
         self.pen_width = 2
         self.shape_type = "rectangle"  # "circle", "rectangle"
         self.line_style = "solid"  # "dashed", "solid"
+        self.fill_color = None  # None/transparent = outline-only (click-through)
 
         self.h_br = ReactionHandle(self, "bottom-right")
         self._initializing = True
@@ -2094,9 +2095,42 @@ class ReactionCircleItem(QGraphicsItem):
     def boundingRect(self):
         return self.rect.normalized().adjusted(-5, -5, 5, 5)
 
+    def _outline_path(self):
+        r = self.rect.normalized()
+        path = QPainterPath()
+        if self.shape_type == "rectangle":
+            path.addRect(r)
+        else:
+            path.addEllipse(r)
+        return path
+
+    def shape(self):
+        from PyQt6.QtGui import QPainterPathStroker
+
+        path = self._outline_path()
+
+        # If the frame is filled with an opaque colour, its whole interior is a
+        # legitimate click/selection target. When it is just an outline (the
+        # default), only the border should be hit-testable so that
+        # double-clicking a molecule drawn *inside* the frame selects the
+        # molecule rather than the surrounding rectangle/circle.
+        fill = getattr(self, "fill_color", None)
+        if fill is not None and QColor(fill).alpha() > 0:
+            return path
+
+        stroker = QPainterPathStroker()
+        stroker.setWidth(max(12, self.pen_width + 10))
+        return stroker.createStroke(path)
+
     def paint(self, painter, option, widget):
         r = self.rect.normalized()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        fill = getattr(self, "fill_color", None)
+        if fill is not None and QColor(fill).alpha() > 0:
+            painter.setBrush(QBrush(QColor(fill)))
+        else:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
 
         pen_style = (
             Qt.PenStyle.DashLine
@@ -2130,6 +2164,11 @@ class ReactionCircleItem(QGraphicsItem):
             "width": self.pen_width,
             "shape_type": getattr(self, "shape_type", "circle"),
             "line_style": self.line_style,
+            "fill_color": (
+                QColor(self.fill_color).name(QColor.NameFormat.HexArgb)
+                if getattr(self, "fill_color", None) is not None
+                else None
+            ),
             "group_id": self.group_id,
         }
 
