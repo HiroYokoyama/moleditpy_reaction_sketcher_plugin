@@ -172,22 +172,22 @@ def apply_core_patches(main_window, context=None):
         if mod_name.endswith("modules.atom_item") or mod_name.endswith("ui.atom_item"):
             try:
                 AtomItem = sys.modules[mod_name].AtomItem
-            except Exception as _e:
+            except AttributeError as _e:
                 logging.warning("silenced: %s", _e)
         if mod_name.endswith("modules.bond_item") or mod_name.endswith("ui.bond_item"):
             try:
                 BondItem = sys.modules[mod_name].BondItem
-            except Exception as _e:
+            except AttributeError as _e:
                 logging.warning("silenced: %s", _e)
         if mod_name.endswith("modules.main_window_ui_manager"):
             try:
                 MainWindowUiManager = sys.modules[mod_name].MainWindowUiManager
-            except Exception as _e:
+            except AttributeError as _e:
                 logging.warning("silenced: %s", _e)
         if mod_name.endswith("ui.ui_manager") and MainWindowUiManager is None:
             try:
                 MainWindowUiManager = sys.modules[mod_name].UIManager
-            except Exception as _e:
+            except AttributeError as _e:
                 logging.warning("silenced: %s", _e)
 
     # Fallback to instance inspection if available (Safest)
@@ -331,7 +331,7 @@ def apply_core_patches(main_window, context=None):
                     main_window.scene.selectionChanged.connect(
                         rmm._sync_selection_visuals
                     )
-            except Exception as _e:
+            except (RuntimeError, TypeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             # Enlarge the drawing canvas. The core app installs a small,
@@ -342,7 +342,7 @@ def apply_core_patches(main_window, context=None):
             # contains whatever content is already on the scene.
             try:
                 _ensure_large_canvas(main_window.scene)
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
     def patched_bond_bounding_rect(self):
@@ -355,7 +355,7 @@ def apply_core_patches(main_window, context=None):
                 win = self.scene().views()[0].window()
                 if win and hasattr(win, "settings"):
                     settings = win.settings
-        except Exception as _e:
+        except (RuntimeError, AttributeError) as _e:
             logging.warning("silenced: %s", _e)
 
         if settings:
@@ -830,7 +830,7 @@ def apply_core_patches(main_window, context=None):
                     and type(painter.device()).__name__ == "QSvgGenerator"
                 ):
                     is_svg = True
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             if is_svg:
@@ -844,7 +844,7 @@ def apply_core_patches(main_window, context=None):
                                 "background_color_2d", "#FFFFFF"
                             )
                             bg_color = QColor(bg_color_str)
-                except Exception as _e:
+                except (RuntimeError, AttributeError, KeyError) as _e:
                     logging.warning("silenced: %s", _e)
                 painter.setBrush(bg_color)
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -919,7 +919,7 @@ def apply_core_patches(main_window, context=None):
                             ):
                                 bond_col = win.settings.get("bond_color_2d", "#222222")
                                 color = QColor(bond_col)
-                except Exception as _e:
+                except (RuntimeError, AttributeError, KeyError) as _e:
                     logging.warning("silenced: %s", _e)
 
                 if getattr(self, "color", None) is not None and self.color:
@@ -1259,7 +1259,7 @@ def apply_core_patches(main_window, context=None):
                 if hasattr(atom_item, "scenePos"):
                     try:
                         return atom_item.scenePos()
-                    except Exception as _e:
+                    except (RuntimeError, AttributeError) as _e:
                         logging.warning("silenced: %s", _e)
                 return atom_item.pos()
 
@@ -1502,7 +1502,8 @@ def apply_core_patches(main_window, context=None):
                     item = scene.bond_items.get(k)
                     if item:
                         item.group_id = gid
-            except Exception:
+            except (ValueError, AttributeError, KeyError) as _e:
+                logging.debug("silenced: %s", _e)
                 continue
 
         for item in list(self.host.scene.items()):
@@ -1534,7 +1535,7 @@ def apply_core_patches(main_window, context=None):
                     # after the molecular change
                     if hasattr(main_window, "scene") and main_window.scene:
                         main_window.scene.update()
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
         patch_core(
@@ -1796,7 +1797,7 @@ def apply_core_patches(main_window, context=None):
                         )[0]
                         + "-2d"
                     )
-            except Exception as _e:
+            except (AttributeError, TypeError, OSError) as _e:
                 logging.warning("silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(
@@ -1891,7 +1892,7 @@ def apply_core_patches(main_window, context=None):
                         )[0]
                         + "-2d"
                     )
-            except Exception as _e:
+            except (AttributeError, TypeError, OSError) as _e:
                 logging.warning("silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(
