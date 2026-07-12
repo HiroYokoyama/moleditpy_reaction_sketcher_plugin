@@ -43,6 +43,50 @@ import logging
 
 # Storage for original methods
 _core_originals = {}
+
+# Half-extent of the canvas the sketcher wants (scene spans -SIZE..+SIZE on
+# each axis, centred on the origin). Roughly 5x the core app's default area.
+_CANVAS_HALF_EXTENT = 20000.0
+# Extra margin kept around existing content when the canvas has to grow.
+_CANVAS_CONTENT_MARGIN = 4000.0
+
+
+def _ensure_large_canvas(scene):
+    """Give ``scene`` a large, origin-centred rect that also contains its items.
+
+    The core application sets a small, off-centre scene rect which clips large
+    reaction schemes. We widen it to a generous centred area and, if the scene
+    already holds content that extends further, grow the rect to include it
+    (plus a margin) so nothing is ever cut off.
+    """
+    if not scene or sip_isdeleted_safe(scene):
+        return
+
+    rect = QRectF(
+        -_CANVAS_HALF_EXTENT,
+        -_CANVAS_HALF_EXTENT,
+        2 * _CANVAS_HALF_EXTENT,
+        2 * _CANVAS_HALF_EXTENT,
+    )
+
+    try:
+        content = scene.itemsBoundingRect()
+    except (RuntimeError, AttributeError):
+        content = QRectF()
+
+    if content.isValid() and not content.isNull():
+        padded = content.adjusted(
+            -_CANVAS_CONTENT_MARGIN,
+            -_CANVAS_CONTENT_MARGIN,
+            _CANVAS_CONTENT_MARGIN,
+            _CANVAS_CONTENT_MARGIN,
+        )
+        rect = rect.united(padded)
+
+    # Only apply if we are actually growing the canvas, to avoid churn.
+    current = scene.sceneRect()
+    if not current.contains(rect):
+        scene.setSceneRect(rect.united(current))
 _interaction_originals = {}
 
 # Mime type for clipboard - fallback if not importable
@@ -287,6 +331,17 @@ def apply_core_patches(main_window, context=None):
                     main_window.scene.selectionChanged.connect(
                         rmm._sync_selection_visuals
                     )
+            except Exception as _e:
+                logging.warning("silenced: %s", _e)
+
+            # Enlarge the drawing canvas. The core app installs a small,
+            # off-centre scene rect (-4000,-4000,4000,4000 → only spans
+            # -4000..0 on each axis), which clips large reaction schemes and
+            # stops the user scrolling/placing items past the origin. Give the
+            # sketcher a big, properly-centred canvas and make sure it always
+            # contains whatever content is already on the scene.
+            try:
+                _ensure_large_canvas(main_window.scene)
             except Exception as _e:
                 logging.warning("silenced: %s", _e)
 
@@ -627,13 +682,32 @@ def apply_core_patches(main_window, context=None):
 
     # --- Select All ---
     def patched_select_all(self):
-        for item in self.host.scene.items():
-            if sip_isdeleted_safe(item):
-                continue
-            if hasattr(item, "create_json_data") or isinstance(
-                item, (AtomItem, BondItem)
-            ):
-                item.setSelected(True)
+        scene = self.host.scene
+        if not scene:
+            return
+        # Each setSelected() emits scene.selectionChanged, which drives the
+        # (O(n)) group-visual and property-toolbar syncs. Doing that per item
+        # makes Select All O(n^2) and janky on large sketches. Block the signal,
+        # select everything in one pass, then fire a single selectionChanged so
+        # the syncs run exactly once.
+        was_blocked = scene.signalsBlocked()
+        scene.blockSignals(True)
+        try:
+            for item in scene.items():
+                if sip_isdeleted_safe(item):
+                    continue
+                if hasattr(item, "create_json_data") or isinstance(
+                    item, (AtomItem, BondItem)
+                ):
+                    item.setSelected(True)
+        finally:
+            scene.blockSignals(was_blocked)
+        if not was_blocked:
+            # Blocking signals also suppressed the scene's 'changed' signal, so
+            # nudge the view to repaint the new selection highlights, then run
+            # the selection syncs once for the whole batch.
+            scene.update()
+            scene.selectionChanged.emit()
 
     patch_core(MainWindowEditActions, "select_all", patched_select_all)
 
@@ -1485,31 +1559,29 @@ def apply_core_patches(main_window, context=None):
         data = state_mgr.data
         host = state_mgr.host
 
+        # NOTE: Atom/bond pen colors are intentionally excluded from this dedup
+        # comparison. They are never written into the saved state (no
+        # rs_atom_colors/rs_bond_colors keys exist), so comparing live colors
+        # against the stored state made every push look "changed" and defeated
+        # deduplication — bloating the undo stack with identical snapshots and
+        # making Undo require several presses to visibly do anything.
         scene = getattr(host, "scene", None)
         atoms_data = {}
         for k, v in data.atoms.items():
             item = scene.atom_items.get(k) if scene else None
             pos_x = item.pos().x() if item else v["pos"][0]
             pos_y = item.pos().y() if item else v["pos"][1]
-            color_name = (
-                getattr(item, "pen_color", QColor()).name() if item else QColor().name()
-            )
             atoms_data[k] = (
                 v["symbol"],
                 pos_x,
                 pos_y,
                 v.get("charge", 0),
                 v.get("radical", 0),
-                color_name,
             )
 
         bonds_data = {}
         for k, v in data.bonds.items():
-            item = scene.bond_items.get(k) if scene else None
-            color_name = (
-                getattr(item, "pen_color", QColor()).name() if item else QColor().name()
-            )
-            bonds_data[k] = (v["order"], v.get("stereo", 0), color_name)
+            bonds_data[k] = (v["order"], v.get("stereo", 0))
 
         current_comp = {
             "atoms": atoms_data,
@@ -1529,8 +1601,6 @@ def apply_core_patches(main_window, context=None):
             last_state = self.undo_stack[-1]
             last_atoms = last_state.get("atoms", {})
             last_bonds = last_state.get("bonds", {})
-            last_acols = last_state.get("rs_atom_colors", {})
-            last_bcols = last_state.get("rs_bond_colors", {})
             last_agroups = last_state.get("rs_atom_groups", {})
             last_bgroups = last_state.get("rs_bond_groups", {})
 
@@ -1542,7 +1612,6 @@ def apply_core_patches(main_window, context=None):
                         v["pos"][1],
                         v.get("charge", 0),
                         v.get("radical", 0),
-                        last_acols.get(str(k), ""),
                     )
                     for k, v in last_atoms.items()
                 },
@@ -1550,7 +1619,6 @@ def apply_core_patches(main_window, context=None):
                     k: (
                         v["order"],
                         v.get("stereo", 0),
-                        last_bcols.get(f"{k[0]}-{k[1]}", ""),
                     )
                     for k, v in last_bonds.items()
                 },

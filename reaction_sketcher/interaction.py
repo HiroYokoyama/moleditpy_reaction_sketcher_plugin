@@ -666,6 +666,20 @@ class InteractionHandler(QObject):
                     if not sip_isdeleted_safe(i) and hasattr(i, "atom_id")
                 ]
                 if atoms:
+                    # Commit the dragged atom-item positions back into the
+                    # molecular data model. The drag loop only moves the QGraphics
+                    # items; without writing them back, get_current_state() (and so
+                    # the undo snapshot and save file) keeps the pre-drag
+                    # coordinates, and any later set_state_from_data
+                    # (undo/redo/save-load) snaps the molecule back to where it
+                    # was before the move. Mirrors the core scene behaviour.
+                    data = getattr(self.main_window, "data", None)
+                    if data is not None and hasattr(data, "set_atom_pos"):
+                        for atom in atoms:
+                            try:
+                                data.set_atom_pos(atom.atom_id, atom.pos())
+                            except (RuntimeError, KeyError, AttributeError):
+                                continue
                     self.main_window.scene.update_connected_bonds(atoms)
 
             self._is_dragging = False
