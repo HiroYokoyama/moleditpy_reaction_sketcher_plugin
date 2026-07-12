@@ -211,3 +211,35 @@ class TestRoundTripFidelity:
         item = ReactionCurvedArrowItem(QPointF(0, 0), QPointF(80, 40))
         item.head_side = -1
         assert self._roundtrip(item).head_side == -1
+
+    def test_equilibrium_arrow_double_offset_survives(self):
+        # Regression: double_arrow_offset (spacing between the two parallel
+        # shafts, adjustable via the settings dialog) was emitted by
+        # create_json_data but never restored -> reset to the 10.0 default on
+        # save/undo/reload.
+        from reaction_sketcher.items import ReactionEquilibriumArrowItem
+
+        item = ReactionEquilibriumArrowItem(QPointF(0, 0), QPointF(80, 40))
+        item.double_arrow_offset = 22.5
+        assert self._roundtrip(item).double_arrow_offset == 22.5
+
+    def test_no_arrow_cross_size_survives(self):
+        # Regression: cross_size (negation slash/cross length) was emitted by
+        # create_json_data but never restored -> reset to the 15.0 default on
+        # save/undo/reload.
+        from reaction_sketcher.items import ReactionNoArrowItem
+
+        item = ReactionNoArrowItem(QPointF(0, 0), QPointF(80, 40))
+        item.cross_size = 33.0
+        assert self._roundtrip(item).cross_size == 33.0
+
+    def test_curved_arrow_head_at_survives(self):
+        # Regression: head_at ("start" or "end" -- which side of a curved/
+        # fish-hook resonance arrow carries the arrowhead) was emitted by
+        # create_json_data but never restored -> reset to "end" on
+        # save/undo/reload.
+        from reaction_sketcher.items import ReactionCurvedArrowItem
+
+        item = ReactionCurvedArrowItem(QPointF(0, 0), QPointF(80, 40))
+        item.head_at = "start"
+        assert self._roundtrip(item).head_at == "start"

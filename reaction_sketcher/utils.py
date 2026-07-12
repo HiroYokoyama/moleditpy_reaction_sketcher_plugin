@@ -19,7 +19,7 @@ def sip_isdeleted_safe(obj):
         import sip
 
         return sip.isdeleted(obj)
-    except Exception as _e:
+    except (ImportError, AttributeError, TypeError) as _e:
         logging.warning("silenced: %s", _e)
 
     # If we truly cannot check, assume it is NOT deleted to allow functionality.
@@ -104,6 +104,12 @@ def load_handler_core(main_window, reaction_items):
                     item.head_style = item_data["head_style"]
                 if "head_side" in item_data and hasattr(item, "head_side"):
                     item.head_side = item_data["head_side"]
+                if "double_arrow_offset" in item_data and hasattr(
+                    item, "double_arrow_offset"
+                ):
+                    item.double_arrow_offset = item_data["double_arrow_offset"]
+                if "cross_size" in item_data and hasattr(item, "cross_size"):
+                    item.cross_size = item_data["cross_size"]
                 item.sync_handles()  # Ensure handles match loaded data
 
         elif item_type in ["curved_double", "curved_fish", "curved_single"]:
@@ -133,6 +139,8 @@ def load_handler_core(main_window, reaction_items):
                 item.head_style = item_data["head_style"]
             if "head_side" in item_data and hasattr(item, "head_side"):
                 item.head_side = item_data["head_side"]
+            if "head_at" in item_data and hasattr(item, "head_at"):
+                item.head_at = item_data["head_at"]
             if "curvature" in item_data:
                 item.curvature = item_data["curvature"]
             item.sync_handles()
