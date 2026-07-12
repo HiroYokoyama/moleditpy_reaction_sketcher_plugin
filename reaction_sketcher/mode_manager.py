@@ -2894,20 +2894,22 @@ class ModeManager(QObject):
                         continue
                     # Only move atoms, bonds update automatically
                     if hasattr(item, "atom_id"):
-                        # Update core data
-                        if hasattr(self.main_window, "data"):
-                            mol_data = self.main_window.data
-                            if hasattr(mol_data, "atoms"):
-                                aid = item.atom_id
-                                if aid in mol_data.atoms:
-                                    atom_obj = mol_data.atoms[aid].get("atom", None)
-                                    if atom_obj and hasattr(atom_obj, "x"):
-                                        atom_obj.x += dx
-                                        atom_obj.y += dy
-
                         # Move visual item (bonds update via itemChange)
                         item.moveBy(dx, dy)
                         moved_atoms.append(item)
+                        # Sync the new position back into the molecular data
+                        # model so it survives save/reload and undo. atoms[aid]
+                        # is a dict keyed "pos" (a tuple) — there is no "atom"
+                        # object with .x/.y, so the previous update silently did
+                        # nothing and the molecule snapped back on reload.
+                        mol_data = getattr(self.main_window, "data", None)
+                        if mol_data is not None and hasattr(
+                            mol_data, "set_atom_pos"
+                        ):
+                            try:
+                                mol_data.set_atom_pos(item.atom_id, item.pos())
+                            except (RuntimeError, KeyError, AttributeError):
+                                pass
 
                     # Move reaction items normally
                     elif not hasattr(item, "atom1"):
@@ -2950,19 +2952,21 @@ class ModeManager(QObject):
 
         moved_atoms = []
 
-        def update_atom_data_model(item, delta, axis_char):
-            if not hasattr(self.main_window, "data"):
+        def update_atom_data_model(item):
+            # Sync the item's current scene position back into the data model
+            # so it survives save/reload and undo. Call AFTER moveBy(). The old
+            # implementation reached for a non-existent atoms[aid]["atom"] object
+            # and silently did nothing, so moved molecules reverted on reload.
+            mol_data = getattr(self.main_window, "data", None)
+            if mol_data is None or not hasattr(mol_data, "set_atom_pos"):
                 return
-            mol_data = self.main_window.data
-            if not hasattr(mol_data, "atoms"):
-                return
-
             aid = getattr(item, "atom_id", None)
-            if aid in mol_data.atoms:
-                atom_obj = mol_data.atoms[aid].get("atom", None)
-                if atom_obj and hasattr(atom_obj, axis_char):
-                    current_val = getattr(atom_obj, axis_char)
-                    setattr(atom_obj, axis_char, current_val + delta)
+            if aid is None:
+                return
+            try:
+                mol_data.set_atom_pos(aid, item.pos())
+            except (RuntimeError, KeyError, AttributeError):
+                pass
 
         if axis == "horizontal":
             units.sort(key=lambda u: (u["cog"].x(), u["cog"].y()))
@@ -2982,8 +2986,8 @@ class ModeManager(QObject):
                         if sip_isdeleted_safe(item):
                             continue
                         if hasattr(item, "atom_id"):
-                            update_atom_data_model(item, dx, "x")
                             item.moveBy(dx, 0)
+                            update_atom_data_model(item)
                             moved_atoms.append(item)
                         elif not hasattr(item, "atom1"):
                             item.moveBy(dx, 0)
@@ -3006,8 +3010,8 @@ class ModeManager(QObject):
                         if sip_isdeleted_safe(item):
                             continue
                         if hasattr(item, "atom_id"):
-                            update_atom_data_model(item, dy, "y")
                             item.moveBy(0, dy)
+                            update_atom_data_model(item)
                             moved_atoms.append(item)
                         elif not hasattr(item, "atom1"):
                             item.moveBy(0, dy)
