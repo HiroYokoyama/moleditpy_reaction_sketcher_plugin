@@ -1007,22 +1007,29 @@ class InteractionHandler(QObject):
                 break
 
         if start_atom:
-            # BFS to select connected component
+            # BFS to select connected component. atom.bonds can contain stale
+            # references to deleted BondItems, so guard every hop with
+            # sip_isdeleted_safe to avoid "wrapped C/C++ object ... deleted".
             visited = set()
             stack = [start_atom]
-            self.main_window.scene
 
             while stack:
                 atom = stack.pop()
-                if atom in visited:
+                if atom in visited or sip_isdeleted_safe(atom):
                     continue
                 visited.add(atom)
                 atom.setSelected(True)
 
-                for bond in atom.bonds:
+                for bond in getattr(atom, "bonds", []):
+                    if sip_isdeleted_safe(bond):
+                        continue
                     bond.setSelected(True)
                     other = bond.atom1 if bond.atom2 is atom else bond.atom2
-                    if other and other not in visited:
+                    if (
+                        other
+                        and not sip_isdeleted_safe(other)
+                        and other not in visited
+                    ):
                         stack.append(other)
             return True
 

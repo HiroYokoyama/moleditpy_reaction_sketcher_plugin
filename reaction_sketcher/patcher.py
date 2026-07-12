@@ -1130,14 +1130,24 @@ def apply_core_patches(main_window, context=None):
             cos_a = math.cos(rad)
             sin_a = math.sin(rad)
 
-            # Rotate Atoms
+            # Rotate Atoms. Sync each new position into the data model too;
+            # otherwise get_current_state() snapshots the pre-rotation coords
+            # and the molecule snaps back on undo/redo/save-reload.
+            data_model = getattr(self.host, "data", None)
+            can_sync = data_model is not None and hasattr(data_model, "set_atom_pos")
             for atom in target_atoms:
                 dx = atom.pos().x() - center_x
                 dy = atom.pos().y() - center_y
                 # Rotation logic: new_x = x*cos - y*sin
                 new_dx = dx * cos_a - dy * sin_a
                 new_dy = dx * sin_a + dy * cos_a
-                atom.setPos(QPointF(center_x + new_dx, center_y + new_dy))
+                new_pos = QPointF(center_x + new_dx, center_y + new_dy)
+                atom.setPos(new_pos)
+                if can_sync:
+                    try:
+                        data_model.set_atom_pos(atom.atom_id, new_pos)
+                    except (RuntimeError, KeyError, AttributeError):
+                        pass
 
             # Rotate Reaction Items
             for item in target_reaction_items:

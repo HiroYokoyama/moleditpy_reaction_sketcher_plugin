@@ -3326,12 +3326,14 @@ class ModeManager(QObject):
                             continue
 
                         atom_data = self.main_window.data.atoms[atom_id]
-                        atom_obj = atom_data.get("atom", None)
 
+                        # charge/radical live directly on the atom dict; the old
+                        # code read a non-existent atoms[aid]["atom"] object, so
+                        # cloned atoms always lost their charge and radical.
                         symbol = atom_data.get("symbol", "C")
                         pos = atom_item.pos()
-                        charge = getattr(atom_obj, "charge", 0) if atom_obj else 0
-                        radical = getattr(atom_obj, "radical", 0) if atom_obj else 0
+                        charge = atom_data.get("charge", 0)
+                        radical = atom_data.get("radical", 0)
 
                         # Create new atom using scene's API
                         new_id = scene.create_atom(
