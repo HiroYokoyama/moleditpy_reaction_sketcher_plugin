@@ -2526,7 +2526,7 @@ class ReactionTextItem(QGraphicsTextItem):
                         mw.ui_manager, "_reaction_mode_manager"
                     ):
                         mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             # Set cursor to click position
@@ -2574,7 +2574,7 @@ class ReactionTextItem(QGraphicsTextItem):
                     mw.ui_manager, "_reaction_mode_manager"
                 ):
                     mw.ui_manager._reaction_mode_manager.enable_main_window_shortcuts()
-        except Exception as _e:
+        except (RuntimeError, AttributeError) as _e:
             logging.warning("silenced: %s", _e)
 
     @property
@@ -2609,7 +2609,7 @@ class ReactionTextItem(QGraphicsTextItem):
                         and hasattr(mw.ui_manager, "_reaction_mode_manager")
                     ):
                         mw.ui_manager._reaction_mode_manager.apply_text_style("bold")
-                except Exception as _e:
+                except (RuntimeError, AttributeError) as _e:
                     logging.warning("silenced: %s", _e)
                 event.accept()
                 return
@@ -2625,7 +2625,7 @@ class ReactionTextItem(QGraphicsTextItem):
                         and hasattr(mw.ui_manager, "_reaction_mode_manager")
                     ):
                         mw.ui_manager._reaction_mode_manager.apply_text_style("italic")
-                except Exception as _e:
+                except (RuntimeError, AttributeError) as _e:
                     logging.warning("silenced: %s", _e)
                 event.accept()
                 return
@@ -2643,7 +2643,7 @@ class ReactionTextItem(QGraphicsTextItem):
                         mw.ui_manager._reaction_mode_manager.apply_text_style(
                             "underline"
                         )
-                except Exception as _e:
+                except (RuntimeError, AttributeError) as _e:
                     logging.warning("silenced: %s", _e)
                 event.accept()
                 return
@@ -2667,7 +2667,7 @@ class ReactionTextItem(QGraphicsTextItem):
                             mw.ui_manager._reaction_mode_manager.toggle_superscript()
                         else:
                             mw.ui_manager._reaction_mode_manager.toggle_subscript()
-                except Exception as _e:
+                except (RuntimeError, AttributeError) as _e:
                     logging.warning("silenced: %s", _e)
                 event.accept()
                 return
@@ -2693,7 +2693,7 @@ class ReactionTextItem(QGraphicsTextItem):
                             if action.property("tool_name") == "select":
                                 action.trigger()
                                 break
-                except Exception as _e:
+                except (RuntimeError, AttributeError) as _e:
                     logging.warning("silenced: %s", _e)
 
                 event.accept()
@@ -2777,7 +2777,7 @@ class ReactionTextItem(QGraphicsTextItem):
                         mw.ui_manager, "_reaction_mode_manager"
                     ):
                         mw.ui_manager._reaction_mode_manager.disable_main_window_shortcuts()
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
     def paint(self, painter, option, widget):
@@ -2981,7 +2981,7 @@ class ReactionGroupOverlay(QGraphicsItem):
             return
         try:
             scene.changed.connect(self.on_scene_changed)
-        except Exception as _e:
+        except (RuntimeError, AttributeError, TypeError) as _e:
             logging.warning("silenced: %s", _e)
 
     def _disconnect_scene(self, scene):
@@ -2991,7 +2991,7 @@ class ReactionGroupOverlay(QGraphicsItem):
             scene.changed.disconnect(self.on_scene_changed)
         except TypeError:
             pass  # not connected — expected
-        except Exception as _e:
+        except (RuntimeError, AttributeError) as _e:
             logging.warning("silenced: %s", _e)
 
     def on_scene_changed(self, region):
