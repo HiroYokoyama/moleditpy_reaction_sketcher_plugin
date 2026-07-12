@@ -316,10 +316,16 @@ class AdvancedSettingsDialog(QDialog):
             self.head_angle_spin.setValue(float(vals["head_angle"]))
         if "head_concavity" in vals and hasattr(self.item, "head_concavity"):
             self.item.head_concavity = float(vals["head_concavity"])
+        if "head_concavity" in vals and getattr(self, "concavity_spin", None) is not None:
+            self.concavity_spin.setValue(float(vals["head_concavity"]))
         if "curvature" in vals and hasattr(self.item, "curvature"):
             self.item.curvature = float(vals["curvature"])
+        if "curvature" in vals and getattr(self, "curvature_spin", None) is not None:
+            self.curvature_spin.setValue(float(vals["curvature"]))
         if "double_arrow_offset" in vals and hasattr(self.item, "double_arrow_offset"):
             self.item.double_arrow_offset = float(vals["double_arrow_offset"])
+        if "double_arrow_offset" in vals and getattr(self, "spacing_spin", None) is not None:
+            self.spacing_spin.setValue(float(vals["double_arrow_offset"]))
         if "cross_size" in vals and hasattr(self.item, "cross_size"):
             self.item.cross_size = float(vals["cross_size"])
         if "cross_size" in vals and getattr(self, "cross_size_spin", None) is not None:
@@ -361,7 +367,7 @@ class AdvancedSettingsDialog(QDialog):
                     data = json.load(f)
                     all_templates = data.get("templates", {})
                     self.templates = all_templates
-            except Exception as _e:
+            except (OSError, ValueError) as _e:
                 logging.warning("silenced: %s", _e)
 
         self.default_key = f"Default_{self.item_kind}"
@@ -494,7 +500,7 @@ class AdvancedSettingsDialog(QDialog):
         try:
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
+        except (OSError, TypeError) as e:
             logging.warning("silenced: %s", e)
 
     def get_settings(self):
