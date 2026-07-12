@@ -670,6 +670,105 @@ def apply_core_patches(main_window, context=None):
         MainWindowEditActions, "paste_from_clipboard", patched_paste_from_clipboard
     )
 
+    # --- Allow saving a reaction-only canvas (no atoms / no 3D molecule) ---
+    # The core save refuses ("Nothing to save") unless there are atoms or a 3D
+    # molecule, which blocks saving a sketch made only of arrows/text/etc. These
+    # patches relax that guard to also count reaction items. They are applied
+    # from apply_core_patches, i.e. only while the reaction sketcher is active.
+    IOManager = None
+    if hasattr(main_window, "io_manager"):
+        IOManager = main_window.io_manager.__class__
+
+    if IOManager is not None:
+
+        def _has_saveable_content(host):
+            if getattr(host.state_manager.data, "atoms", None):
+                return True
+            if host.view_3d_manager.current_mol is not None:
+                return True
+            scene = getattr(host, "scene", None)
+            if scene is not None:
+                for it in scene.items():
+                    if hasattr(it, "create_json_data"):
+                        return True
+            return False
+
+        def patched_save_project(self):
+            import json as _json
+            import pickle as _pickle
+
+            host = self.host
+            if not _has_saveable_content(host):
+                host.statusBar().showMessage("Error: Nothing to save.")
+                return
+
+            native_exts = (".pmeprj", ".pmeraw")
+            cur = host.init_manager.current_file_path
+            if cur and cur.lower().endswith(native_exts):
+                try:
+                    if cur.lower().endswith(".pmeraw"):
+                        with open(cur, "wb") as f:
+                            _pickle.dump(host.state_manager.get_current_state(), f)
+                    else:
+                        with open(cur, "w", encoding="utf-8") as f:
+                            _json.dump(
+                                host.state_manager.create_json_data(),
+                                f,
+                                indent=2,
+                                ensure_ascii=False,
+                            )
+                    host.set_has_unsaved_changes(False)
+                    host.state_manager.update_window_title()
+                    host.save_state_snapshot()
+                    host.update_status_message(
+                        f"Project saved to {host.get_current_file_path()}"
+                    )
+                except (OSError, IOError) as e:
+                    host.update_status_message(f"File I/O error: {e}")
+                except (ValueError, TypeError, RuntimeError) as e:
+                    host.update_status_message(f"Error saving project: {e}")
+            else:
+                self.save_project_as()
+
+        def patched_save_project_as(self):
+            import json as _json
+
+            host = self.host
+            if not _has_saveable_content(host):
+                host.statusBar().showMessage("Error: Nothing to save.")
+                return
+
+            file_path, _sel = QFileDialog.getSaveFileName(
+                host,
+                "Save Project As",
+                self._get_default_path(),
+                "PME Project Files (*.pmeprj);;All Files (*)",
+            )
+            if not file_path:
+                return
+            if not file_path.lower().endswith(".pmeprj"):
+                file_path += ".pmeprj"
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    _json.dump(
+                        host.state_manager.create_json_data(),
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                host.set_has_unsaved_changes(False)
+                host.set_current_file_path(file_path)
+                host.update_window_title()
+                host.save_state_snapshot()
+                host.update_status_message(f"Project saved to {file_path}")
+            except (OSError, IOError) as e:
+                host.statusBar().showMessage(f"File I/O error: {e}")
+            except (ValueError, TypeError, RuntimeError) as e:
+                host.statusBar().showMessage(f"Error saving project: {e}")
+
+        patch_core(IOManager, "save_project", patched_save_project)
+        patch_core(IOManager, "save_project_as", patched_save_project_as)
+
     # --- Patch MainWindowEditActions.delete_selection ---
     def patched_delete_selection(self):
         items = self.host.scene.selectedItems()

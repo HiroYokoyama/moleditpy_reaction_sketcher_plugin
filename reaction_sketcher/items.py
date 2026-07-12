@@ -2568,8 +2568,12 @@ class ReactionTextItem(QGraphicsTextItem):
             except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
-        # Auto-delete if empty
-        if not self.toPlainText().strip():
+        # Auto-delete if empty, or if it's an untouched freshly-placed
+        # placeholder (created via the Text tool but never edited — e.g. the
+        # user pressed Esc immediately). Both should not leave a stray label.
+        if not self.toPlainText().strip() or getattr(
+            self, "_fresh_placeholder", False
+        ):
             if self.scene():
                 self.scene().removeItem(self)
             return

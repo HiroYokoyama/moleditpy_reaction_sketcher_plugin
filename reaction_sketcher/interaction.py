@@ -455,6 +455,14 @@ class InteractionHandler(QObject):
             cursor.select(cursor.SelectionType.Document)
             item.setTextCursor(cursor)
 
+            # Mark as an untouched placeholder so that pressing Esc / clicking
+            # away without typing anything discards it (instead of leaving a
+            # stray "Text" label). Any real content edit clears the flag.
+            item._fresh_placeholder = True
+            item.document().contentsChanged.connect(
+                lambda it=item: setattr(it, "_fresh_placeholder", False)
+            )
+
             return True
         elif self.active_tool == "arrow_dashed":
             self.start_pos = scene_pos

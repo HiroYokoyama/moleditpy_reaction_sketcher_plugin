@@ -257,6 +257,50 @@ class ModeManager(QObject):
         else:
             logging.warning("Error: 'Clean Up 2D' action not found in menu")
 
+        # Copy/Cut/Paste were connected by the core at startup to the ORIGINAL
+        # (pre-patch) bound methods. Qt keeps those stale callables, so without
+        # rebinding, Ctrl+C / the Edit menu run the unpatched copy_selection
+        # (atoms only) and silently drop reaction items — the patched versions
+        # that handle reaction items would otherwise be dead. Rebind to the
+        # currently-active methods.
+        im = getattr(self.main_window, "init_manager", None)
+        for action_attr, method_name in (
+            ("copy_action", "copy_selection"),
+            ("cut_action", "cut_selection"),
+            ("paste_action", "paste_from_clipboard"),
+        ):
+            action = getattr(im, action_attr, None) if im else None
+            target_method = getattr(mgr, method_name, None)
+            if action is not None and target_method is not None:
+                try:
+                    action.triggered.disconnect()
+                except TypeError:
+                    pass  # not connected — expected
+                except RuntimeError as _e:
+                    logging.warning("silenced: %s", _e)
+                action.triggered.connect(target_method)
+
+        # Save / Save As have the same stale-callable problem: the core wired
+        # Ctrl+S to the original io_manager.save_project at startup, so without
+        # rebinding they run the unpatched save that refuses a reaction-only
+        # canvas ("Nothing to save"). Point them at the patched methods.
+        io_mgr = getattr(self.main_window, "io_manager", None)
+        if io_mgr is not None:
+            for menu_text, method_name in (
+                ("&Save Project", "save_project"),
+                ("Save Project &As...", "save_project_as"),
+            ):
+                action = self._find_menu_action(menu_text)
+                target_method = getattr(io_mgr, method_name, None)
+                if action is not None and target_method is not None:
+                    try:
+                        action.triggered.disconnect()
+                    except TypeError:
+                        pass  # not connected — expected
+                    except RuntimeError as _e:
+                        logging.warning("silenced: %s", _e)
+                    action.triggered.connect(target_method)
+
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
             return
