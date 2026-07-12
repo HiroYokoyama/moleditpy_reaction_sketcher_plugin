@@ -180,3 +180,34 @@ class TestCloneReactionItems:
         # Regression: this method had lost its `def` line, so cut_reaction_items
         # -> self.copy_reaction_items() raised AttributeError.
         assert callable(getattr(ModeManager, "copy_reaction_items", None))
+
+
+# ---------------------------------------------------------------------------
+# create_json_data -> load_handler_core round-trip fidelity for scalar props
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripFidelity:
+    def _roundtrip(self, item):
+        from reaction_sketcher.utils import load_handler_core
+
+        data = item.create_json_data()
+        created = load_handler_core(MagicMock(), [data]) or []
+        assert created, "loader should recreate the item"
+        return created[0]
+
+    def test_arrow_head_side_survives(self):
+        # Regression: head_side (harpoon/fish-hook barb direction) was emitted
+        # by create_json_data but never restored -> reset on save/undo.
+        from reaction_sketcher.items import ReactionArrowItem
+
+        item = ReactionArrowItem(QPointF(0, 0), QPointF(80, 40))
+        item.head_side = -1
+        assert self._roundtrip(item).head_side == -1
+
+    def test_curved_arrow_head_side_survives(self):
+        from reaction_sketcher.items import ReactionCurvedArrowItem
+
+        item = ReactionCurvedArrowItem(QPointF(0, 0), QPointF(80, 40))
+        item.head_side = -1
+        assert self._roundtrip(item).head_side == -1

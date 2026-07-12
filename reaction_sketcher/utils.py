@@ -102,6 +102,8 @@ def load_handler_core(main_window, reaction_items):
                     item.negation_style = item_data["negation_style"]
                 if "head_style" in item_data and hasattr(item, "head_style"):
                     item.head_style = item_data["head_style"]
+                if "head_side" in item_data and hasattr(item, "head_side"):
+                    item.head_side = item_data["head_side"]
                 item.sync_handles()  # Ensure handles match loaded data
 
         elif item_type in ["curved_double", "curved_fish", "curved_single"]:
@@ -129,6 +131,8 @@ def load_handler_core(main_window, reaction_items):
                 item.head_angle = item_data["head_angle"]
             if "head_style" in item_data:
                 item.head_style = item_data["head_style"]
+            if "head_side" in item_data and hasattr(item, "head_side"):
+                item.head_side = item_data["head_side"]
             if "curvature" in item_data:
                 item.curvature = item_data["curvature"]
             item.sync_handles()
