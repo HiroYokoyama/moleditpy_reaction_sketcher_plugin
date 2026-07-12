@@ -237,7 +237,9 @@ class ModeManager(QObject):
         if btn is not None:
             try:
                 btn.clicked.disconnect()
-            except Exception as _e:
+            except TypeError:
+                pass  # not connected — expected
+            except RuntimeError as _e:
                 logging.warning("silenced: %s", _e)
             btn.clicked.connect(target)
         else:
@@ -247,7 +249,9 @@ class ModeManager(QObject):
         if cleanup_action is not None:
             try:
                 cleanup_action.triggered.disconnect()
-            except Exception as _e:
+            except TypeError:
+                pass  # not connected — expected
+            except RuntimeError as _e:
                 logging.warning("silenced: %s", _e)
             cleanup_action.triggered.connect(target)
         else:
@@ -1597,7 +1601,7 @@ class ModeManager(QObject):
                                 if hasattr(item, "head_style"):
                                     current_style = item.head_style
                                 break
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             # Determine if we should show straight or curved icons based on the tool
@@ -1664,7 +1668,7 @@ class ModeManager(QObject):
                         if hasattr(item, "negation_style"):
                             neg_style = item.negation_style
                             break
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             # Slash
@@ -1719,7 +1723,7 @@ class ModeManager(QObject):
                         if hasattr(item, "bracket_type"):
                             curr_type = item.bracket_type
                             break
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             act_sq = menu.addAction("Square [ ]")
@@ -1781,7 +1785,7 @@ class ModeManager(QObject):
                             curr_shape = item.shape_type
                             curr_style = getattr(item, "line_style", "solid")
                             break
-            except Exception as _e:
+            except (RuntimeError, AttributeError) as _e:
                 logging.warning("silenced: %s", _e)
 
             variants = [
@@ -1935,7 +1939,7 @@ class ModeManager(QObject):
                     ):
                         event.accept()
                         return True
-                except Exception as _e:
+                except (RuntimeError, AttributeError) as _e:
                     logging.warning("silenced: %s", _e)
         return super().eventFilter(obj, event)
 
@@ -1981,7 +1985,7 @@ class ModeManager(QObject):
                 for action in self._disabled_actions_state:
                     try:
                         action.setEnabled(True)
-                    except Exception as _e:
+                    except RuntimeError as _e:
                         logging.warning("silenced: %s", _e)
                 self._disabled_actions_state = []
 
