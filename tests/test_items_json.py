@@ -172,6 +172,13 @@ class TestReactionCircleItemJson:
         for k in ("x", "y", "w", "h"):
             assert k in d
 
+    def test_fill_color_defaults_to_none(self, qapp):
+        # Default frame is outline-only (fill_color None) so its create_json_data
+        # records None and its shape() is border-only / click-through.
+        item = ReactionCircleItem(QPointF(0, 0), QPointF(60, 60))
+        assert item.fill_color is None
+        assert item.create_json_data()["fill_color"] is None
+
 
 # ---------------------------------------------------------------------------
 # Line items

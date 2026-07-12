@@ -64,8 +64,9 @@ def load_handler_core(main_window, reaction_items):
     from PyQt6.QtCore import QPointF
     from PyQt6.QtGui import QColor
 
+    created_items = []
     if not reaction_items:
-        return
+        return created_items
 
     for item_data in reaction_items:
         item_type = item_data.get("type", None)
@@ -264,3 +265,6 @@ def load_handler_core(main_window, reaction_items):
             if "group_id" in item_data:
                 item.group_id = item_data["group_id"]
             main_window.scene.addItem(item)
+            created_items.append(item)
+
+    return created_items

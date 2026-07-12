@@ -3393,185 +3393,20 @@ class ModeManager(QObject):
                     old_to_new_group[gid] = str(uuid.uuid4())
                 data["group_id"] = old_to_new_group[gid]
 
-        # 3. Create New Reaction Items (append to new_items, don't reset)
+        # 3. Recreate reaction items through the canonical loader so that
+        # cloning stays in lock-step with save/load and undo restore. The
+        # previous inline reimplementation had drifted out of sync and was
+        # buggy (e.g. it read "width"/"height" for circles/brackets when
+        # create_json_data emits "w"/"h", collapsing cloned frames to 50x50,
+        # and used control_x/y instead of the real cp_x/y), silently
+        # corrupting duplicated shapes.
+        from .utils import load_handler_core
 
-        # Import Item Classes locally to avoid circular dependency issues
-        from .items import (
-            ReactionArrowItem,
-            ReactionPlusItem,
-            ReactionTextItem,
-            ReactionMinusItem,
-            ReactionResonanceArrowItem,
-            ReactionEquilibriumArrowItem,
-            ReactionRetroArrowItem,
-            ReactionNoArrowItem,
-            ReactionDashedArrowItem,
-            ReactionCurvedArrowItem,
-            ReactionBracketItem,
-            ReactionCircleItem,
-            ReactionLineItem,
-            ReactionCurvedLineItem,
-            ReactionFreehandItem,
-        )
-
-        for data in snapshot:
-            item_type = data.get("type", None)
-            new_item = None
-
-            try:
-                if item_type == "arrow":
-                    new_item = ReactionArrowItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "arrow_res":
-                    new_item = ReactionResonanceArrowItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "arrow_eq":
-                    new_item = ReactionEquilibriumArrowItem(
-                        QPointF(0, 0), QPointF(0, 0)
-                    )
-                elif item_type == "arrow_retro":
-                    new_item = ReactionRetroArrowItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "arrow_dashed":
-                    new_item = ReactionDashedArrowItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "arrow_no":
-                    new_item = ReactionNoArrowItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "curved_double":
-                    new_item = ReactionCurvedArrowItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "curved_fish":
-                    new_item = ReactionCurvedArrowItem(
-                        QPointF(0, 0), QPointF(0, 0), is_fish_hook=True
-                    )
-                elif item_type == "plus":
-                    new_item = ReactionPlusItem(QPointF(0, 0))
-                elif item_type == "minus":
-                    new_item = ReactionMinusItem(QPointF(0, 0))
-                elif item_type == "text":
-                    new_item = ReactionTextItem("", QPointF(0, 0))
-                elif item_type == "bracket":
-                    new_item = ReactionBracketItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "circle":
-                    new_item = ReactionCircleItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "line":
-                    new_item = ReactionLineItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "line_dashed":
-                    new_item = ReactionLineItem(QPointF(0, 0), QPointF(0, 0))
-                    new_item.line_style = "dashed"
-                elif item_type == "line_curved":
-                    new_item = ReactionCurvedLineItem(QPointF(0, 0), QPointF(0, 0))
-                elif item_type == "freehand":
-                    new_item = ReactionFreehandItem(QPointF(0, 0))
-
-                if new_item:
-                    # Generic Properties
-                    if hasattr(new_item, "pen_color") and "color" in data:
-                        new_item.pen_color = QColor(data["color"])
-                    if hasattr(new_item, "pen_width") and "width" in data:
-                        new_item.pen_width = data["width"]
-                    if "rotation" in data:
-                        new_item.setRotation(data["rotation"])
-                    if "z" in data:
-                        new_item.setZValue(data["z"])
-                    if "group_id" in data:
-                        new_item.group_id = data["group_id"]
-
-                    # Specific Properties
-                    if item_type in [
-                        "arrow",
-                        "arrow_res",
-                        "arrow_retro",
-                        "arrow_dashed",
-                        "arrow_no",
-                        "curved_double",
-                        "curved_fish",
-                        "line",
-                        "line_dashed",
-                        "line_curved",
-                    ]:
-                        sx = data.get("start_x", 0)
-                        sy = data.get("start_y", 0)
-                        ex = data.get("end_x", 0)
-                        ey = data.get("end_y", 0)
-
-                        new_item.setPos(
-                            0, 0
-                        )  # Item pos is 0,0; start/end are absolute in scene
-                        new_item.start_p = QPointF(sx, sy)
-                        new_item.end_p = QPointF(ex, ey)
-
-                        if "head_style" in data and hasattr(new_item, "head_style"):
-                            new_item.head_style = data["head_style"]
-                        if "head_size" in data and hasattr(new_item, "head_size"):
-                            new_item.head_size = data["head_size"]
-                        if "head_angle" in data and hasattr(new_item, "head_angle"):
-                            new_item.head_angle = data["head_angle"]
-                        if "head_concavity" in data and hasattr(
-                            new_item, "head_concavity"
-                        ):
-                            new_item.head_concavity = data["head_concavity"]
-
-                        if (
-                            "control_x" in data
-                            and "control_y" in data
-                            and hasattr(new_item, "control_p")
-                        ):
-                            new_item.control_p = QPointF(
-                                data["control_x"], data["control_y"]
-                            )
-
-                    elif item_type == "text":
-                        new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
-                        if "text" in data:
-                            new_item.setPlainText(data["text"])
-                        if "html" in data:
-                            new_item.setHtml(data["html"])
-
-                        f = new_item.font()
-                        if "font_family" in data:
-                            f.setFamily(data["font_family"])
-                        if "font_size" in data:
-                            f.setPointSize(data["font_size"])
-                        if "bold" in data:
-                            f.setBold(data["bold"])
-                        if "italic" in data:
-                            f.setItalic(data["italic"])
-                        if "underline" in data:
-                            f.setUnderline(data["underline"])
-                        new_item.setFont(f)
-
-                        if "color" in data:
-                            new_item.setDefaultTextColor(QColor(data["color"]))
-
-                    elif item_type in ["bracket", "circle"]:
-                        new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
-                        w = data.get("width", 50)
-                        h = data.get("height", 50)
-                        new_item.rect = QRectF(0, 0, w, h)
-                        if "bracket_type" in data:
-                            new_item.bracket_type = data["bracket_type"]
-                        if "line_style" in data:
-                            new_item.line_style = data["line_style"]
-                        if "shape_type" in data:
-                            new_item.shape_type = data["shape_type"]
-                        new_item.sync_handles()
-
-                    elif item_type == "freehand":
-                        new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
-                        if "points" in data:
-                            pts = [QPointF(p[0], p[1]) for p in data["points"]]
-                            new_item.set_points(pts)
-
-                    elif item_type in ["plus", "minus"]:
-                        new_item.setPos(QPointF(data.get("x", 0), data.get("y", 0)))
-                        if "size" in data:
-                            new_item.size = data["size"]
-
-                    scene.addItem(new_item)
-                    new_item.update()
-                    new_items.append(new_item)
-
-            except Exception as e:
-                # print(f"Error duplicating item {item_type}: {e}")
-                logging.warning("silenced: %s", e)
+        new_items.extend(load_handler_core(self.main_window, snapshot) or [])
 
         return new_items
+
+    def copy_reaction_items(self):
         """Copy selected items to system clipboard."""
         if not self.main_window:
             return
