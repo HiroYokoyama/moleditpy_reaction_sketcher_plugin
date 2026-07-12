@@ -2721,29 +2721,45 @@ class ModeManager(QObject):
                 current = stack.pop()
                 fragment.add(current)
 
-                # If this is an atom, find connected bonds
+                # If this is an atom, find connected bonds. current.bonds may
+                # hold stale references to BondItems whose C++ object was
+                # already deleted (e.g. after an edit); touching .scene() on one
+                # raises RuntimeError, so skip deleted items defensively.
                 if hasattr(current, "bonds"):
                     for bond_item in current.bonds:
-                        if bond_item not in visited_in_fragment and bond_item.scene():
-                            visited_in_fragment.add(bond_item)
-                            stack.append(bond_item)
-                            fragment.add(bond_item)
+                        if bond_item in visited_in_fragment:
+                            continue
+                        if sip_isdeleted_safe(bond_item):
+                            continue
+                        try:
+                            in_scene = bond_item.scene() is not None
+                        except RuntimeError:
+                            continue
+                        if not in_scene:
+                            continue
+                        visited_in_fragment.add(bond_item)
+                        stack.append(bond_item)
+                        fragment.add(bond_item)
 
-                            # From bond, find other atom (BondItem has atom1/atom2, NOT atom1_item/atom2_item)
-                            if hasattr(bond_item, "atom1") and bond_item.atom1:
-                                if (
-                                    bond_item.atom1 != current
-                                    and bond_item.atom1 not in visited_in_fragment
-                                ):
-                                    visited_in_fragment.add(bond_item.atom1)
-                                    stack.append(bond_item.atom1)
-                            if hasattr(bond_item, "atom2") and bond_item.atom2:
-                                if (
-                                    bond_item.atom2 != current
-                                    and bond_item.atom2 not in visited_in_fragment
-                                ):
-                                    visited_in_fragment.add(bond_item.atom2)
-                                    stack.append(bond_item.atom2)
+                        # From bond, find other atom (BondItem has atom1/atom2, NOT atom1_item/atom2_item)
+                        a1 = getattr(bond_item, "atom1", None)
+                        a2 = getattr(bond_item, "atom2", None)
+                        if (
+                            a1
+                            and not sip_isdeleted_safe(a1)
+                            and a1 != current
+                            and a1 not in visited_in_fragment
+                        ):
+                            visited_in_fragment.add(a1)
+                            stack.append(a1)
+                        if (
+                            a2
+                            and not sip_isdeleted_safe(a2)
+                            and a2 != current
+                            and a2 not in visited_in_fragment
+                        ):
+                            visited_in_fragment.add(a2)
+                            stack.append(a2)
 
                 # If this is a bond, get both atoms
                 elif hasattr(current, "atom1") or hasattr(current, "atom2"):
@@ -2751,7 +2767,11 @@ class ModeManager(QObject):
                         getattr(current, "atom1", None),
                         getattr(current, "atom2", None),
                     ]:
-                        if atom_item and atom_item not in visited_in_fragment:
+                        if (
+                            atom_item
+                            and not sip_isdeleted_safe(atom_item)
+                            and atom_item not in visited_in_fragment
+                        ):
                             visited_in_fragment.add(atom_item)
                             stack.append(atom_item)
 
