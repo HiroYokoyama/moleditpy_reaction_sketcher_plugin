@@ -828,12 +828,30 @@ class InteractionHandler(QObject):
         # CRITICAL: Check if a ReactionTextItem is being edited
         # If so, let ALL keypresses pass through for text input
         focus_item = self.main_window.scene.focusItem()
-        if focus_item and hasattr(focus_item, "textInteractionFlags"):
-            if (
+        editing_text = bool(
+            focus_item
+            and hasattr(focus_item, "textInteractionFlags")
+            and (
                 focus_item.textInteractionFlags()
                 & Qt.TextInteractionFlag.TextEditorInteraction
-            ):
-                return False  # Let text item handle ALL keys
+            )
+        )
+
+        # Escape: leave text-edit mode if editing, otherwise deselect any
+        # drawn objects (rectangles, arrows, molecules, ...). Handle this
+        # before the text passthrough so Esc always gets us out.
+        if event.key() == Qt.Key.Key_Escape:
+            if editing_text:
+                focus_item.clearFocus()
+                return True
+            if self.main_window.scene.selectedItems():
+                self.main_window.scene.clearSelection()
+            self.main_window.scene.setFocusItem(None)
+            self.clear_group_overlay()
+            return True
+
+        if editing_text:
+            return False  # Let text item handle ALL keys
 
         if event.key() == Qt.Key.Key_Space:
             # 1. Check if we need to switch main app or plugin to select mode
@@ -920,17 +938,58 @@ class InteractionHandler(QObject):
                         focus_item.setTextCursor(cursor)
                         focus_item.clearFocus()
 
-                # Now check if THIS item is already in edit mode
+                # Already editing: let Qt handle it (word-select etc.)
                 if (
                     item.textInteractionFlags()
                     & Qt.TextInteractionFlag.TextEditorInteraction
                 ):
-                    # Already editing, pass through for standard "Select Word" behavior
                     return False
 
-                # Enter edit mode on this item
-                # let the item handle the double click event to enter edit mode
-                return False
+                # Cancel the drag started by the preceding press so the
+                # mouse-release handler does not run its drill-down selection
+                # and steal focus back out of edit mode (that was why editing
+                # text used to take several double-clicks).
+                self._is_dragging = False
+                self._did_move = False
+                self._drag_items = []
+                self._drag_initial_positions = {}
+                self._drag_original_positions = {}
+
+                # Enter edit mode directly on a single double-click.
+                self.main_window.scene.clearSelection()
+                item.setSelected(True)
+                item.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextEditorInteraction
+                    | Qt.TextInteractionFlag.TextSelectableByMouse
+                )
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+                item.setFocus(Qt.FocusReason.MouseFocusReason)
+
+                # Silence main-window shortcuts while typing.
+                if self.mode_manager and hasattr(
+                    self.mode_manager, "disable_main_window_shortcuts"
+                ):
+                    try:
+                        self.mode_manager.disable_main_window_shortcuts()
+                    except Exception as _e:
+                        logging.warning("silenced: %s", _e)
+
+                # Put the caret where the user clicked.
+                try:
+                    local_pos = item.mapFromScene(scene_pos)
+                    cursor_pos = (
+                        item.document()
+                        .documentLayout()
+                        .hitTest(local_pos, Qt.HitTestAccuracy.FuzzyHit)
+                    )
+                    cursor = item.textCursor()
+                    cursor.setPosition(max(0, cursor_pos))
+                    item.setTextCursor(cursor)
+                except Exception as _e:
+                    logging.warning("silenced: %s", _e)
+
+                event.accept()
+                return True
 
         # If no text item, check for Atom/Bond to select whole molecule
         # Reuse logic from main_window? Or implement BFS here.
