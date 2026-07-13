@@ -34,19 +34,12 @@ def get_main_window(scene):
     if not views:
         return None
 
-    # Get window from the first view
-    view = views[0]
-    win = view.window()
-
-    # Traverse up to find MainWindow (the one with push_undo_state)
-    curr = win
-    while curr:
-        if hasattr(curr, "push_undo_state"):
-            return curr
-        curr = curr.parent()
-
-    # Sprint("DEBUG: get_main_window failed to find push_undo_state on", win)
-    return None
+    # view.window() IS the top-level QMainWindow — return it directly.
+    # The old walk-up via push_undo_state was wrong: push_undo_state lives
+    # on sub-managers (StateManager / EditActionsManager), not on the
+    # QMainWindow itself, so the loop always fell through and returned None.
+    win = views[0].window()
+    return win
 
 
 class ReactionHandle(QGraphicsItem):

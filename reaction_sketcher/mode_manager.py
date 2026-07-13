@@ -619,11 +619,13 @@ class ModeManager(QObject):
         self.bold_action = self.property_toolbar.addAction("B")
         self.bold_action.setCheckable(True)
         self.bold_action.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self.bold_action.setShortcut(QKeySequence("Ctrl+B"))
         self.bold_action.triggered.connect(lambda: self.apply_text_style("bold"))
 
         self.italic_action = self.property_toolbar.addAction("I")
         self.italic_action.setCheckable(True)
         self.italic_action.setFont(QFont("Arial", 10, QFont.Weight.Normal, True))
+        self.italic_action.setShortcut(QKeySequence("Ctrl+I"))
         self.italic_action.triggered.connect(lambda: self.apply_text_style("italic"))
 
         self.underline_action = self.property_toolbar.addAction("U")
@@ -631,6 +633,7 @@ class ModeManager(QObject):
         f_under = QFont("Arial", 10)
         f_under.setUnderline(True)
         self.underline_action.setFont(f_under)
+        self.underline_action.setShortcut(QKeySequence("Ctrl+U"))
         self.underline_action.triggered.connect(
             lambda: self.apply_text_style("underline")
         )
@@ -3176,33 +3179,25 @@ class ModeManager(QObject):
 
         for item in targets:
             cursor = item.textCursor()
+            had_selection = cursor.hasSelection()
 
-            # Apply if selection exists OR if valid target (whole item)
-            if cursor.hasSelection():
-                # Apply to selection
-                pass
-            elif (
-                item.textInteractionFlags()
-                & Qt.TextInteractionFlag.TextEditorInteraction
-            ):
-                # In edit mode, no selection -> set alignment for future?
-                # For bold/italic, usually we toggle 'current char format' for insertion.
-                # But mergeCharFormat on cursor works for that.
+            # Determine selection scope
+            if had_selection:
+                # Apply to the current selection only
                 pass
             else:
-                # Select whole document
+                # No selection — apply to the whole text item
                 cursor.select(QTextCursor.SelectionType.Document)
 
-            # Determine current state from cursor (or start of selection)
+            # Determine current state from the selected range
             current_fmt = cursor.charFormat()
 
-            # Create a NEW clean format to only apply the specific change
-            # merging a clean format with just one property set will preserve other properties (like subscript)
+            # Build a minimal format touching only the one property,
+            # so existing sub/superscript etc. are preserved.
             new_fmt = QTextCharFormat()
 
             if style == "bold":
                 current_weight = current_fmt.fontWeight()
-                # Toggle based on current state
                 target_weight = (
                     QFont.Weight.Bold
                     if current_weight != QFont.Weight.Bold
@@ -3216,13 +3211,14 @@ class ModeManager(QObject):
 
             cursor.mergeCharFormat(new_fmt)
 
-            if (
-                item.textInteractionFlags()
-                & Qt.TextInteractionFlag.TextEditorInteraction
-                and not cursor.hasSelection()
-            ):
-                # Update the cursor for typing
-                item.setTextCursor(cursor)
+            # Restore cursor:
+            # • If the user had a selection, keep it so they see what changed.
+            # • If we auto-selected the whole doc, clear selection and park
+            #   the caret at the end so typing continues naturally.
+            if not had_selection:
+                cursor.clearSelection()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+            item.setTextCursor(cursor)
 
     def apply_chem_style(self):
         """Robust chemical formatting (Sub/Sup) for targets."""
