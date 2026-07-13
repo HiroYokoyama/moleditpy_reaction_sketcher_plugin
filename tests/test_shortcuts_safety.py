@@ -1,5 +1,10 @@
 """
 tests/test_shortcuts_safety.py -- unit tests for main window shortcut restoration safety.
+
+The plugin suppresses main-window keyboard shortcuts while a text item is in
+edit mode by installing an event-filter on the main window.  It must NEVER
+call setEnabled(False) on any QAction — that would grey-out the File/Edit
+menus, which is the exact bug these tests guard against.
 """
 
 from unittest.mock import MagicMock, patch
@@ -24,20 +29,19 @@ def test_text_item_focus_out_restores_shortcuts_even_if_scene_is_none():
 
     # 3. Create a text item
     item = ReactionTextItem("Test", QPointF(0, 0))
-    
+
     # Mock scene() to return our scene initially
     item.scene = MagicMock(return_value=scene)
 
     # 4. Trigger focusInEvent (mocked event)
-    # This should store the main window reference in _last_main_window
     class DummyEvent:
         pass
-    
+
     # Set TextEditorInteraction flag so focusInEvent tries to disable shortcuts
     from PyQt6.QtCore import Qt
     item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
     item.focusInEvent(DummyEvent())
-    
+
     assert item._last_main_window is mw
 
     # 5. Set scene to return None (simulating removeItem)
@@ -52,36 +56,38 @@ def test_text_item_focus_out_restores_shortcuts_even_if_scene_is_none():
 
 def test_exit_reaction_mode_restores_shortcuts():
     mw = MagicMock()
-    # Mock layouts to avoid AttributeError during exit_reaction_mode
     mw.init_manager = MagicMock()
     mw.init_manager.splitter = MagicMock()
     mw.init_manager.splitter.sizes.return_value = [500, 500]
 
     context = MagicMock()
-    
-    # Mock setup_toolbar and setup_property_toolbar called in __init__
+
     with patch.object(ModeManager, 'setup_toolbar'), \
          patch.object(ModeManager, 'setup_property_toolbar'):
         mode_mgr = ModeManager(mw, context)
-    
+
     # Simulate shortcuts being disabled
     mode_mgr._shortcuts_disabled = True
-    
+
     # Mock enable_main_window_shortcuts
     mode_mgr.enable_main_window_shortcuts = MagicMock()
-    
-    # Mock disconnect_signals and revert_all_patches
+
     mode_mgr.disconnect_signals = MagicMock()
     mode_mgr._rewire_cleanup_2d_triggers = MagicMock()
-    
-    with patch('reaction_sketcher.mode_manager.revert_all_patches') as mock_revert:
+
+    with patch('reaction_sketcher.mode_manager.revert_all_patches'):
         mode_mgr.exit_reaction_mode()
         mode_mgr.enable_main_window_shortcuts.assert_called_once()
 
 
-def test_shortcuts_failsafe_preserves_actions():
+def test_disable_shortcuts_only_uses_event_filter_not_setEnabled():
+    """The disable path must NOT call setEnabled(False) on any QAction.
+
+    Doing so visually greys out the File/Edit menus — the bug we are
+    guarding against.  The correct approach is to install an event-filter
+    on the main window that intercepts ShortcutOverride events.
+    """
     mw = MagicMock()
-    # Mock install/remove event filter methods
     mw.installEventFilter = MagicMock()
     mw.removeEventFilter = MagicMock()
     context = MagicMock()
@@ -90,43 +96,36 @@ def test_shortcuts_failsafe_preserves_actions():
          patch.object(ModeManager, 'setup_property_toolbar'):
         mode_mgr = ModeManager(mw, context)
 
-    action1 = MagicMock()
-    action1.shortcut.return_value = MagicMock(isEmpty=lambda: False)
-    action1.isEnabled.return_value = True
-
-    # Mock findChildren to return our action
-    mw.findChildren.return_value = [action1]
-
-    # 1. Disable shortcuts
+    # Call disable
     mode_mgr.disable_main_window_shortcuts()
-    assert action1 in mode_mgr._disabled_actions_state
-    action1.setEnabled.assert_any_call(False)
 
-    # Reset mock calls
-    action1.setEnabled.reset_mock()
+    # event filter must be installed
+    mw.installEventFilter.assert_called_once_with(mode_mgr)
 
-    # 2. Call disable again, but simulate _shortcuts_disabled being True (should return early)
-    mode_mgr._shortcuts_disabled = True
-    mode_mgr.disable_main_window_shortcuts()
-    # It should not clear _disabled_actions_state!
-    assert action1 in mode_mgr._disabled_actions_state
+    # _shortcuts_disabled flag must be set
+    assert mode_mgr._shortcuts_disabled is True
 
-    # 3. Simulate desync: _shortcuts_disabled is False, but _disabled_actions_state is not empty.
-    # Call disable again, it should NOT clear the list or lose action1.
-    mode_mgr._shortcuts_disabled = False
-    action2 = MagicMock()
-    action2.shortcut.return_value = MagicMock(isEmpty=lambda: False)
-    action2.isEnabled.return_value = True
-    mw.findChildren.return_value = [action1, action2]
+    # CRITICAL: setEnabled must NEVER have been called on any child action
+    mw.findChildren.assert_not_called()
 
-    mode_mgr.disable_main_window_shortcuts()
-    assert action1 in mode_mgr._disabled_actions_state
-    assert action2 in mode_mgr._disabled_actions_state
-
-    # 4. Call enable_main_window_shortcuts when _shortcuts_disabled is False
-    # (due to desync), it should still restore all actions in _disabled_actions_state!
-    mode_mgr._shortcuts_disabled = False
+    # Call enable
     mode_mgr.enable_main_window_shortcuts()
-    action1.setEnabled.assert_called_with(True)
-    action2.setEnabled.assert_called_with(True)
-    assert mode_mgr._disabled_actions_state == []
+
+    mw.removeEventFilter.assert_called_once_with(mode_mgr)
+    assert mode_mgr._shortcuts_disabled is False
+
+
+def test_enable_shortcuts_idempotent_when_not_disabled():
+    """enable_main_window_shortcuts is a no-op if shortcuts weren't disabled."""
+    mw = MagicMock()
+    mw.removeEventFilter = MagicMock()
+    context = MagicMock()
+
+    with patch.object(ModeManager, 'setup_toolbar'), \
+         patch.object(ModeManager, 'setup_property_toolbar'):
+        mode_mgr = ModeManager(mw, context)
+
+    assert mode_mgr._shortcuts_disabled is False
+    mode_mgr.enable_main_window_shortcuts()
+    # removeEventFilter must NOT be called — nothing was installed
+    mw.removeEventFilter.assert_not_called()

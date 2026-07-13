@@ -87,7 +87,6 @@ class ModeManager(QObject):
         self.color_btn = None
         self._updating_props = False
         self._shortcuts_disabled = False
-        self._disabled_actions_state = []
         self.default_head_styles = {
             "arrow": "chevron",
             "arrow_eq": "harpoon",
@@ -1988,62 +1987,31 @@ class ModeManager(QObject):
         return super().eventFilter(obj, event)
 
     def disable_main_window_shortcuts(self):
-        """Temporarily disable main window shortcuts to allow text editing."""
+        """Temporarily suppress main window shortcuts during text editing.
+
+        We deliberately do NOT call setEnabled(False) on any QAction — that
+        would grey out the File/Edit menus which is the exact bug we are
+        fixing.  Instead we just install an event-filter that intercepts
+        ShortcutOverride events while a ReactionTextItem has focus.  The
+        filter is already implemented in eventFilter() above.
+        """
         if self._shortcuts_disabled:
             return
-
-        if getattr(self, "_disabled_actions_state", None) is None:
-            self._disabled_actions_state = []
-
         if not self.main_window:
             return
-
-        # 1. Disable QActions
-        for action in self.main_window.findChildren(QAction):
-            # Skip our tool actions
-            is_plugin_action = False
-            if self.reaction_toolbar and action.parent() == self.reaction_toolbar:
-                is_plugin_action = True
-            if self.property_toolbar and action.parent() == self.property_toolbar:
-                is_plugin_action = True
-
-            if (
-                not is_plugin_action
-                and action.shortcut()
-                and not action.shortcut().isEmpty()
-            ):
-                if action.isEnabled():
-                    if action not in self._disabled_actions_state:
-                        self._disabled_actions_state.append(action)
-                    action.setEnabled(False)
-
-        # 2. Block direct key events via Event Filter
         self._shortcuts_disabled = True
         self.main_window.installEventFilter(self)
 
     def enable_main_window_shortcuts(self):
-        """Restore main window shortcuts."""
-        # Failsafe: even if _shortcuts_disabled is False, if we have disabled actions stored, restore them!
-        if not self._shortcuts_disabled and not getattr(self, "_disabled_actions_state", None):
+        """Remove the shortcut-suppression event filter."""
+        if not self._shortcuts_disabled:
             return
-
+        self._shortcuts_disabled = False
         if self.main_window:
-            # 1. Restore QActions
-            if getattr(self, "_disabled_actions_state", None) is not None:
-                for action in self._disabled_actions_state:
-                    try:
-                        action.setEnabled(True)
-                    except RuntimeError as _e:
-                        logging.warning("silenced: %s", _e)
-                self._disabled_actions_state = []
-
-            # 2. Remove Event Filter
             try:
                 self.main_window.removeEventFilter(self)
             except Exception as _e:
-                logging.warning("silenced: %s", _e)
-
-        self._shortcuts_disabled = False
+                logging.warning("silenced removeEventFilter: %s", _e)
 
     def show_about_dialog(self):
         """Display About dialog with plugin version and information."""
