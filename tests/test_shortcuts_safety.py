@@ -77,3 +77,56 @@ def test_exit_reaction_mode_restores_shortcuts():
     with patch('reaction_sketcher.mode_manager.revert_all_patches') as mock_revert:
         mode_mgr.exit_reaction_mode()
         mode_mgr.enable_main_window_shortcuts.assert_called_once()
+
+
+def test_shortcuts_failsafe_preserves_actions():
+    mw = MagicMock()
+    # Mock install/remove event filter methods
+    mw.installEventFilter = MagicMock()
+    mw.removeEventFilter = MagicMock()
+    context = MagicMock()
+
+    with patch.object(ModeManager, 'setup_toolbar'), \
+         patch.object(ModeManager, 'setup_property_toolbar'):
+        mode_mgr = ModeManager(mw, context)
+
+    action1 = MagicMock()
+    action1.shortcut.return_value = MagicMock(isEmpty=lambda: False)
+    action1.isEnabled.return_value = True
+
+    # Mock findChildren to return our action
+    mw.findChildren.return_value = [action1]
+
+    # 1. Disable shortcuts
+    mode_mgr.disable_main_window_shortcuts()
+    assert action1 in mode_mgr._disabled_actions_state
+    action1.setEnabled.assert_any_call(False)
+
+    # Reset mock calls
+    action1.setEnabled.reset_mock()
+
+    # 2. Call disable again, but simulate _shortcuts_disabled being True (should return early)
+    mode_mgr._shortcuts_disabled = True
+    mode_mgr.disable_main_window_shortcuts()
+    # It should not clear _disabled_actions_state!
+    assert action1 in mode_mgr._disabled_actions_state
+
+    # 3. Simulate desync: _shortcuts_disabled is False, but _disabled_actions_state is not empty.
+    # Call disable again, it should NOT clear the list or lose action1.
+    mode_mgr._shortcuts_disabled = False
+    action2 = MagicMock()
+    action2.shortcut.return_value = MagicMock(isEmpty=lambda: False)
+    action2.isEnabled.return_value = True
+    mw.findChildren.return_value = [action1, action2]
+
+    mode_mgr.disable_main_window_shortcuts()
+    assert action1 in mode_mgr._disabled_actions_state
+    assert action2 in mode_mgr._disabled_actions_state
+
+    # 4. Call enable_main_window_shortcuts when _shortcuts_disabled is False
+    # (due to desync), it should still restore all actions in _disabled_actions_state!
+    mode_mgr._shortcuts_disabled = False
+    mode_mgr.enable_main_window_shortcuts()
+    action1.setEnabled.assert_called_with(True)
+    action2.setEnabled.assert_called_with(True)
+    assert mode_mgr._disabled_actions_state == []

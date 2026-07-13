@@ -1992,7 +1992,9 @@ class ModeManager(QObject):
         if self._shortcuts_disabled:
             return
 
-        self._disabled_actions_state = []
+        if getattr(self, "_disabled_actions_state", None) is None:
+            self._disabled_actions_state = []
+
         if not self.main_window:
             return
 
@@ -2011,7 +2013,8 @@ class ModeManager(QObject):
                 and not action.shortcut().isEmpty()
             ):
                 if action.isEnabled():
-                    self._disabled_actions_state.append(action)
+                    if action not in self._disabled_actions_state:
+                        self._disabled_actions_state.append(action)
                     action.setEnabled(False)
 
         # 2. Block direct key events via Event Filter
@@ -2020,7 +2023,8 @@ class ModeManager(QObject):
 
     def enable_main_window_shortcuts(self):
         """Restore main window shortcuts."""
-        if not self._shortcuts_disabled:
+        # Failsafe: even if _shortcuts_disabled is False, if we have disabled actions stored, restore them!
+        if not self._shortcuts_disabled and not getattr(self, "_disabled_actions_state", None):
             return
 
         if self.main_window:
@@ -2034,7 +2038,10 @@ class ModeManager(QObject):
                 self._disabled_actions_state = []
 
             # 2. Remove Event Filter
-            self.main_window.removeEventFilter(self)
+            try:
+                self.main_window.removeEventFilter(self)
+            except Exception as _e:
+                logging.warning("silenced: %s", _e)
 
         self._shortcuts_disabled = False
 
