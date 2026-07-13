@@ -1009,17 +1009,46 @@ def apply_core_patches(main_window, context=None):
                     CPK_COLORS.get(self.symbol, CPK_COLORS.get("DEFAULT", "#222222"))
                 )
 
+                # Attempt to get bond_color_2d from settings
+                bond_col = "#222222"
                 try:
-                    if self.scene() and self.scene().views():
-                        win = self.scene().views()[0].window()
-                        if win and hasattr(win, "settings"):
-                            if self.symbol == "H" or win.settings.get(
-                                "atom_use_bond_color_2d", False
-                            ):
-                                bond_col = win.settings.get("bond_color_2d", "#222222")
-                                color = QColor(bond_col)
-                except (RuntimeError, AttributeError, KeyError) as _e:
-                    logging.warning("silenced: %s", _e)
+                    scene = self.scene()
+                    if scene and hasattr(scene, "get_setting"):
+                        bond_col = scene.get_setting("bond_color_2d", "#222222")
+                    else:
+                        if scene and scene.views():
+                            win = scene.views()[0].window()
+                            if win:
+                                if hasattr(win, "get_settings"):
+                                    bond_col = win.get_settings().get("bond_color_2d", "#222222")
+                                elif hasattr(win, "settings") and hasattr(win.settings, "get"):
+                                    bond_col = win.settings.get("bond_color_2d", "#222222")
+                except Exception as _e:
+                    logging.warning("silenced setting fetch: %s", _e)
+
+                # Standard CPK assigns white (#FFFFFF) to H, which is invisible on a white canvas.
+                # Use the resolved bond color for H to ensure visibility and consistency.
+                if self.symbol == "H":
+                    color = QColor(bond_col)
+                else:
+                    # For non-H elements, check if we should use bond color
+                    use_bond_color = False
+                    try:
+                        scene = self.scene()
+                        if scene and hasattr(scene, "get_setting"):
+                            use_bond_color = scene.get_setting("atom_use_bond_color_2d", False)
+                        else:
+                            if scene and scene.views():
+                                win = scene.views()[0].window()
+                                if win:
+                                    if hasattr(win, "get_settings"):
+                                        use_bond_color = win.get_settings().get("atom_use_bond_color_2d", False)
+                                    elif hasattr(win, "settings") and hasattr(win.settings, "get"):
+                                        use_bond_color = win.settings.get("atom_use_bond_color_2d", False)
+                    except Exception as _e:
+                        logging.warning("silenced settings fetch for other symbols: %s", _e)
+                    if use_bond_color:
+                        color = QColor(bond_col)
 
                 if getattr(self, "color", None) is not None and self.color:
                     c = self.color
