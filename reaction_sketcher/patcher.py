@@ -915,59 +915,7 @@ def apply_core_patches(main_window, context=None):
                 offset_x = -symbol_rect.width() // 2
                 text_rect.moveTo(offset_x, -text_rect.height() // 2)
 
-            # --- Background Logic ---
-            bg_rect = text_rect.adjusted(-5, -8, 5, 8)
 
-            # Check for SVG Export
-            is_svg = False
-            try:
-                # Type 10 is SVG
-                if painter.paintEngine() and painter.paintEngine().type() == 10:
-                    is_svg = True
-                elif (
-                    painter.device()
-                    and type(painter.device()).__name__ == "QSvgGenerator"
-                ):
-                    is_svg = True
-            except (RuntimeError, AttributeError) as _e:
-                logging.warning("silenced: %s", _e)
-
-            if is_svg:
-                # SVG: Use background color from settings to hide bonds (Clear mode fails in SVG)
-                bg_color = QColor(255, 255, 255)  # Default white
-                try:
-                    if self.scene() and self.scene().views():
-                        win = self.scene().views()[0].window()
-                        if win and hasattr(win, "settings"):
-                            bg_color_str = win.settings.get(
-                                "background_color_2d", "#FFFFFF"
-                            )
-                            bg_color = QColor(bg_color_str)
-                except (RuntimeError, AttributeError, KeyError) as _e:
-                    logging.warning("silenced: %s", _e)
-                painter.setBrush(bg_color)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(bg_rect)
-            else:
-                # Normal/PNG: Use Clear mode for transparency if background is empty
-                bg_brush = (
-                    self.scene().backgroundBrush()
-                    if self.scene()
-                    else QBrush(Qt.BrushStyle.NoBrush)
-                )
-                if bg_brush.style() == Qt.BrushStyle.NoBrush:
-                    painter.save()
-                    painter.setCompositionMode(
-                        QPainter.CompositionMode.CompositionMode_Clear
-                    )
-                    painter.setBrush(QColor(0, 0, 0, 255))
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(bg_rect)
-                    painter.restore()
-                else:
-                    painter.setBrush(bg_brush)
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(bg_rect)
 
             if getattr(self, "has_problem", False):
                 painter.setBrush(Qt.BrushStyle.NoBrush)
