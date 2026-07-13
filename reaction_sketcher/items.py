@@ -2520,6 +2520,7 @@ class ReactionTextItem(QGraphicsTextItem):
             try:
                 mw = get_main_window(self.scene())
                 if mw:
+                    self._last_main_window = mw
                     if hasattr(mw, "_reaction_mode_manager"):
                         mw._reaction_mode_manager.disable_main_window_shortcuts()
                     elif hasattr(mw, "ui_manager") and hasattr(
@@ -2557,12 +2558,15 @@ class ReactionTextItem(QGraphicsTextItem):
         # and leaves Save/undo/etc. permanently disabled with no text item left
         # to trigger a re-enable.
         mw = get_main_window(self.scene())
+        if mw is None:
+            mw = getattr(self, "_last_main_window", None)
+
         mgr = None
-        if mw is not None:
+        if mw is not None and not sip_isdeleted_safe(mw):
             mgr = getattr(mw, "_reaction_mode_manager", None)
             if mgr is None and hasattr(mw, "ui_manager"):
                 mgr = getattr(mw.ui_manager, "_reaction_mode_manager", None)
-        if mgr is not None:
+        if mgr is not None and not sip_isdeleted_safe(mgr):
             try:
                 mgr.enable_main_window_shortcuts()
             except (RuntimeError, AttributeError) as _e:
@@ -2786,6 +2790,7 @@ class ReactionTextItem(QGraphicsTextItem):
             try:
                 mw = get_main_window(self.scene())
                 if mw:
+                    self._last_main_window = mw
                     if hasattr(mw, "_reaction_mode_manager"):
                         mw._reaction_mode_manager.disable_main_window_shortcuts()
                     elif hasattr(mw, "ui_manager") and hasattr(

@@ -2555,12 +2555,20 @@ class ModeManager(QObject):
             self.property_toolbar.hide()
 
         # Reset tool to Select
-        for action in self.action_group.actions():
-            if action.property("tool_name") == "select":
-                action.setChecked(True)
-                if self.interaction_handler:
-                    self.interaction_handler.set_tool("select")
-                break
+        if self.action_group is not None:
+            for action in self.action_group.actions():
+                if action.property("tool_name") == "select":
+                    action.setChecked(True)
+                    if self.interaction_handler:
+                        self.interaction_handler.set_tool("select")
+                    break
+
+        # ALWAYS restore main window shortcuts if they were disabled
+        if getattr(self, "_shortcuts_disabled", False):
+            try:
+                self.enable_main_window_shortcuts()
+            except Exception as _e:
+                logging.warning("silenced: %s", _e)
 
         # Unapply patches (restore original behavior)
         self.disconnect_signals()

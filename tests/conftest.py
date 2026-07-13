@@ -312,6 +312,7 @@ class _QGraphicsTextItem(_QGraphicsItem):
         self._html = text
         self._color = _QColor()
         self._font = MagicMock()
+        self._flags = 0
 
     def toPlainText(self):
         return self._text
@@ -338,13 +339,25 @@ class _QGraphicsTextItem(_QGraphicsItem):
         self._font = f
 
     def setTextInteractionFlags(self, f):
-        pass
+        self._flags = f
 
     def textInteractionFlags(self):
-        return 0
+        return self._flags
 
     def document(self):
         return MagicMock()
+
+    def focusInEvent(self, event):
+        pass
+
+    def focusOutEvent(self, event):
+        pass
+
+    def textCursor(self):
+        return MagicMock()
+
+    def setTextCursor(self, c):
+        pass
 
 
 class _QPainterPath:
