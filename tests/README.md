@@ -1,7 +1,7 @@
 # Reaction Sketcher — Test Suite
 
-85 tests across 5 files. All run headlessly — no Qt installation or display
-required. Qt dependencies are stubbed in files that need them.
+758 tests across 16 files. All run headlessly — no Qt installation or display
+required. Qt dependencies are stubbed in files that need them using standard mocks and lightweight test double implementations.
 
 ---
 
@@ -12,7 +12,7 @@ required. Qt dependencies are stubbed in files that need them.
 python -m pytest tests/ -v
 
 # Single file
-python -m pytest tests/test_items_json.py -v
+python -m pytest tests/test_mode_manager_coverage.py -v
 
 # Single test
 python -m pytest tests/ -k "test_loads_arrow"
@@ -20,89 +20,82 @@ python -m pytest tests/ -k "test_loads_arrow"
 
 ---
 
-## Test files
+## Test files overview
 
 | File | Tests | Area |
 |---|---|---|
-| `test_items_json.py` | 31 | JSON serialisation of all reaction item types |
-| `test_load_handler_core.py` | 23 | Load handler — deserialising items from JSON |
-| `test_save_handler.py` | 21 | `initialize()` contract, save/load/reset handlers |
-| `test_utils.py` | 5 | Utility functions (`sip_isdeleted_safe`, `get_main_window`) |
-| `test_version.py` | 5 | Plugin metadata constants |
+| `test_api.py` | 1 | API boundary compliance & isolation checks |
+| `test_data_sync.py` | 12 | Data model synchronization & regression tests (moved/cloned items) |
+| `test_init_coverage.py` | 22 | Plugin initialization, menu callbacks, and lifecycle hooks (`__init__.py`) |
+| `test_interaction_coverage.py` | 79 | User interactions, mouse events, key events, and tool dispatching (`interaction.py`) |
+| `test_items_coverage.py` | 156 | Graphical item rendering, shapes, handles, and context menus (`items.py`) |
+| `test_items_json.py` | 33 | JSON serialization round-trips for all reaction item types |
+| `test_load_handler_core.py` | 24 | Scene item deserialization from JSON data (`utils.py`) |
+| `test_mode_manager_coverage.py` | 190 | Reaction mode state management, tool selection, action handling (`mode_manager.py`) |
+| `test_patcher_coverage.py` | 127 | Core & interaction patching on MoleditPy main window (`patcher.py`) |
+| `test_plugin_integration.py` | 24 | Plugin lifecycle and integration tests (`__init__.py`) |
+| `test_save_handler.py` | 20 | Save, load, and reset handlers, metadata persistence (`__init__.py`) |
+| `test_settings_dialog_bugfixes.py` | 4 | Settings dialog bug fixes and edge-case regressions (`settings_dialog.py`) |
+| `test_settings_dialog_coverage.py` | 51 | Settings UI dialog logic, configuration reading/writing (`settings_dialog.py`) |
+| `test_shortcuts_safety.py` | 4 | Shortcut preservation and restoration safety on main window |
+| `test_utils.py` | 6 | Utility functions (`sip_isdeleted_safe`, `get_main_window`) |
+| `test_version.py` | 5 | Plugin metadata & semver checks |
 
 ---
 
 ## Test files — detailed
 
-### `test_items_json.py` — JSON serialisation (31 tests)
+### `test_api.py` — API Boundary (1 test)
+Validates compliance with allowed API boundaries and prevents illegal internal access.
 
-Verifies that every reaction item type serialises to a JSON dict with the
-correct shape. No deserialization — pure output-structure checks.
+### `test_data_sync.py` — Data Model Sync & Regressions (12 tests)
+Ensures moved or cloned items/atoms accurately write back into the molecular data model (preventing stale atom positions or missing charge/radical data after undo/redo/save).
 
-| Class | Item type tested |
-|---|---|
-| `TestReactionArrowItemJson` | Standard reaction arrow: `type` tag, `x1/y1/x2/y2` keys, `color` |
-| `TestReactionResonanceArrowJson` | Resonance arrow: `type` tag |
-| `TestReactionEquilibriumArrowJson` | Equilibrium arrow: `type` tag |
-| `TestReactionRetroArrowJson` | Retrosynthetic arrow: `type` tag |
-| `TestReactionNoArrowJson` | No-arrow (bond break): `type` tag |
-| `TestReactionDashedArrowJson` | Dashed arrow: `type` tag, position keys |
-| `TestReactionCurvedArrowJson` | Curved arrow (double/fishhook): `type` tag, `control_point` key |
-| `TestReactionPlusItemJson` | Plus symbol: `type`, `x/y`, size reflected in JSON |
-| `TestReactionMinusItemJson` | Minus symbol: `type`, `x/y` |
-| `TestReactionBracketItemJson` | Bracket: `type`, geometry keys |
-| `TestReactionCircleItemJson` | Circle: `type`, geometry keys |
-| `TestReactionLineItemJson` | Line: `type`, position keys |
-| `TestReactionCurvedLineItemJson` | Curved line: `type`, `control_point` |
-| `TestReactionFreehandItemJson` | Freehand: `type`, empty/set points reflected |
-| `TestReactionTextItemJson` | Text: `type`, text content preserved, position |
+### `test_init_coverage.py` — Initialization Coverage (22 tests)
+Exercises plugin startup, action registration, menu callbacks, and mode initialization in `reaction_sketcher/__init__.py`.
 
----
+### `test_interaction_coverage.py` — Interaction Handler (79 tests)
+Tests tool dispatching, mouse press/move/release events, key presses, and double clicks in `reaction_sketcher/interaction.py`.
 
-### `test_load_handler_core.py` — Load handler deserialisation (23 tests)
+### `test_items_coverage.py` — Item Rendering & Handles (156 tests)
+Broad coverage for `reaction_sketcher/items.py`. Tests shape creation, bounding rect calculation, handle dragging (`on_handle_moved`), context menus, rotation, and custom painting.
 
-Tests `load_reaction_items_core()` which reconstructs scene items from
-serialised JSON dicts.
+### `test_items_json.py` — JSON Serialization (33 tests)
+Verifies that every reaction item type serializes to a JSON dictionary with expected schema tags and geometric properties.
 
-| Class | What is tested |
-|---|---|
-| `TestLoadHandlerCoreEmpty` | Empty list and `None` add nothing to the scene |
-| `TestLoadHandlerCoreArrows` | All arrow types loaded: standard, resonance, equilibrium, retro, no-arrow, dashed, multiple arrows |
-| `TestLoadHandlerCoreSymbols` | Plus and minus loaded; plus with custom color/size |
-| `TestLoadHandlerCoreShapes` | Bracket, circle, line, curved line, freehand loaded |
-| `TestLoadHandlerCoreText` | Plain text and HTML text loaded |
-| `TestLoadHandlerCoreRobustness` | Unknown type skipped gracefully; mixed valid+unknown; item with rotation |
+### `test_load_handler_core.py` — Deserialization (24 tests)
+Tests `load_reaction_items_core()` for reconstructing scene items from JSON data.
 
----
+### `test_mode_manager_coverage.py` — Mode Manager (190 tests)
+Comprehensive coverage for `reaction_sketcher/mode_manager.py`, exercising mode toggles, tool state transitions, color palettes, and UI action triggers.
 
-### `test_save_handler.py` — Initialize and persistence (21 tests)
+### `test_patcher_coverage.py` — Main Window Patcher (127 tests)
+Tests patch application and teardown (`patcher.py`) against mock host main window components.
 
-| Class | What is tested |
-|---|---|
-| `TestInitialize` | `initialize(context)` calls `add_menu_action`, `register_save_handler`, `register_load_handler`, `register_reset_handler`, `show_status_message`; correct menu path |
-| `TestSaveHandler` | Save handler returns a dict; has keys `plugin_version`, `items`, `reaction_mode_active`, `auto_start_pref`, `rs_colors`, `groups` |
-| `TestLoadHandler` | `None` / empty dict / list data do not raise; `auto_start_pref` restored from dict |
-| `TestResetHandler` | Reset clears reaction items; safe on empty scene |
+### `test_plugin_integration.py` — Integration (24 tests)
+Integration tests validating the plugin lifecycle, handler hookups, and cross-module interactions.
 
----
+### `test_save_handler.py` — Save/Load/Reset Handlers (20 tests)
+Verifies state save dict structure, load restoration, and reset cleanup routines.
 
-### `test_utils.py` — Utility functions (5 tests)
+### `test_settings_dialog_bugfixes.py` — Settings Bugfixes (4 tests)
+Regression tests covering specific edge cases and bugfixes in `settings_dialog.py`.
 
-| Class | What is tested |
-|---|---|
-| `TestSipIsdeletedSafe` | `None` → `True`; mock object does not raise; PyQt6 sip path |
-| `TestGetMainWindow` | `None` scene → `None`; scene with no views → `None`; scene with view → returns window |
+### `test_settings_dialog_coverage.py` — Settings Dialog (51 tests)
+Coverage suite for reading, updating, and applying settings configuration options via the dialog.
 
----
+### `test_shortcuts_safety.py` — Shortcut Safety (4 tests)
+Ensures host keyboard shortcuts are safely backed up and restored when entering or exiting reaction mode.
 
-### `test_version.py` — Plugin metadata (5 tests)
+### `test_utils.py` — Utility Functions (6 tests)
+Unit tests for `reaction_sketcher/utils.py`, including `sip_isdeleted_safe` and `get_main_window`.
 
-`PLUGIN_NAME`, `PLUGIN_VERSION` (semver format), `PLUGIN_AUTHOR`,
-`PLUGIN_DESCRIPTION` all present and non-empty. `REACTION_ITEM_TYPES` is a
-tuple.
+### `test_version.py` — Plugin Metadata (5 tests)
+Checks that `PLUGIN_NAME`, `PLUGIN_VERSION`, `PLUGIN_AUTHOR`, `PLUGIN_DESCRIPTION`, and `REACTION_ITEM_TYPES` are present and valid.
 
 ---
 
 ## CI
 
 No CI workflow currently configured for this repo.
+
