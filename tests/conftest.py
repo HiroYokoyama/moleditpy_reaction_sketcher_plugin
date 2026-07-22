@@ -147,6 +147,13 @@ class _QRectF:
             self._x + dx1, self._y + dy1, self._w + dx2 - dx1, self._h + dy2 - dy1
         )
 
+    def adjust(self, dx1, dy1, dx2, dy2):
+        """In-place variant of adjusted() (real QRectF.adjust mutates self)."""
+        self._x += dx1
+        self._y += dy1
+        self._w += dx2 - dx1
+        self._h += dy2 - dy1
+
     def setWidth(self, w):
         self._w = float(w)
 
@@ -397,6 +404,16 @@ class _QGraphicsItem:
 
     def itemChange(self, change, value):
         return value
+
+    def moveBy(self, dx, dy):
+        self.setPos(_QPointF(self._pos.x() + dx, self._pos.y() + dy))
+
+    def scenePos(self):
+        return self._pos
+
+    def topLevelItem(self):
+        p = self.parentItem()
+        return p.topLevelItem() if p is not None else self
 
 
 class _QGraphicsTextItem(_QGraphicsItem):
@@ -689,6 +706,35 @@ class _Qt:
     ItemSceneChange = 1
 
 
+class _QObject:
+    """Minimal QObject stand-in providing the small surface ModeManager/
+    InteractionHandler rely on (blockSignals, eventFilter default, event
+    filter install/remove) that plain `object` doesn't have."""
+
+    def __init__(self, *a, **kw):
+        self._signals_blocked = False
+
+    def blockSignals(self, v):
+        old = self._signals_blocked
+        self._signals_blocked = v
+        return old
+
+    def signalsBlocked(self):
+        return self._signals_blocked
+
+    def eventFilter(self, obj, event):
+        return False
+
+    def installEventFilter(self, obj):
+        pass
+
+    def removeEventFilter(self, obj):
+        pass
+
+    def sender(self):
+        return getattr(self, "_sender", None)
+
+
 class _QGraphicsScene:
     """Minimal scene stub with item tracking."""
 
@@ -739,7 +785,7 @@ _qt_core = _make_stub(
     QRectF=_QRectF,
     Qt=_Qt,
     QTimer=MagicMock(),
-    QObject=object,
+    QObject=_QObject,
     QEvent=MagicMock(),
     QLineF=_QLineF,
     QSizeF=MagicMock(),
@@ -935,6 +981,13 @@ _qt_widgets.QComboBox.return_value.count.return_value = 0
 _qt_widgets.QSpinBox.return_value.value.return_value = 12
 _qt_widgets.QDoubleSpinBox.return_value.value.return_value = 1.0
 _qt_widgets.QSlider.return_value.value.return_value = 0
+_qt_gui.QFont.return_value.pointSize.return_value = 12
+_qt_gui.QFont.return_value.pixelSize.return_value = -1
+_qt_gui.QFont.return_value.bold.return_value = False
+_qt_gui.QFont.return_value.italic.return_value = False
+_qt_gui.QFont.return_value.underline.return_value = False
+_qt_gui.QFont.return_value.family.return_value = "Arial"
+_qt_gui.QFont.return_value.weight.return_value = 50
 
 # Make the repo root importable.
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))

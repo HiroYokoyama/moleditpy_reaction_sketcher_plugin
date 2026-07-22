@@ -61,6 +61,9 @@ class FakeAtomItem(QGraphicsItem):
     def sceneBoundingRect(self):
         return QRectF(self.pos().x() - 5, self.pos().y() - 5, 10, 10)
 
+    def scenePos(self):
+        return self.pos()
+
 
 class _LineMock:
     def __init__(self, p1=QPointF(0, 0), p2=QPointF(10, 10), length=10):
@@ -264,6 +267,7 @@ class FakeEditActionsManager:
         self.host = host
         self.undo_stack = []
         self.redo_stack = []
+        self.push_undo_state_calls = 0
 
     def update_implicit_hydrogens(self):
         self.implicit_hydrogens_updated = True
@@ -273,6 +277,9 @@ class FakeEditActionsManager:
 
     def resolve_overlapping_groups(self):
         self.overlap_resolved = True
+
+    def push_undo_state(self):
+        self.push_undo_state_calls += 1
 
 
 class FakeUiManager:
@@ -308,7 +315,10 @@ class FakeIOManager:
 class FakeInitManager:
     def __init__(self):
         self.current_file_path = None
-        self.view_2d = None
+        self.view_2d = MagicMock()
+        self.splitter = MagicMock()
+        self.splitter.sizes.return_value = [500, 500]
+        self.splitter.count.return_value = 2
 
 
 class FakeView3DManager:
@@ -332,6 +342,20 @@ class FakeMainWindow:
         self._unsaved = False
         self._current_file_path = None
         self._actions = []
+        self.data = self.state_manager.data
+        self.view_2d = MagicMock()
+
+    def menuBar(self):
+        return MagicMock()
+
+    def addToolBar(self, *args, **kwargs):
+        pass
+
+    def installEventFilter(self, obj):
+        pass
+
+    def removeEventFilter(self, obj):
+        pass
 
     # --- MainWindow surface used by patched methods ---
     def statusBar(self):
