@@ -5,6 +5,7 @@ PyQt6 is stubbed with pure-Python stand-ins so the plugin code can be
 imported and exercised without a display or installed Qt binaries.
 """
 
+import math
 import os
 import sys
 import types
@@ -33,6 +34,21 @@ class _QPointF:
 
     def __add__(self, o):
         return _QPointF(self._x + o._x, self._y + o._y)
+
+    def manhattanLength(self):
+        return abs(self._x) + abs(self._y)
+
+    def setX(self, x):
+        self._x = float(x)
+
+    def setY(self, y):
+        self._y = float(y)
+
+    def __eq__(self, o):
+        return isinstance(o, _QPointF) and self._x == o._x and self._y == o._y
+
+    def __hash__(self):
+        return hash((self._x, self._y))
 
     def __repr__(self):
         return f"QPointF({self._x}, {self._y})"
@@ -238,8 +254,14 @@ class _QGraphicsItem:
     def setFlags(self, f):
         self._flags = f
 
+    def flags(self):
+        return self._flags
+
     def setFlag(self, f, v=True):
-        pass
+        if v:
+            self._flags |= f
+        else:
+            self._flags &= ~f
 
     def setToolTip(self, t):
         self._tooltip = t
@@ -260,13 +282,22 @@ class _QGraphicsItem:
         return True
 
     def setSelected(self, s):
-        pass
+        self._selected = s
 
     def isSelected(self):
-        return False
+        return getattr(self, "_selected", False)
 
     def setAcceptHoverEvents(self, v):
         pass
+
+    def setFocus(self, reason=None):
+        self._has_focus = True
+
+    def clearFocus(self):
+        self._has_focus = False
+
+    def hasFocus(self):
+        return getattr(self, "_has_focus", False)
 
     def setAcceptedMouseButtons(self, b):
         pass
@@ -312,7 +343,7 @@ class _QGraphicsTextItem(_QGraphicsItem):
         self._html = text
         self._color = _QColor()
         self._font = MagicMock()
-        self._flags = 0
+        self._text_interaction_flags = 0
 
     def toPlainText(self):
         return self._text
@@ -339,10 +370,10 @@ class _QGraphicsTextItem(_QGraphicsItem):
         self._font = f
 
     def setTextInteractionFlags(self, f):
-        self._flags = f
+        self._text_interaction_flags = f
 
     def textInteractionFlags(self):
-        return self._flags
+        return self._text_interaction_flags
 
     def document(self):
         return MagicMock()
@@ -358,6 +389,41 @@ class _QGraphicsTextItem(_QGraphicsItem):
 
     def setTextCursor(self, c):
         pass
+
+
+class _QLineF:
+    """Minimal QLineF stand-in with the subset interaction.py uses."""
+
+    def __init__(self, p1=None, p2=None):
+        self._p1 = p1 if p1 is not None else _QPointF()
+        self._p2 = p2 if p2 is not None else _QPointF()
+
+    def p1(self):
+        return self._p1
+
+    def p2(self):
+        return self._p2
+
+    def center(self):
+        return _QPointF(
+            (self._p1.x() + self._p2.x()) / 2, (self._p1.y() + self._p2.y()) / 2
+        )
+
+    def length(self):
+        dx = self._p2.x() - self._p1.x()
+        dy = self._p2.y() - self._p1.y()
+        return math.hypot(dx, dy)
+
+    def angle(self):
+        dx = self._p2.x() - self._p1.x()
+        dy = self._p2.y() - self._p1.y()
+        deg = math.degrees(math.atan2(dy, dx))
+        return -deg % 360
+
+    @staticmethod
+    def fromPolar(length, angle):
+        rad = math.radians(-angle)
+        return _QLineF(_QPointF(0, 0), _QPointF(length * math.cos(rad), length * math.sin(rad)))
 
 
 class _QPainterPath:
@@ -389,12 +455,26 @@ class _QPainterPath:
         return False
 
 
+class _Flag(int):
+    """int subclass exposing a PyQt6-style `.value` accessor.
+
+    Real PyQt6 KeyboardModifier/MouseButton constants are IntFlag-like
+    objects with a `.value` attribute (code in interaction.py does
+    ``modifiers.value & Qt.KeyboardModifier.ShiftModifier.value``). Plain
+    ints don't have `.value`, so wrap the stub constants in this subclass.
+    """
+
+    @property
+    def value(self):
+        return int(self)
+
+
 class _Qt:
     class KeyboardModifier:
-        ControlModifier = 0x04000000
-        ShiftModifier = 0x02000000
-        AltModifier = 0x08000000
-        NoModifier = 0
+        ControlModifier = _Flag(0x04000000)
+        ShiftModifier = _Flag(0x02000000)
+        AltModifier = _Flag(0x08000000)
+        NoModifier = _Flag(0)
 
     class MouseButton:
         LeftButton = 1
@@ -413,6 +493,8 @@ class _Qt:
         Key_Escape = 16777216
         Key_Return = 16777220
         Key_Enter = 16777221
+        Key_Space = 32
+        Key_B = 66
 
     class TextInteractionFlag:
         TextEditorInteraction = 5
@@ -480,6 +562,12 @@ class _Qt:
         AscendingOrder = 0
         DescendingOrder = 1
 
+    class ItemSelectionMode:
+        ContainsItemShape = 0
+        IntersectsItemShape = 1
+        ContainsItemBoundingRect = 2
+        IntersectsItemBoundingRect = 3
+
     class ToolBarArea:
         LeftToolBarArea = 1
         RightToolBarArea = 2
@@ -500,6 +588,7 @@ class _Qt:
     class HitTestAccuracy:
         ExactHit = 0
         WindingFill = 1
+        FuzzyHit = 1
 
     class GlobalColor:
         black = 2
@@ -574,7 +663,7 @@ _qt_core = _make_stub(
     QTimer=MagicMock(),
     QObject=object,
     QEvent=MagicMock(),
-    QLineF=MagicMock(),
+    QLineF=_QLineF,
     QSizeF=MagicMock(),
     QSize=MagicMock(),
     QThread=MagicMock(),

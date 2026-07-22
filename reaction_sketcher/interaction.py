@@ -690,6 +690,12 @@ class InteractionHandler(QObject):
                                 continue
                     self.main_window.scene.update_connected_bonds(atoms)
 
+            # Capture before resetting below -- the toggle-off logic in the
+            # "no move" branch needs to know the modifier state that was
+            # active when the drag/click started.
+            was_ctrl = self._drag_start_with_ctrl
+            was_shift = self._drag_start_with_shift
+
             self._is_dragging = False
             self._drag_start_pos = None
             self._drag_items = []
@@ -714,7 +720,7 @@ class InteractionHandler(QObject):
 
                 # If Shift/Ctrl was used on an already selected item,
                 # we should toggle it OFF now (logic was deferred from mouse_press to allow drag)
-                if self._drag_start_with_ctrl or self._drag_start_with_shift:
+                if was_ctrl or was_shift:
                     if item and item.isSelected():
                         # Toggle off this item and its group
                         group_items = [item]
