@@ -93,9 +93,7 @@ Unit tests for `reaction_sketcher/utils.py`, including `sip_isdeleted_safe` and 
 ### `test_version.py` — Plugin Metadata (5 tests)
 Checks that `PLUGIN_NAME`, `PLUGIN_VERSION`, `PLUGIN_AUTHOR`, `PLUGIN_DESCRIPTION`, and `REACTION_ITEM_TYPES` are present and valid.
 
----
-
 ## CI
 
-No CI workflow currently configured for this repo.
+Automated testing is configured via GitHub Actions in `.github/workflows/tests.yml`. Tests run on push and pull requests across Python versions 3.11, 3.12, and 3.13 with `pytest` and coverage reporting (`pytest-cov`).
 
