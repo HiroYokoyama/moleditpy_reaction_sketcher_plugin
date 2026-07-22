@@ -177,6 +177,12 @@ class FakeMoleculeScene(QGraphicsScene):
     def update(self):
         pass
 
+    def render(self, painter, target=None, source=None):
+        pass
+
+    def update_template_preview(self, *args, **kwargs):
+        self.template_preview_updated = True
+
     def create_atom(self, symbol, pos, charge=0, radical=0):
         aid = self._next_atom_id
         self._next_atom_id += 1
@@ -191,6 +197,19 @@ class FakeMoleculeScene(QGraphicsScene):
         self.bond_items[(a1.atom_id, a2.atom_id)] = b
         self.addItem(b)
         return b
+
+    def delete_items(self, items):
+        """'Core' delete_items -- stands in as the pre-patch original so
+        patched_delete_items (patcher.py) has something real to delegate to
+        for AtomItem/BondItem removal."""
+        for item in items:
+            self.removeItem(item)
+            if getattr(item, "atom_id", None) in self.atom_items:
+                del self.atom_items[item.atom_id]
+            for k, v in list(self.bond_items.items()):
+                if v is item:
+                    del self.bond_items[k]
+        return True
 
 
 class FakeDataModel:
@@ -219,7 +238,11 @@ class FakeAppState:
         self.has_unsaved_changes = False
 
     def get_current_state(self):
-        return {}
+        return {
+            "atoms": dict(self.data.atoms),
+            "bonds": dict(self.data.bonds),
+            "_next_atom_id": self.data.next_atom_id,
+        }
 
     def set_state_from_data(self, state_data):
         self._last_loaded = state_data
@@ -251,12 +274,6 @@ class FakeEditActionsManager:
     def resolve_overlapping_groups(self):
         self.overlap_resolved = True
 
-    def _get_default_path(self):
-        return ""
-
-    def save_project_as(self):
-        self.save_as_called = True
-
 
 class FakeUiManager:
     """Stand-in for MainWindowUiManager."""
@@ -272,9 +289,20 @@ class FakeUiManager:
         self.select_mode_activated = True
 
 
+class FakeComputeManager:
+    def __init__(self, host):
+        self.host = host
+
+    def on_calculation_finished(self, result):
+        self.last_result = result
+
+
 class FakeIOManager:
     def __init__(self, host):
         self.host = host
+
+    def _get_default_path(self):
+        return ""
 
 
 class FakeInitManager:

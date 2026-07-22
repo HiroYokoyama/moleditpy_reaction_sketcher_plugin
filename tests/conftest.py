@@ -38,6 +38,9 @@ class _QPointF:
     def manhattanLength(self):
         return abs(self._x) + abs(self._y)
 
+    def toPoint(self):
+        return self
+
     def setX(self, x):
         self._x = float(x)
 
@@ -118,10 +121,23 @@ class _QRectF:
         return _QRectF(x, y, abs(self._w), abs(self._h))
 
     def contains(self, p):
-        return False
+        if isinstance(p, _QRectF):
+            return (
+                p.left() >= self.left()
+                and p.right() <= self.right()
+                and p.top() >= self.top()
+                and p.bottom() <= self.bottom()
+            )
+        return (
+            self.left() <= p.x() <= self.right()
+            and self.top() <= p.y() <= self.bottom()
+        )
 
     def isNull(self):
         return self._w == 0 and self._h == 0
+
+    def isValid(self):
+        return self._w > 0 and self._h > 0
 
     def isEmpty(self):
         return self._w <= 0 or self._h <= 0
@@ -152,7 +168,15 @@ class _QRectF:
         self._y = p.y()
 
     def united(self, other):
-        return _QRectF()
+        if self.isNull() or not self.isValid():
+            return _QRectF(other._x, other._y, other._w, other._h)
+        if other.isNull() or not other.isValid():
+            return _QRectF(self._x, self._y, self._w, self._h)
+        left = min(self.left(), other.left())
+        top = min(self.top(), other.top())
+        right = max(self.right(), other.right())
+        bottom = max(self.bottom(), other.bottom())
+        return _QRectF(left, top, right - left, bottom - top)
 
     def intersected(self, other):
         return _QRectF()
@@ -183,6 +207,21 @@ class _QColor:
     def blue(self):
         return 0
 
+    def redF(self):
+        return 0.0
+
+    def greenF(self):
+        return 0.0
+
+    def blueF(self):
+        return 0.0
+
+    def alpha(self):
+        return 255
+
+    def alphaF(self):
+        return 1.0
+
 
 class _GraphicsItemFlag:
     ItemIsMovable = 1
@@ -205,11 +244,29 @@ class _GraphicsItemFlag:
     ItemContainsChildrenInShape = 131072
 
 
+class _GraphicsItemChange:
+    ItemPositionChange = 0
+    ItemPositionHasChanged = 1
+    ItemSelectedChange = 2
+    ItemSelectedHasChanged = 3
+    ItemSceneChange = 4
+    ItemSceneHasChanged = 5
+    ItemVisibleChange = 6
+    ItemVisibleHasChanged = 7
+    ItemParentChange = 8
+    ItemParentHasChanged = 9
+    ItemTransformChange = 10
+    ItemTransformHasChanged = 11
+    ItemRotationChange = 12
+    ItemRotationHasChanged = 13
+
+
 class _QGraphicsItem:
     ItemIsMovable = 1
     ItemIsSelectable = 2
     ItemSendsGeometryChanges = 4
     GraphicsItemFlag = _GraphicsItemFlag
+    GraphicsItemChange = _GraphicsItemChange
 
     def __init__(self, parent=None):
         self._pos = _QPointF()
@@ -241,6 +298,12 @@ class _QGraphicsItem:
 
     def boundingRect(self):
         return _QRectF(-50, -50, 100, 100)
+
+    def sceneBoundingRect(self):
+        r = self.boundingRect()
+        return _QRectF(
+            self._pos.x() + r.x(), self._pos.y() + r.y(), r.width(), r.height()
+        )
 
     def paint(self, *a):
         pass
@@ -424,6 +487,18 @@ class _QLineF:
     def fromPolar(length, angle):
         rad = math.radians(-angle)
         return _QLineF(_QPointF(0, 0), _QPointF(length * math.cos(rad), length * math.sin(rad)))
+
+
+class _QByteArray(bytearray):
+    """Minimal QByteArray stand-in -- real bytes-like storage so code that
+    round-trips binary data through it (e.g. clipboard copy/paste) works."""
+
+    def append(self, data):
+        self.extend(data)
+        return self
+
+    def data(self):
+        return bytes(self)
 
 
 class _QPainterPath:
@@ -638,6 +713,9 @@ class _QGraphicsScene:
     def views(self):
         return []
 
+    def keyPressEvent(self, event):
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Install stubs into sys.modules
@@ -672,7 +750,7 @@ _qt_core = _make_stub(
     QIODevice=MagicMock(),
     QMimeData=MagicMock(),
     QFile=MagicMock(),
-    QByteArray=MagicMock(),
+    QByteArray=_QByteArray,
     QRect=MagicMock(),
     QMargins=MagicMock(),
     QUrl=MagicMock(),

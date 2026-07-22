@@ -702,12 +702,13 @@ class TestDeleteSelection:
         result = handler.delete_selection()
         assert result is True
 
-    def test_fallback_manual_deletion(self):
+    def test_fallback_manual_deletion(self, monkeypatch):
         handler, mw, ctx, mm = make_handler()
         item = ReactionArrowItem(QPointF(0, 0), QPointF(10, 10))
         item.setSelected(True)
         mw.scene.addItem(item)
-        # FakeMoleculeScene has no delete_items -- exercises the fallback path.
+        # Hide delete_items so delete_selection() takes the fallback path.
+        monkeypatch.delattr(type(mw.scene), "delete_items", raising=False)
         result = handler.delete_selection()
         assert result is True
         ctx.push_undo_checkpoint.assert_called_once()
