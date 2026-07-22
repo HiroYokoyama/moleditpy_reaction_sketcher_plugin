@@ -35,6 +35,11 @@ class _QPointF:
     def __add__(self, o):
         return _QPointF(self._x + o._x, self._y + o._y)
 
+    def __mul__(self, factor):
+        return _QPointF(self._x * factor, self._y * factor)
+
+    __rmul__ = __mul__
+
     def manhattanLength(self):
         return abs(self._x) + abs(self._y)
 
@@ -196,10 +201,14 @@ class _QRectF:
 
 
 class _QColor:
+    class NameFormat:
+        HexRgb = 0
+        HexArgb = 1
+
     def __init__(self, *args):
         self._name = args[0] if args and isinstance(args[0], str) else "#000000"
 
-    def name(self):
+    def name(self, fmt=None):
         return self._name
 
     def isValid(self):
@@ -281,6 +290,7 @@ class _QGraphicsItem:
         self._scene = None
         self._flags = 0
         self._tooltip = ""
+        self._parent_item = parent
 
     def setPos(self, x, y=None):
         if isinstance(x, _QPointF):
@@ -346,10 +356,10 @@ class _QGraphicsItem:
         return 0
 
     def setVisible(self, v):
-        pass
+        self._visible = v
 
     def isVisible(self):
-        return True
+        return getattr(self, "_visible", True)
 
     def setSelected(self, s):
         self._selected = s
@@ -388,9 +398,33 @@ class _QGraphicsItem:
         return []
 
     def parentItem(self):
-        return None
+        return self._parent_item
 
     def setParentItem(self, p):
+        self._parent_item = p
+
+    def hoverEnterEvent(self, event):
+        pass
+
+    def hoverLeaveEvent(self, event):
+        pass
+
+    def mousePressEvent(self, event):
+        pass
+
+    def mouseReleaseEvent(self, event):
+        pass
+
+    def mouseDoubleClickEvent(self, event):
+        pass
+
+    def keyPressEvent(self, event):
+        pass
+
+    def sceneEvent(self, event):
+        return False
+
+    def contextMenuEvent(self, event):
         pass
 
     def collidingItems(self):
@@ -484,6 +518,18 @@ class _QLineF:
     def p2(self):
         return self._p2
 
+    def setP1(self, p):
+        self._p1 = p
+
+    def setP2(self, p):
+        self._p2 = p
+
+    def pointAt(self, t):
+        return _QPointF(
+            self._p1.x() + (self._p2.x() - self._p1.x()) * t,
+            self._p1.y() + (self._p2.y() - self._p1.y()) * t,
+        )
+
     def center(self):
         return _QPointF(
             (self._p1.x() + self._p2.x()) / 2, (self._p1.y() + self._p2.y()) / 2
@@ -531,6 +577,12 @@ class _QPainterPath:
     def quadTo(self, *a):
         pass
 
+    def arcMoveTo(self, *a):
+        pass
+
+    def arcTo(self, *a):
+        pass
+
     def closeSubpath(self):
         pass
 
@@ -539,6 +591,15 @@ class _QPainterPath:
 
     def addEllipse(self, *a):
         pass
+
+    def addPolygon(self, *a):
+        self._has_content = True
+
+    def addPath(self, *a):
+        self._has_content = True
+
+    def isEmpty(self):
+        return not getattr(self, "_has_content", False)
 
     def boundingRect(self):
         return _QRectF()
@@ -587,6 +648,10 @@ class _Qt:
         Key_Enter = 16777221
         Key_Space = 32
         Key_B = 66
+        Key_I = 73
+        Key_U = 85
+        Key_Equal = 61
+        Key_Plus = 43
 
     class TextInteractionFlag:
         TextEditorInteraction = 5
