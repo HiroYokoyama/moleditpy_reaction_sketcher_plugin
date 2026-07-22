@@ -1,6 +1,7 @@
 # Reaction Sketcher Plugin for MoleditPy
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml)
+![Test Coverage](https://img.shields.io/badge/coverage->80%25-green)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_reaction_sketcher_plugin/total)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/releases)
 
 ![Reaction Sketcher](img/main.png)
