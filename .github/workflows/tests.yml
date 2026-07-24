@@ -31,10 +31,7 @@ jobs:
       - name: Clone main app (real-context integration tests)
         run: git clone --depth 1 https://github.com/HiroYokoyama/python_molecular_editor.git ../python_molecular_editor || true
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           CI_MAIN_APP_SRC: ../python_molecular_editor/moleditpy/src
-        run: python -m pytest tests/ -v --tb=short
-
-      - name: Run tests with coverage
-        run: python -m pytest tests/ --cov=reaction_sketcher --cov-report=term-missing
+        run: python -m pytest tests/ -v --tb=short --cov=reaction_sketcher --cov-report=term-missing
