@@ -5,6 +5,7 @@
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy_reaction_sketcher_plugin/total)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/releases)
 
 ![Reaction Sketcher](img/main.png)
+[![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_reaction_sketcher_plugin?label=version)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/tags)
 
 A comprehensive chemical reaction sketching tool for MoleditPy, allowing users to draw reaction text, arrows, brackets, and annotations directly in the 2D workspace.
 
