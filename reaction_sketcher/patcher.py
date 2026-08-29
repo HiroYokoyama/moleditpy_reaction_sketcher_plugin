@@ -820,7 +820,7 @@ def apply_core_patches(main_window, context=None):
         lambda self: self.edit_actions_manager.delete_selection(),
     )
 
-    def patched_atom_paint(self, painter, option, widget):
+    def patched_atom_paint(self, painter, option, widget=None):
         # ALWAYS use patched paint logic to ensure visibility and background handling
 
         custom_color = getattr(self, "pen_color", None)
@@ -1057,7 +1057,7 @@ def apply_core_patches(main_window, context=None):
 
     patch_core(AtomItem, "__init__", patched_atom_item_init)
 
-    def patched_bond_paint(self, painter, option, widget):
+    def patched_bond_paint(self, painter, option, widget=None):
         line = self.get_line_in_local_coords()
         if line.length() == 0:
             return

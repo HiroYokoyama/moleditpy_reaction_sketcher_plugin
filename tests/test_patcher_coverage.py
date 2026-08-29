@@ -457,6 +457,13 @@ class TestBondAtomPatches:
         bond.has_problem = True
         bond.paint(MagicMock(), MagicMock(), MagicMock())
 
+    def test_paint_patches_accept_omitted_widget(self):
+        # The host's TemplatePreviewItem.paint_ghost calls paint(painter, option)
+        mw, a1, a2, bond = make_mw_with_atoms()
+        apply_patches_ctx(mw)
+        bond.paint(MagicMock(), MagicMock())
+        a1.paint(MagicMock(), MagicMock())
+
 
 # ===========================================================================
 # closeEvent
