@@ -38,7 +38,7 @@ from .items import (
     ReactionFreehandItem,
     ReactionDashedArrowItem,
 )
-from .utils import load_handler_core
+from .utils import load_handler_core, show_carbon_state
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
@@ -167,9 +167,13 @@ def initialize(context):
                 if group_id is not None:
                     bgroups[f"{k[0]}-{k[1]}"] = group_id
 
+        show_all_carbons, shown_carbon_ids = show_carbon_state(context.scene)
+
         return {
             "plugin_version": PLUGIN_VERSION,
             "items": reaction_items,
+            "show_carbon": show_all_carbons,
+            "show_carbon_atoms": sorted(shown_carbon_ids),
             "reaction_mode_active": mode_manager.is_reaction_mode
             or (len(reaction_items) > 0),
             "auto_start_pref": mode_manager.auto_start_pref,
@@ -244,9 +248,18 @@ def initialize(context):
         if should_enter_mode and not mode_manager.is_reaction_mode:
             mode_manager.toggle_reaction_mode()
 
+        # After toggle_reaction_mode, so the property toolbar action exists to sync.
+        if isinstance(data, dict):
+            mode_manager.apply_show_carbon_state(
+                data.get("show_carbon", False),
+                data.get("show_carbon_atoms", []),
+                sync_action=True,
+            )
+
     def reset_handler():
         """Reset state for new project."""
         interaction_handler.active_tool = None
+        mode_manager.apply_show_carbon_state(False, [], sync_action=True)
         if mode_manager.is_reaction_mode:
             mode_manager.exit_reaction_mode()
 

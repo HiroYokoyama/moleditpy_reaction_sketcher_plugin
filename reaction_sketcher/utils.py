@@ -39,6 +39,30 @@ def get_main_window(scene):
     return None
 
 
+def show_carbon_state(scene):
+    """Return (show_all_carbons, shown_atom_ids) for the sketcher's Show C toggle."""
+    if scene is None:
+        return False, frozenset()
+    ids = getattr(scene, "_rs_show_carbon_ids", None)
+    return bool(getattr(scene, "_rs_show_carbon", False)), ids or frozenset()
+
+
+def is_carbon_shown(atom):
+    """True when the sketcher should label this skeletal carbon.
+
+    Pressing Show C with carbons selected narrows the toggle to those atom ids;
+    with nothing selected it applies to every carbon in the scene.
+    """
+    if getattr(atom, "symbol", "") != "C":
+        return False
+    try:
+        scene = atom.scene()
+    except (RuntimeError, AttributeError):
+        return False
+    show_all, ids = show_carbon_state(scene)
+    return show_all or getattr(atom, "atom_id", None) in ids
+
+
 def load_handler_core(main_window, reaction_items):
     """
     Core function to load reaction items from a list of dictionaries.
@@ -137,6 +161,8 @@ def load_handler_core(main_window, reaction_items):
                 item.head_angle = item_data["head_angle"]
             if "head_style" in item_data:
                 item.head_style = item_data["head_style"]
+            if "head_concavity" in item_data and hasattr(item, "head_concavity"):
+                item.head_concavity = item_data["head_concavity"]
             if "head_side" in item_data and hasattr(item, "head_side"):
                 item.head_side = item_data["head_side"]
             if "head_at" in item_data and hasattr(item, "head_at"):

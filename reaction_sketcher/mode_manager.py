@@ -414,12 +414,12 @@ class ModeManager(QObject):
             ),
             (
                 "mirror_h",
-                "Mirror Horizontal (flip vertically)",
+                "Flip Vertically (mirror across a horizontal axis)",
                 lambda: self.mirror_items("h"),
             ),
             (
                 "mirror_v",
-                "Mirror Vertical (flip horizontally)",
+                "Flip Horizontally (mirror across a vertical axis)",
                 lambda: self.mirror_items("v"),
             ),
         ]
@@ -704,7 +704,10 @@ class ModeManager(QObject):
         # Show Carbon Toggle
         self.show_carbon_action = self.property_toolbar.addAction("Show C")
         self.show_carbon_action.setCheckable(True)
-        self.show_carbon_action.setToolTip("Toggle showing/hiding skeletal carbon labels (C)")
+        self.show_carbon_action.setToolTip(
+            "Show skeletal carbon labels — only the selected carbons when a "
+            "carbon is selected, otherwise all of them"
+        )
         self.show_carbon_action.toggled.connect(self.toggle_show_carbon)
 
         self.property_toolbar.addSeparator()
@@ -3185,21 +3188,77 @@ class ModeManager(QObject):
             if push_undo_func:
                 push_undo_func()
 
+    def selected_carbon_ids(self):
+        """Atom ids of the carbons in the current selection."""
+        scene = getattr(self.main_window, "scene", None)
+        if scene is None:
+            return []
+        ids = []
+        for item in scene.selectedItems():
+            if sip_isdeleted_safe(item):
+                continue
+            aid = getattr(item, "atom_id", None)
+            if aid is not None and getattr(item, "symbol", "") == "C":
+                ids.append(aid)
+        return ids
+
     def toggle_show_carbon(self, checked):
-        """Toggle showing/hiding skeletal carbons in the scene."""
+        """Show skeletal carbons — only the selected ones if any carbon is selected."""
         if not self.main_window or not self.main_window.scene:
             return
-        self.main_window.scene._rs_show_carbon = checked
-        scene_atom_items = getattr(self.main_window.scene, "atom_items", {})
-        if isinstance(scene_atom_items, dict):
-            for atom in scene_atom_items.values():
+        if checked:
+            selected = self.selected_carbon_ids()
+            # A carbon selection narrows the toggle to those atoms; with nothing
+            # selected the toggle covers every carbon in the scene.
+            self.apply_show_carbon_state(not selected, selected)
+        else:
+            self.apply_show_carbon_state(False, [])
+
+        mgr_edit = getattr(self.main_window, "edit_actions_manager", None)
+        push_undo_func = getattr(mgr_edit, "push_undo_state", None) if mgr_edit else None
+        if push_undo_func:
+            push_undo_func()
+
+    def apply_show_carbon_state(self, show_all, atom_ids, sync_action=False):
+        """Store the Show C state on the scene and repaint the affected atoms."""
+        scene = getattr(self.main_window, "scene", None)
+        if scene is None:
+            return
+        scene._rs_show_carbon = bool(show_all)
+        scene._rs_show_carbon_ids = set(atom_ids or ())
+
+        action = getattr(self, "show_carbon_action", None)
+        if sync_action and action is not None:
+            was_blocked = action.blockSignals(True)
+            action.setChecked(bool(show_all) or bool(scene._rs_show_carbon_ids))
+            action.blockSignals(was_blocked)
+
+        self.refresh_carbon_labels()
+
+    def refresh_carbon_labels(self):
+        """Repaint atoms and bonds after the Show C state changed."""
+        scene = getattr(self.main_window, "scene", None)
+        if scene is None:
+            return
+        atom_items = getattr(scene, "atom_items", {})
+        if isinstance(atom_items, dict):
+            for atom in atom_items.values():
+                if sip_isdeleted_safe(atom):
+                    continue
                 if hasattr(atom, "update_style"):
                     atom.update_style()
                 elif hasattr(atom, "update"):
                     atom.update()
-        self.main_window.scene.update()
-        if self.context:
-            self.context.refresh_2d_scene()
+        # Bonds clip their ends against the atom label, so they repaint too.
+        bond_items = getattr(scene, "bond_items", {})
+        if isinstance(bond_items, dict):
+            for bond in bond_items.values():
+                if not sip_isdeleted_safe(bond) and hasattr(bond, "update"):
+                    bond.update()
+        scene.update()
+        refresh = getattr(self.context, "refresh_2d_scene", None) if self.context else None
+        if refresh:
+            refresh()
 
     def toggle_subscript(self):
         self._toggle_text_format("sub")

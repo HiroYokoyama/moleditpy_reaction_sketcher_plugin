@@ -53,6 +53,8 @@ def _load_init_mocked():
         m = MagicMock()
         sys.modules[name] = m
         mocks[name] = m
+    # save_handler unpacks this, so a bare MagicMock return would not do.
+    mocks["reaction_sketcher.utils"].show_carbon_state.return_value = (False, set())
 
     spec = importlib.util.spec_from_file_location(
         "reaction_sketcher",

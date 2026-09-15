@@ -7,6 +7,7 @@ from PyQt6.QtGui import (
     QPen,
     QBrush,
     QFont,
+    QFontMetricsF,
     QPainter,
     QImage,
     QAction,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsItem,
     QFileDialog,
+    QMenu,
     QMessageBox,
     QGraphicsView,
 )
@@ -38,7 +40,7 @@ try:
 except ImportError:
     QSvgGenerator = None
 
-from .utils import sip_isdeleted_safe
+from .utils import is_carbon_shown, show_carbon_state, sip_isdeleted_safe
 import logging
 
 # Storage for original methods
@@ -835,13 +837,11 @@ def apply_core_patches(main_window, context=None):
 
         custom_color = getattr(self, "pen_color", None)
 
-        scene = self.scene() if hasattr(self, "scene") else None
-        show_carbon = getattr(scene, "_rs_show_carbon", False) if scene else False
-        is_visible = self.is_visible or (show_carbon and getattr(self, "symbol", "") == "C")
+        show_carbon = is_carbon_shown(self)
+        is_visible = self.is_visible or show_carbon
 
         if not is_visible:
             # Still draw selection highlight even if atom is central to a bond (skeletal carbon)
-
             if getattr(self, "has_problem", False):
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1077,11 +1077,52 @@ def apply_core_patches(main_window, context=None):
         def patched_atom_update_style(self):
             if (AtomItem, "update_style") in _core_originals:
                 _core_originals[(AtomItem, "update_style")](self)
-            scene = self.scene() if hasattr(self, "scene") else None
-            if scene and getattr(scene, "_rs_show_carbon", False) and getattr(self, "symbol", "") == "C":
+            if is_carbon_shown(self):
                 self.is_visible = True
 
         patch_core(AtomItem, "update_style", patched_atom_update_style)
+
+    _SUBSCRIPT_MAP = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+    def _carbon_label_extent(atom):
+        """(left, right) padding the implicit-H part adds to a shown carbon's label.
+
+        The core AtomItem treats a bonded neutral carbon as skeletal and leaves
+        the H out of visual_rect(), so without this the label Show C draws would
+        fall outside boundingRect() and Qt would clip it or leave ghosts behind.
+        """
+        count = getattr(atom, "implicit_h_count", 0) or 0
+        if count <= 0:
+            return 0.0, 0.0
+        text = "H" + (str(count).translate(_SUBSCRIPT_MAP) if count > 1 else "")
+        try:
+            width = float(QFontMetricsF(atom.font).horizontalAdvance(text))
+        except (TypeError, ValueError, RuntimeError):
+            return 0.0, 0.0
+
+        my_x = atom.pos().x()
+        total_dx = 0.0
+        for bond in getattr(atom, "bonds", None) or []:
+            try:
+                other = bond.atom1 if bond.atom2 is atom else bond.atom2
+                if other is not None and not sip_isdeleted_safe(other):
+                    total_dx += other.pos().x() - my_x
+            except (RuntimeError, AttributeError):
+                continue
+        # paint() puts the H on the side facing away from the neighbours.
+        return (width, 0.0) if total_dx > 0 else (0.0, width)
+
+    if hasattr(AtomItem, "visual_rect"):
+        def patched_atom_visual_rect(self):
+            rect = _core_originals[(AtomItem, "visual_rect")](self)
+            if not is_carbon_shown(self):
+                return rect
+            left, right = _carbon_label_extent(self)
+            if not left and not right:
+                return rect
+            return rect.adjusted(-left, 0, right, 0)
+
+        patch_core(AtomItem, "visual_rect", patched_atom_visual_rect)
 
     def patched_bond_paint(self, painter, option, widget=None):
         line = self.get_line_in_local_coords()
@@ -1576,6 +1617,11 @@ def apply_core_patches(main_window, context=None):
         )
 
         state["rs_items"] = rs_items_data
+
+        scene = getattr(self.host, "scene", None)
+        show_all, shown_ids = show_carbon_state(scene)
+        state["rs_show_carbon"] = show_all
+        state["rs_show_carbon_atoms"] = sorted(shown_ids)
         return state
 
     patch_core(MainWindowAppState, "get_current_state", patched_get_current_state)
@@ -1616,6 +1662,15 @@ def apply_core_patches(main_window, context=None):
             from .utils import load_handler_core
 
             load_handler_core(self.host, state_data["rs_items"])
+
+        # Undo/redo rebuilds the atom items, so re-apply Show C from the state.
+        rmm = getattr(self.host, "_reaction_mode_manager", None)
+        if rmm is not None and hasattr(rmm, "apply_show_carbon_state"):
+            rmm.apply_show_carbon_state(
+                state_data.get("rs_show_carbon", False),
+                state_data.get("rs_show_carbon_atoms", []),
+                sync_action=True,
+            )
 
     patch_core(MainWindowAppState, "set_state_from_data", patched_set_state_from_data)
 
@@ -1719,6 +1774,8 @@ def apply_core_patches(main_window, context=None):
             "rs_items": curr_state.get("rs_items", []),
             "rs_atom_groups": curr_state.get("rs_atom_groups", {}),
             "rs_bond_groups": curr_state.get("rs_bond_groups", {}),
+            "rs_show_carbon": curr_state.get("rs_show_carbon", False),
+            "rs_show_carbon_atoms": curr_state.get("rs_show_carbon_atoms", []),
         }
 
         last_comp = None
@@ -1753,6 +1810,8 @@ def apply_core_patches(main_window, context=None):
                 "rs_items": last_state.get("rs_items", []),
                 "rs_atom_groups": last_agroups,
                 "rs_bond_groups": last_bgroups,
+                "rs_show_carbon": last_state.get("rs_show_carbon", False),
+                "rs_show_carbon_atoms": last_state.get("rs_show_carbon_atoms", []),
             }
 
         if not last_comp or current_comp != last_comp:
@@ -2277,6 +2336,43 @@ def apply_core_patches(main_window, context=None):
         patch_core(
             MainWindowExport, "copy_svg_to_clipboard", patched_copy_svg_to_clipboard
         )
+
+        def rewire_2d_export_actions(window):
+            """Re-point File > Export > 2D Formats at the patched export methods.
+
+            Qt captured export_manager's bound methods when the menus were built
+            at startup, so those connections keep calling the unpatched
+            functions and the exported PNG/SVG loses every reaction item.
+            Resolving the method at call time also restores stock behaviour for
+            free once the patches are reverted.
+            """
+            mgr = getattr(window, "export_manager", None)
+            find_children = getattr(window, "findChildren", None)
+            if mgr is None or find_children is None:
+                return
+            targets = {
+                "PNG Image...": "export_2d_png",
+                "SVG Image...": "export_2d_svg",
+            }
+
+            def dispatch(method_name):
+                return lambda *_: getattr(mgr, method_name)()
+
+            for menu in find_children(QMenu):
+                if menu.title() != "2D Formats":
+                    continue
+                for action in menu.actions():
+                    method_name = targets.get(action.text())
+                    if not method_name or action.property("_rs_export_rewired"):
+                        continue
+                    try:
+                        action.triggered.disconnect()
+                    except TypeError:
+                        pass
+                    action.triggered.connect(dispatch(method_name))
+                    action.setProperty("_rs_export_rewired", True)
+
+        rewire_2d_export_actions(main_window)
 
         # Register Shortcut
         def patched_setup_copy_shortcut(self):
