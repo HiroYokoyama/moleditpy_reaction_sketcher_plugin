@@ -22,6 +22,32 @@ def rotate_point(point, center, angle_degrees):
     return QPointF(center.x() + new_dx, center.y() + new_dy)
 
 
+def mirror_point(point, center, axis):
+    """Mirror a QPointF across a horizontal or vertical axis through center.
+
+    axis='h'  – flip vertically   (reflect over a horizontal axis, i.e. y → -y)
+    axis='v'  – flip horizontally (reflect over a vertical axis,   i.e. x → -x)
+    """
+    dx = point.x() - center.x()
+    dy = point.y() - center.y()
+    if axis == "v":
+        return QPointF(center.x() - dx, center.y() + dy)
+    else:  # 'h'
+        return QPointF(center.x() + dx, center.y() - dy)
+
+
+def _apply_mirror_rotation(item, axis):
+    """Flip an item's Qt rotation after a mirror transform.
+
+    Mirroring negates one axis, which is equivalent to reflecting the
+    rotation angle:  vertical flip → negate angle,  horizontal flip → 180°-angle.
+    """
+    if axis == "v":
+        item.setRotation(-item.rotation())
+    else:  # 'h'
+        item.setRotation(180 - item.rotation())
+
+
 def get_main_window(scene):
     """Helper to get MainWindow from a QGraphicsScene."""
     if not scene:
@@ -501,9 +527,38 @@ class ReactionArrowItem(QGraphicsItem):
         }
 
     def rotate_around(self, center, angle_degrees):
-        """Rotate start and end points around a center."""
-        self.start_p = rotate_point(self.start_p, center, angle_degrees)
-        self.end_p = rotate_point(self.end_p, center, angle_degrees)
+        """Rotate start and end points around a center in scene coordinates."""
+        p_start_scene = self.mapToScene(self.start_p)
+        p_end_scene = self.mapToScene(self.end_p)
+        new_start_scene = rotate_point(p_start_scene, center, angle_degrees)
+        new_end_scene = rotate_point(p_end_scene, center, angle_degrees)
+        cog = QPointF(
+            (new_start_scene.x() + new_end_scene.x()) / 2.0,
+            (new_start_scene.y() + new_end_scene.y()) / 2.0,
+        )
+        self.prepareGeometryChange()
+        self.setPos(cog)
+        self.start_p = self.mapFromScene(new_start_scene)
+        self.end_p = self.mapFromScene(new_end_scene)
+        self.sync_handles()
+        self.update()
+
+    def mirror_around(self, center, axis):
+        """Mirror start and end points across axis through center in scene coordinates."""
+        p_start_scene = self.mapToScene(self.start_p)
+        p_end_scene = self.mapToScene(self.end_p)
+        new_start_scene = mirror_point(p_start_scene, center, axis)
+        new_end_scene = mirror_point(p_end_scene, center, axis)
+        cog = QPointF(
+            (new_start_scene.x() + new_end_scene.x()) / 2.0,
+            (new_start_scene.y() + new_end_scene.y()) / 2.0,
+        )
+        self.prepareGeometryChange()
+        self.setPos(cog)
+        self.start_p = self.mapFromScene(new_start_scene)
+        self.end_p = self.mapFromScene(new_end_scene)
+        if hasattr(self, "head_side"):
+            self.head_side = -self.head_side
         self.sync_handles()
         self.update()
 
@@ -590,6 +645,9 @@ class ReactionPlusItem(QGraphicsItem):
         self.setPos(new_pos)
         self.setRotation(self.rotation() + angle_degrees)
 
+    def mirror_around(self, center, axis):
+        self.setPos(mirror_point(self.pos(), center, axis))
+        _apply_mirror_rotation(self, axis)
 
 class ReactionMinusItem(QGraphicsItem):
     def __init__(self, pos):
@@ -671,6 +729,9 @@ class ReactionMinusItem(QGraphicsItem):
         self.setPos(new_pos)
         self.setRotation(self.rotation() + angle_degrees)
 
+    def mirror_around(self, center, axis):
+        self.setPos(mirror_point(self.pos(), center, axis))
+        _apply_mirror_rotation(self, axis)
 
 class ReactionResonanceArrowItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
@@ -1805,6 +1866,48 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         data["group_id"] = self.group_id
         return data
 
+    def rotate_around(self, center, angle_degrees):
+        """Rotate curved arrow around a center in scene coordinates."""
+        p_start_scene = self.mapToScene(self.start_p)
+        p_end_scene = self.mapToScene(self.end_p)
+        p_cp_scene = self.mapToScene(self.get_control_point())
+        new_start_scene = rotate_point(p_start_scene, center, angle_degrees)
+        new_end_scene = rotate_point(p_end_scene, center, angle_degrees)
+        new_cp_scene = rotate_point(p_cp_scene, center, angle_degrees)
+        cog = QPointF(
+            (new_start_scene.x() + new_end_scene.x()) / 2.0,
+            (new_start_scene.y() + new_end_scene.y()) / 2.0,
+        )
+        self.prepareGeometryChange()
+        self.setPos(cog)
+        self.start_p = self.mapFromScene(new_start_scene)
+        self.end_p = self.mapFromScene(new_end_scene)
+        self.control_p = self.mapFromScene(new_cp_scene)
+        self.sync_handles()
+        self.update()
+
+    def mirror_around(self, center, axis):
+        """Mirror curved arrow across an axis through center in scene coordinates."""
+        p_start_scene = self.mapToScene(self.start_p)
+        p_end_scene = self.mapToScene(self.end_p)
+        p_cp_scene = self.mapToScene(self.get_control_point())
+        new_start_scene = mirror_point(p_start_scene, center, axis)
+        new_end_scene = mirror_point(p_end_scene, center, axis)
+        new_cp_scene = mirror_point(p_cp_scene, center, axis)
+        cog = QPointF(
+            (new_start_scene.x() + new_end_scene.x()) / 2.0,
+            (new_start_scene.y() + new_end_scene.y()) / 2.0,
+        )
+        self.prepareGeometryChange()
+        self.setPos(cog)
+        self.start_p = self.mapFromScene(new_start_scene)
+        self.end_p = self.mapFromScene(new_end_scene)
+        self.control_p = self.mapFromScene(new_cp_scene)
+        if hasattr(self, "head_side"):
+            self.head_side = -self.head_side
+        self.sync_handles()
+        self.update()
+
 
 class ReactionBracketItem(QGraphicsItem):
     def __init__(self, start_pos, end_pos):
@@ -2035,6 +2138,10 @@ class ReactionBracketItem(QGraphicsItem):
         self.setPos(new_pos)
         self.setRotation(self.rotation() + angle_degrees)
 
+    def mirror_around(self, center, axis):
+        self.setPos(mirror_point(self.pos(), center, axis))
+        _apply_mirror_rotation(self, axis)
+
 
 class ReactionCircleItem(QGraphicsItem):
     def __init__(self, start_pos, end_pos):
@@ -2171,6 +2278,10 @@ class ReactionCircleItem(QGraphicsItem):
         self.setPos(new_pos)
         self.setRotation(self.rotation() + angle_degrees)
 
+    def mirror_around(self, center, axis):
+        self.setPos(mirror_point(self.pos(), center, axis))
+        _apply_mirror_rotation(self, axis)
+
 
 class ReactionLineItem(ReactionArrowItem):
     """Straight line without arrowheads."""
@@ -2291,17 +2402,6 @@ class ReactionCurvedLineItem(ReactionCurvedArrowItem):
             del data["head_angle"]
         return data
 
-    def rotate_around(self, center, angle_degrees):
-        """Rotate start and end points around a center."""
-        self.start_p = rotate_point(self.start_p, center, angle_degrees)
-        self.end_p = rotate_point(self.end_p, center, angle_degrees)
-
-        # Rotate control point if it exists
-        if self.control_p is not None:
-            self.control_p = rotate_point(self.control_p, center, angle_degrees)
-
-        self.sync_handles()
-        self.update()
 
 
 class ReactionFreehandItem(QGraphicsItem):
@@ -2429,6 +2529,12 @@ class ReactionFreehandItem(QGraphicsItem):
         new_pos = rotate_point(self.pos(), center, angle_degrees)
         self.setPos(new_pos)
         self.setRotation(self.rotation() + angle_degrees)
+
+    def mirror_around(self, center, axis):
+        origin = QPointF(0, 0)
+        self.setPos(mirror_point(self.pos(), center, axis))
+        self.set_points([mirror_point(p, origin, axis) for p in self.points])
+        _apply_mirror_rotation(self, axis)
 
 
 class ReactionTextItem(QGraphicsTextItem):
@@ -2840,6 +2946,10 @@ class ReactionTextItem(QGraphicsTextItem):
         new_pos = rotate_point(self.pos(), center, angle_degrees)
         self.setPos(new_pos)
         self.setRotation(self.rotation() + angle_degrees)
+
+    def mirror_around(self, center, axis):
+        self.setPos(mirror_point(self.pos(), center, axis))
+        _apply_mirror_rotation(self, axis)
 
 
 class ReactionGroupOverlay(QGraphicsItem):

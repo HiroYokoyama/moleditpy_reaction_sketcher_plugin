@@ -641,6 +641,36 @@ def create_alignment_icon(tool_name, size=32):
         painter.drawLine(x1, int(h / 2), x2, int(h / 2))
         painter.drawLine(x1, h - m - 2, x2, h - m - 2)
 
+    elif tool_name == "mirror_v":
+        # Two filled boxes flanking a dashed vertical centre line
+        mid = int(w / 2)
+        # Dashed axis
+        dash_pen = QPen(QColor("#005a9e"), 1.5, Qt.PenStyle.DashLine)
+        painter.setPen(dash_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(mid, m, mid, h - m)
+        # Left box
+        painter.setPen(QPen(QColor("#222222"), 1.5))
+        painter.setBrush(QColor("#005a9e"))
+        painter.drawRect(m, m + 4, mid - m - 3, h - 2 * m - 8)
+        # Right box (mirror of left)
+        painter.drawRect(mid + 3, m + 4, mid - m - 3, h - 2 * m - 8)
+
+    elif tool_name == "mirror_h":
+        # Two filled boxes flanking a dashed horizontal centre line
+        mid = int(h / 2)
+        # Dashed axis
+        dash_pen = QPen(QColor("#005a9e"), 1.5, Qt.PenStyle.DashLine)
+        painter.setPen(dash_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(m, mid, w - m, mid)
+        # Top box
+        painter.setPen(QPen(QColor("#222222"), 1.5))
+        painter.setBrush(QColor("#005a9e"))
+        painter.drawRect(m + 4, m, w - 2 * m - 8, mid - m - 3)
+        # Bottom box (mirror of top)
+        painter.drawRect(m + 4, mid + 3, w - 2 * m - 8, mid - m - 3)
+
     painter.end()
     return QIcon(pixmap)
 
