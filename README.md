@@ -20,13 +20,15 @@ A comprehensive chemical reaction sketching tool for MoleditPy, allowing users t
   - **Brackets**: Square, Round, Curly.
   - **Shapes**: Circles and Ellipses.
   - **Grouping**: Select multiple items and press `Ctrl+G` to group them for easy movement and selection. Use `Ctrl+U` to ungroup.
-- **Alignment & Distribution**: 
+- **Alignment, Distribution & Flipping**: 
   - Align selected items: Top, Bottom, Left, Right, Center (Horizontal/Vertical).
   - Distribute items evenly: Horizontally or Vertically.
+  - Flip the selection in place about its own centre, horizontally or vertically (text stays readable and single-sided brackets swap side).
 - **Enhanced Properties Toolbar**:
   - **Typography**: Change Font family, Size, and Style (Bold, Italic, Underline).
   - **Chemistry Mode**: Automatic subscripting for chemical formulas (e.g., `H2O` -> `H₂O`).
   - **Styling**: Quick access to Line Width and Color for all reaction items.
+- **Show C**: Label skeletal carbons (with their implicit hydrogens). Press it with carbons selected to label only those; with nothing selected it labels every carbon. The choice is saved with the project and follows undo/redo.
 - **Enhanced Clipboard**: Copy and paste molecules alongside reaction items seamlessly.
 - **Undo/Redo Support**: Fully integrated with the main application's undo stack.
 - **Smart Interaction**:
@@ -53,6 +55,7 @@ The side toolbar provides categorized tools:
   - **Select**: Move objects.
   - **Alignment Icons**: Top, Left, Center V, Center H, Bottom, Right.
   - **Distribution Icons**: Distribute V, Distribute H.
+  - **Mirror Icons**: Flip the selection horizontally or vertically.
 - **Grouping**: **Group** and **Ungroup** buttons.
 - **Arrows**: Standard, Dashed, No Rxn, Equilibrium, Resonance, Retro.
 - **Curved Arrows**: Double headed (2e-) and Fish-hook (1e-).
@@ -69,6 +72,7 @@ The side toolbar provides categorized tools:
 - **Mode Isolation**: Reaction drawing tools are strictly active only in Reaction Mode. Standard molecular editing is unaffected.
 - **3D Conversion**: The "Convert to 3D" button is disabled while in Reaction Mode to preserve annotations.
 - **Curve Control**: Use the orange control points to adjust the arc of curved arrows.
+- **Image Export**: `File -> Export -> 2D Formats` (PNG/SVG) includes the reaction items while Reaction Mode is active.
 - **Angle Snap**: Hold **Alt** to draw arrows at free angles.
 
 ## License & Disclaimer
