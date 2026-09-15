@@ -39,6 +39,7 @@ def test_text_item_focus_out_restores_shortcuts_even_if_scene_is_none():
 
     # Set TextEditorInteraction flag so focusInEvent tries to disable shortcuts
     from PyQt6.QtCore import Qt
+
     item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
     item.focusInEvent(DummyEvent())
 
@@ -62,8 +63,10 @@ def test_exit_reaction_mode_restores_shortcuts():
 
     context = MagicMock()
 
-    with patch.object(ModeManager, 'setup_toolbar'), \
-         patch.object(ModeManager, 'setup_property_toolbar'):
+    with (
+        patch.object(ModeManager, "setup_toolbar"),
+        patch.object(ModeManager, "setup_property_toolbar"),
+    ):
         mode_mgr = ModeManager(mw, context)
 
     # Simulate shortcuts being disabled
@@ -75,7 +78,7 @@ def test_exit_reaction_mode_restores_shortcuts():
     mode_mgr.disconnect_signals = MagicMock()
     mode_mgr._rewire_cleanup_2d_triggers = MagicMock()
 
-    with patch('reaction_sketcher.mode_manager.revert_all_patches'):
+    with patch("reaction_sketcher.mode_manager.revert_all_patches"):
         mode_mgr.exit_reaction_mode()
         mode_mgr.enable_main_window_shortcuts.assert_called_once()
 
@@ -92,8 +95,10 @@ def test_disable_shortcuts_only_uses_event_filter_not_setEnabled():
     mw.removeEventFilter = MagicMock()
     context = MagicMock()
 
-    with patch.object(ModeManager, 'setup_toolbar'), \
-         patch.object(ModeManager, 'setup_property_toolbar'):
+    with (
+        patch.object(ModeManager, "setup_toolbar"),
+        patch.object(ModeManager, "setup_property_toolbar"),
+    ):
         mode_mgr = ModeManager(mw, context)
 
     # Call disable
@@ -121,8 +126,10 @@ def test_enable_shortcuts_idempotent_when_not_disabled():
     mw.removeEventFilter = MagicMock()
     context = MagicMock()
 
-    with patch.object(ModeManager, 'setup_toolbar'), \
-         patch.object(ModeManager, 'setup_property_toolbar'):
+    with (
+        patch.object(ModeManager, "setup_toolbar"),
+        patch.object(ModeManager, "setup_property_toolbar"),
+    ):
         mode_mgr = ModeManager(mw, context)
 
     assert mode_mgr._shortcuts_disabled is False

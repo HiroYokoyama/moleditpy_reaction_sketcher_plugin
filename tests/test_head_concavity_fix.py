@@ -22,8 +22,8 @@ def test_arrow_head_concavity_in_json(qapp):
     arrow = ReactionArrowItem(QPointF(0, 0), QPointF(100, 0))
     arrow.head_concavity = 0.8
     data = arrow.create_json_data()
-    assert 'head_concavity' in data
-    assert data['head_concavity'] == pytest.approx(0.8)
+    assert "head_concavity" in data
+    assert data["head_concavity"] == pytest.approx(0.8)
 
 
 def test_dashed_arrow_head_concavity_in_json(qapp):
@@ -31,15 +31,15 @@ def test_dashed_arrow_head_concavity_in_json(qapp):
     arrow.head_concavity = 0.35
     arrow.head_side = -1
     data = arrow.create_json_data()
-    assert 'head_concavity' in data
-    assert data['head_concavity'] == pytest.approx(0.35)
+    assert "head_concavity" in data
+    assert data["head_concavity"] == pytest.approx(0.35)
 
 
 def test_curved_arrow_head_concavity_survives_a_reload(qapp):
     arrow = ReactionCurvedArrowItem(QPointF(0, 0), QPointF(100, 0))
     arrow.head_concavity = 0.9
     data = arrow.create_json_data()
-    assert data['head_concavity'] == pytest.approx(0.9)
+    assert data["head_concavity"] == pytest.approx(0.9)
 
     mw = SimpleNamespace(scene=_CollectingScene())
     restored = load_handler_core(mw, [data])

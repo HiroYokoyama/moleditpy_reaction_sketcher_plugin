@@ -2578,10 +2578,16 @@ class ModeManager(QObject):
         if self.main_window:
             _init = getattr(self.main_window, "init_manager", None)
             if _init is not None:
-                if hasattr(_init, "convert_button") and _init.convert_button is not None:
+                if (
+                    hasattr(_init, "convert_button")
+                    and _init.convert_button is not None
+                ):
                     _init.convert_button.setEnabled(enabled)
 
-                if hasattr(_init, "optimize_3d_button") and _init.optimize_3d_button is not None:
+                if (
+                    hasattr(_init, "optimize_3d_button")
+                    and _init.optimize_3d_button is not None
+                ):
                     # optimize_3d_button is usually disabled by default until 3D exists,
                     # but we should force disable it if in reaction mode
                     if not enabled:
@@ -2977,9 +2983,7 @@ class ModeManager(QObject):
                         # object with .x/.y, so the previous update silently did
                         # nothing and the molecule snapped back on reload.
                         mol_data = getattr(self.main_window, "data", None)
-                        if mol_data is not None and hasattr(
-                            mol_data, "set_atom_pos"
-                        ):
+                        if mol_data is not None and hasattr(mol_data, "set_atom_pos"):
                             try:
                                 mol_data.set_atom_pos(item.atom_id, item.pos())
                             except (RuntimeError, KeyError, AttributeError):
@@ -3122,7 +3126,9 @@ class ModeManager(QObject):
         from .utils import sip_isdeleted_safe
 
         selected_items = [
-            i for i in self.main_window.scene.selectedItems() if not sip_isdeleted_safe(i)
+            i
+            for i in self.main_window.scene.selectedItems()
+            if not sip_isdeleted_safe(i)
         ]
 
         target_atoms = [i for i in selected_items if hasattr(i, "atom_id")]
@@ -3215,7 +3221,9 @@ class ModeManager(QObject):
             self.apply_show_carbon_state(False, [])
 
         mgr_edit = getattr(self.main_window, "edit_actions_manager", None)
-        push_undo_func = getattr(mgr_edit, "push_undo_state", None) if mgr_edit else None
+        push_undo_func = (
+            getattr(mgr_edit, "push_undo_state", None) if mgr_edit else None
+        )
         if push_undo_func:
             push_undo_func()
 
@@ -3256,7 +3264,9 @@ class ModeManager(QObject):
                 if not sip_isdeleted_safe(bond) and hasattr(bond, "update"):
                     bond.update()
         scene.update()
-        refresh = getattr(self.context, "refresh_2d_scene", None) if self.context else None
+        refresh = (
+            getattr(self.context, "refresh_2d_scene", None) if self.context else None
+        )
         if refresh:
             refresh()
 

@@ -89,6 +89,8 @@ def _ensure_large_canvas(scene):
     current = scene.sceneRect()
     if not current.contains(rect):
         scene.setSceneRect(rect.united(current))
+
+
 _interaction_originals = {}
 
 # Mime type for clipboard - fallback if not importable
@@ -273,6 +275,7 @@ def apply_core_patches(main_window, context=None):
     patch_core(MainWindowUiManager, "set_mode", patched_set_mode)
 
     if hasattr(MainWindowUiManager, "restore_ui_for_editing"):
+
         def patched_restore_ui_for_editing(self):
             if (MainWindowUiManager, "restore_ui_for_editing") in _core_originals:
                 _core_originals[(MainWindowUiManager, "restore_ui_for_editing")](self)
@@ -280,7 +283,11 @@ def apply_core_patches(main_window, context=None):
             if rmm and getattr(rmm, "is_reaction_mode", False):
                 rmm.set_3d_action_state(False)
 
-        patch_core(MainWindowUiManager, "restore_ui_for_editing", patched_restore_ui_for_editing)
+        patch_core(
+            MainWindowUiManager,
+            "restore_ui_for_editing",
+            patched_restore_ui_for_editing,
+        )
 
     # --- Connection to Selection Signal ---
     if MoleculeScene:
@@ -931,8 +938,6 @@ def apply_core_patches(main_window, context=None):
                 offset_x = -symbol_rect.width() // 2
                 text_rect.moveTo(offset_x, -text_rect.height() // 2)
 
-
-
             if getattr(self, "has_problem", False):
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.setPen(QPen(QColor(255, 0, 0, 200), 4))
@@ -984,9 +989,15 @@ def apply_core_patches(main_window, context=None):
                             win = scene.views()[0].window()
                             if win:
                                 if hasattr(win, "get_settings"):
-                                    bond_col = win.get_settings().get("bond_color_2d", "#222222")
-                                elif hasattr(win, "settings") and hasattr(win.settings, "get"):
-                                    bond_col = win.settings.get("bond_color_2d", "#222222")
+                                    bond_col = win.get_settings().get(
+                                        "bond_color_2d", "#222222"
+                                    )
+                                elif hasattr(win, "settings") and hasattr(
+                                    win.settings, "get"
+                                ):
+                                    bond_col = win.settings.get(
+                                        "bond_color_2d", "#222222"
+                                    )
                 except Exception as _e:
                     logging.warning("silenced setting fetch: %s", _e)
 
@@ -1000,17 +1011,27 @@ def apply_core_patches(main_window, context=None):
                     try:
                         scene = self.scene()
                         if scene and hasattr(scene, "get_setting"):
-                            use_bond_color = scene.get_setting("atom_use_bond_color_2d", False)
+                            use_bond_color = scene.get_setting(
+                                "atom_use_bond_color_2d", False
+                            )
                         else:
                             if scene and scene.views():
                                 win = scene.views()[0].window()
                                 if win:
                                     if hasattr(win, "get_settings"):
-                                        use_bond_color = win.get_settings().get("atom_use_bond_color_2d", False)
-                                    elif hasattr(win, "settings") and hasattr(win.settings, "get"):
-                                        use_bond_color = win.settings.get("atom_use_bond_color_2d", False)
+                                        use_bond_color = win.get_settings().get(
+                                            "atom_use_bond_color_2d", False
+                                        )
+                                    elif hasattr(win, "settings") and hasattr(
+                                        win.settings, "get"
+                                    ):
+                                        use_bond_color = win.settings.get(
+                                            "atom_use_bond_color_2d", False
+                                        )
                     except Exception as _e:
-                        logging.warning("silenced settings fetch for other symbols: %s", _e)
+                        logging.warning(
+                            "silenced settings fetch for other symbols: %s", _e
+                        )
                     if use_bond_color:
                         color = QColor(bond_col)
 
@@ -1074,6 +1095,7 @@ def apply_core_patches(main_window, context=None):
     patch_core(AtomItem, "__init__", patched_atom_item_init)
 
     if hasattr(AtomItem, "update_style"):
+
         def patched_atom_update_style(self):
             if (AtomItem, "update_style") in _core_originals:
                 _core_originals[(AtomItem, "update_style")](self)
@@ -1113,6 +1135,7 @@ def apply_core_patches(main_window, context=None):
         return (width, 0.0) if total_dx > 0 else (0.0, width)
 
     if hasattr(AtomItem, "visual_rect"):
+
         def patched_atom_visual_rect(self):
             rect = _core_originals[(AtomItem, "visual_rect")](self)
             if not is_carbon_shown(self):
@@ -1700,6 +1723,7 @@ def apply_core_patches(main_window, context=None):
         )
 
         if hasattr(ComputeManager, "setup_convert_button"):
+
             def patched_setup_convert_button(self):
                 if (ComputeManager, "setup_convert_button") in _core_originals:
                     _core_originals[(ComputeManager, "setup_convert_button")](self)

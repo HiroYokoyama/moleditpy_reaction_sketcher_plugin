@@ -61,9 +61,7 @@ class TestCloneChargeRadical:
         return scene.create_atom.call_args
 
     def test_charge_and_radical_preserved(self):
-        args = self._run(
-            {"symbol": "N", "pos": (0.0, 0.0), "charge": 1, "radical": 2}
-        )
+        args = self._run({"symbol": "N", "pos": (0.0, 0.0), "charge": 1, "radical": 2})
         assert args.kwargs.get("charge") == 1
         assert args.kwargs.get("radical") == 2
 
@@ -107,7 +105,9 @@ class TestAlignSyncsData:
 
         mm.align_items("top")
 
-        called_ids = [c.args[0] for c in mm.main_window.data.set_atom_pos.call_args_list]
+        called_ids = [
+            c.args[0] for c in mm.main_window.data.set_atom_pos.call_args_list
+        ]
         # The unit at top=100 is shifted up to top=0; the one already at top=0
         # does not move.
         assert 1 in called_ids
@@ -136,7 +136,9 @@ class TestDistributeSyncsData:
 
         mm.distribute_items("horizontal")
 
-        called_ids = [c.args[0] for c in mm.main_window.data.set_atom_pos.call_args_list]
+        called_ids = [
+            c.args[0] for c in mm.main_window.data.set_atom_pos.call_args_list
+        ]
         # Endpoints stay put; only the middle unit is redistributed.
         assert 11 in called_ids
         assert 10 not in called_ids

@@ -123,9 +123,10 @@ class TestTriggerSketcherCallback:
         ctx, _mw = _make_context_and_mw()
         pkg.initialize(ctx)
 
-        callback = ctx.add_menu_action.call_args[1].get(
-            "callback"
-        ) or ctx.add_menu_action.call_args[0][1]
+        callback = (
+            ctx.add_menu_action.call_args[1].get("callback")
+            or ctx.add_menu_action.call_args[0][1]
+        )
         callback()
         assert mm.toggle_reaction_mode.called
 
@@ -133,9 +134,9 @@ class TestTriggerSketcherCallback:
 class TestViewportEventFilterInstallation:
     def test_installed_when_view_2d_present(self):
         pkg, mocks = _load_init_mocked()
-        mocks["reaction_sketcher.mode_manager"].ModeManager.return_value.reaction_toolbar.actions.return_value = (
-            []
-        )
+        mocks[
+            "reaction_sketcher.mode_manager"
+        ].ModeManager.return_value.reaction_toolbar.actions.return_value = []
         ctx, mw = _make_context_and_mw()
         mw.init_manager.view_2d = MagicMock()
         pkg.initialize(ctx)
@@ -144,9 +145,9 @@ class TestViewportEventFilterInstallation:
 
     def test_skipped_when_view_2d_missing(self):
         pkg, mocks = _load_init_mocked()
-        mocks["reaction_sketcher.mode_manager"].ModeManager.return_value.reaction_toolbar.actions.return_value = (
-            []
-        )
+        mocks[
+            "reaction_sketcher.mode_manager"
+        ].ModeManager.return_value.reaction_toolbar.actions.return_value = []
         ctx, mw = _make_context_and_mw()
         mw.init_manager.view_2d = None
         pkg.initialize(ctx)  # must not raise
@@ -155,9 +156,9 @@ class TestViewportEventFilterInstallation:
 class TestAutoStartActionMenuLookup:
     def test_found_extensions_menu_adds_action(self):
         pkg, mocks = _load_init_mocked()
-        mocks["reaction_sketcher.mode_manager"].ModeManager.return_value.reaction_toolbar.actions.return_value = (
-            []
-        )
+        mocks[
+            "reaction_sketcher.mode_manager"
+        ].ModeManager.return_value.reaction_toolbar.actions.return_value = []
         ctx, mw = _make_context_and_mw()
         extensions_menu = MagicMock()
         mw.menuBar.return_value.findChild.return_value = extensions_menu
@@ -166,9 +167,9 @@ class TestAutoStartActionMenuLookup:
 
     def test_missing_extensions_menu_is_a_no_op(self):
         pkg, mocks = _load_init_mocked()
-        mocks["reaction_sketcher.mode_manager"].ModeManager.return_value.reaction_toolbar.actions.return_value = (
-            []
-        )
+        mocks[
+            "reaction_sketcher.mode_manager"
+        ].ModeManager.return_value.reaction_toolbar.actions.return_value = []
         ctx, mw = _make_context_and_mw()
         mw.menuBar.return_value.findChild.return_value = None
         pkg.initialize(ctx)  # must not raise
@@ -177,9 +178,9 @@ class TestAutoStartActionMenuLookup:
 class TestSaveHandlerColorsAndGroups:
     def _get_save_handler(self):
         pkg, mocks = _load_init_mocked()
-        mocks["reaction_sketcher.mode_manager"].ModeManager.return_value.reaction_toolbar.actions.return_value = (
-            []
-        )
+        mocks[
+            "reaction_sketcher.mode_manager"
+        ].ModeManager.return_value.reaction_toolbar.actions.return_value = []
         ctx, mw = _make_context_and_mw()
         pkg.initialize(ctx)
         return ctx.register_save_handler.call_args[0][0], ctx, mw
@@ -192,7 +193,10 @@ class TestSaveHandlerColorsAndGroups:
         atom_item = MagicMock()
         atom_item.pen_color = QColor("#112233")
         atom_item.group_id = "gA"
-        ctx.scene.atom_items = {1: atom_item, 2: MagicMock(pen_color=None, group_id=None)}
+        ctx.scene.atom_items = {
+            1: atom_item,
+            2: MagicMock(pen_color=None, group_id=None),
+        }
 
         bond_item = MagicMock()
         bond_item.pen_color = QColor("#445566")
@@ -261,7 +265,9 @@ class TestLoadHandlerColorsAndGroups:
 
     def test_malformed_bond_color_key_is_silenced(self):
         handler, ctx, mw, _mm = self._get_load_handler()
-        handler({"items": [], "rs_colors": {"bonds": {"not-a-valid-key-x-y": "#111111"}}})
+        handler(
+            {"items": [], "rs_colors": {"bonds": {"not-a-valid-key-x-y": "#111111"}}}
+        )
 
     def test_malformed_bond_group_key_is_silenced(self):
         handler, ctx, mw, _mm = self._get_load_handler()

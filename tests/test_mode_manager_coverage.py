@@ -293,9 +293,7 @@ class TestConstructionAndDefaults:
             }
             """
         )
-        monkeypatch.setattr(
-            mm_mod.os.path, "dirname", lambda p: str(tmp_path)
-        )
+        monkeypatch.setattr(mm_mod.os.path, "dirname", lambda p: str(tmp_path))
         mgr, mw, ctx = make_mm()
         assert mgr.default_head_styles["arrow"] == "triangle"
         assert mgr.default_head_styles["arrow_dashed"] == "triangle"
@@ -437,7 +435,9 @@ class TestExportHelpers:
     def test_generate_png_data_with_items(self):
         mgr, mw, ctx = make_mm()
         arrow = add_arrow(mw)
-        mgr._generate_png_data([arrow])  # QBuffer/QImage are Qt stubs -- just must not raise
+        mgr._generate_png_data(
+            [arrow]
+        )  # QBuffer/QImage are Qt stubs -- just must not raise
 
     def test_generate_svg_data_empty_items(self):
         mgr, mw, ctx = make_mm()
@@ -446,7 +446,9 @@ class TestExportHelpers:
     def test_generate_svg_data_with_items(self):
         mgr, mw, ctx = make_mm()
         arrow = add_arrow(mw)
-        mgr._generate_svg_data([arrow])  # QSvgGenerator/QBuffer are Qt stubs -- just must not raise
+        mgr._generate_svg_data(
+            [arrow]
+        )  # QSvgGenerator/QBuffer are Qt stubs -- just must not raise
 
     def test_export_image_no_items(self):
         mgr, mw, ctx = make_mm()
@@ -506,7 +508,9 @@ class TestExportHelpers:
         mgr, mw, ctx = make_mm()
         arrow = add_arrow(mw, select=False)
         out_file = tmp_path / "out.svg"
-        mgr.export_svg(items=[arrow], filename=str(out_file))  # QFile stub -- no real I/O
+        mgr.export_svg(
+            items=[arrow], filename=str(out_file)
+        )  # QFile stub -- no real I/O
 
     def test_export_svg_dialog_cancelled(self):
         mgr, mw, ctx = make_mm()
@@ -717,7 +721,9 @@ class TestTools:
         mgr, mw, ctx = make_mm(with_toolbar=True)
         button = mgr.add_tool("Line", "line", "Draw a line")
         assert button is not None
-        assert any(a.property("tool_name") == "line" for a in mgr.action_group.actions())
+        assert any(
+            a.property("tool_name") == "line" for a in mgr.action_group.actions()
+        )
 
     def test_on_action_triggered_no_tool_name(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
@@ -788,7 +794,9 @@ class TestTools:
         mgr._last_menu_close_time = time.time()
         called = {"n": 0}
         monkeypatch.setattr(
-            mgr, "show_tool_context_menu", lambda b, t, p: called.__setitem__("n", called["n"] + 1)
+            mgr,
+            "show_tool_context_menu",
+            lambda b, t, p: called.__setitem__("n", called["n"] + 1),
         )
         mgr.on_tool_clicked(MagicMock(), action)
         assert called["n"] == 0
@@ -919,7 +927,9 @@ class TestStyleSetters:
         mgr, mw, ctx = make_mm(with_toolbar=True)
         arrow = add_arrow(mw, cls=ReactionArrowItem)
         monkeypatch.setattr(
-            arrow, "create_json_data", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+            arrow,
+            "create_json_data",
+            lambda: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         mgr.set_head_style("arrow_dashed", "triangle")  # should not raise
 
@@ -978,7 +988,9 @@ class TestStyleSetters:
 
     def test_set_circle_variant(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        item = add_arrow(mw, cls=ReactionCircleItem, start=QPointF(0, 0), end=QPointF(10, 10))
+        item = add_arrow(
+            mw, cls=ReactionCircleItem, start=QPointF(0, 0), end=QPointF(10, 10)
+        )
         mgr.set_circle_variant("circle", "dashed")
         assert item.shape_type == "circle"
         assert item.line_style == "dashed"
@@ -1010,7 +1022,9 @@ class TestStyleSetters:
 
     def test_set_bracket_type(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        item = add_arrow(mw, cls=ReactionBracketItem, start=QPointF(0, 0), end=QPointF(10, 10))
+        item = add_arrow(
+            mw, cls=ReactionBracketItem, start=QPointF(0, 0), end=QPointF(10, 10)
+        )
         mgr.set_bracket_type("round")
         assert item.bracket_type == "round"
         assert mgr.default_bracket_type == "round"
@@ -1314,9 +1328,7 @@ class TestAdvancedSettings:
     def test_apply_settings_to_selection_curvature_and_control_point(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
         item = add_arrow(mw, cls=ReactionCurvedArrowItem)
-        mgr.apply_settings_to_selection(
-            {"curvature": 0.5, "control_p": [3.0, 4.0]}
-        )
+        mgr.apply_settings_to_selection({"curvature": 0.5, "control_p": [3.0, 4.0]})
         assert item.control_p == QPointF(3.0, 4.0)
 
     def test_apply_settings_to_selection_text_size(self):
@@ -1331,12 +1343,16 @@ class TestAdvancedSettings:
 
     def test_apply_settings_to_selection_rect_size(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        item = add_arrow(mw, cls=ReactionCircleItem, start=QPointF(0, 0), end=QPointF(5, 5))
+        item = add_arrow(
+            mw, cls=ReactionCircleItem, start=QPointF(0, 0), end=QPointF(5, 5)
+        )
         mgr.apply_settings_to_selection({"rect_width": 30, "rect_height": 40})
 
     def test_apply_settings_to_selection_bracket_and_double_offset_and_cross(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        b = add_arrow(mw, cls=ReactionBracketItem, start=QPointF(0, 0), end=QPointF(5, 5))
+        b = add_arrow(
+            mw, cls=ReactionBracketItem, start=QPointF(0, 0), end=QPointF(5, 5)
+        )
         mgr.apply_settings_to_selection({"bracket_type": "round"})
         assert b.bracket_type == "round"
 

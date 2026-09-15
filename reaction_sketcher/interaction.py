@@ -1039,11 +1039,7 @@ class InteractionHandler(QObject):
                         continue
                     bond.setSelected(True)
                     other = bond.atom1 if bond.atom2 is atom else bond.atom2
-                    if (
-                        other
-                        and not sip_isdeleted_safe(other)
-                        and other not in visited
-                    ):
+                    if other and not sip_isdeleted_safe(other) and other not in visited:
                         stack.append(other)
             return True
 

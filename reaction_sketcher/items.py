@@ -655,6 +655,7 @@ class ReactionPlusItem(QGraphicsItem):
     def mirror_around(self, center, axis):
         mirror_item_in_place(self, center, axis)
 
+
 class ReactionMinusItem(QGraphicsItem):
     def __init__(self, pos):
         super().__init__()
@@ -737,6 +738,7 @@ class ReactionMinusItem(QGraphicsItem):
 
     def mirror_around(self, center, axis):
         mirror_item_in_place(self, center, axis)
+
 
 class ReactionResonanceArrowItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
@@ -2413,7 +2415,6 @@ class ReactionCurvedLineItem(ReactionCurvedArrowItem):
         return data
 
 
-
 class ReactionFreehandItem(QGraphicsItem):
     """Freehand drawing item."""
 
@@ -2685,9 +2686,7 @@ class ReactionTextItem(QGraphicsTextItem):
         # Auto-delete if empty, or if it's an untouched freshly-placed
         # placeholder (created via the Text tool but never edited — e.g. the
         # user pressed Esc immediately). Both should not leave a stray label.
-        if not self.toPlainText().strip() or getattr(
-            self, "_fresh_placeholder", False
-        ):
+        if not self.toPlainText().strip() or getattr(self, "_fresh_placeholder", False):
             if self.scene():
                 self.scene().removeItem(self)
             return

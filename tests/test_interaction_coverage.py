@@ -398,8 +398,10 @@ class TestHandleMouseMove:
         text_item.contains = lambda p: True
         mw.scene._focus_item = text_item
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         assert handler.handle_mouse_move(FakeEvent()) is False
 
     def test_drag_below_threshold_swallows(self):
@@ -407,8 +409,10 @@ class TestHandleMouseMove:
         atom = FakeAtomItem(1)
         mw.scene.addItem(atom)
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._drag_items = [atom]
         handler._drag_start_pos = QPointF(5, 5)
         mw.init_manager.view_2d.mapToScene.return_value = QPointF(5, 5)
@@ -419,8 +423,10 @@ class TestHandleMouseMove:
         atom = FakeAtomItem(1)
         mw.scene.addItem(atom)
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._drag_items = [atom]
         handler._drag_initial_positions = {atom: QPointF(0, 0)}
         handler._drag_start_pos = QPointF(0, 0)
@@ -438,8 +444,10 @@ class TestHandleMouseMove:
         mw.scene.addItem(a2)
         mw.scene.addItem(bond)
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._drag_items = [a1]
         handler._drag_initial_positions = {a1: QPointF(0, 0)}
         handler._drag_start_pos = QPointF(0, 0)
@@ -452,8 +460,10 @@ class TestHandleMouseMove:
         atom = FakeAtomItem(1)
         mw.scene.addItem(atom)
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._drag_items = [atom]
         handler._drag_initial_positions = {atom: QPointF(0, 0)}
         handler._drag_start_pos = QPointF(0, 0)
@@ -469,8 +479,10 @@ class TestHandleMouseMove:
         mw.scene.addItem(atom)
         mm.duplicate_items_immediate = MagicMock(return_value=[clone])
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._drag_items = [atom]
         handler._drag_original_positions = {atom: QPointF(0, 0)}
         handler._drag_initial_positions = {atom: QPointF(0, 0)}
@@ -532,8 +544,10 @@ class TestHandleMouseRelease:
         atom = FakeAtomItem(1)
         mw.scene.addItem(atom)
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._did_move = True
         handler._drag_items = [atom]
         result = handler.handle_mouse_release(FakeEvent())
@@ -548,8 +562,10 @@ class TestHandleMouseRelease:
         mw.data = mw.state_manager.data
         mw.data.atoms[1] = {"pos": [0, 0]}
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._did_move = True
         handler._drag_items = [atom]
         handler.handle_mouse_release(FakeEvent())
@@ -563,8 +579,10 @@ class TestHandleMouseRelease:
         mw.scene.addItem(atom)
         mw.scene._item_at = atom
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._did_move = False
         handler._drag_start_with_ctrl = True
         result = handler.handle_mouse_release(FakeEvent())
@@ -582,8 +600,10 @@ class TestHandleMouseRelease:
         mw.scene.addItem(a2)
         mw.scene._item_at = a1
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._did_move = False
         handler._drag_start_item_was_selected = True
         result = handler.handle_mouse_release(FakeEvent())
@@ -597,8 +617,10 @@ class TestHandleMouseRelease:
         mw.scene.addItem(a1)
         mw.scene._item_at = a1
         handler._is_dragging = True
-        handler._drag_start_with_ctrl = getattr(handler, '_drag_start_with_ctrl', False)
-        handler._drag_start_with_shift = getattr(handler, '_drag_start_with_shift', False)
+        handler._drag_start_with_ctrl = getattr(handler, "_drag_start_with_ctrl", False)
+        handler._drag_start_with_shift = getattr(
+            handler, "_drag_start_with_shift", False
+        )
         handler._did_move = False
         handler._drag_start_item_was_selected = True
         result = handler.handle_mouse_release(FakeEvent())

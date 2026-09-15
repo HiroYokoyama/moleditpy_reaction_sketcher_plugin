@@ -1092,9 +1092,7 @@ class TestCleanUp2DStructure:
         ctx = MagicMock()
         apply_patches_ctx(mw, ctx)
         mw.edit_actions_manager.clean_up_2d_structure()
-        assert any(
-            "No atoms" in str(c) for c in ctx.show_status_message.call_args_list
-        )
+        assert any("No atoms" in str(c) for c in ctx.show_status_message.call_args_list)
 
     def test_missing_data_reports_error(self, fake_rdkit):
         fake_rdkit([])
@@ -1165,8 +1163,7 @@ class TestCleanUp2DStructure:
         apply_patches_ctx(mw, ctx)
         mw.edit_actions_manager.clean_up_2d_structure()
         assert any(
-            "No valid atoms" in str(c)
-            for c in ctx.show_status_message.call_args_list
+            "No valid atoms" in str(c) for c in ctx.show_status_message.call_args_list
         )
 
     def test_success_path_updates_3d_labels(self, fake_rdkit):

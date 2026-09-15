@@ -316,7 +316,10 @@ class AdvancedSettingsDialog(QDialog):
             self.head_angle_spin.setValue(float(vals["head_angle"]))
         if "head_concavity" in vals and hasattr(self.item, "head_concavity"):
             self.item.head_concavity = float(vals["head_concavity"])
-        if "head_concavity" in vals and getattr(self, "concavity_spin", None) is not None:
+        if (
+            "head_concavity" in vals
+            and getattr(self, "concavity_spin", None) is not None
+        ):
             self.concavity_spin.setValue(float(vals["head_concavity"]))
         if "curvature" in vals and hasattr(self.item, "curvature"):
             self.item.curvature = float(vals["curvature"])
@@ -324,7 +327,10 @@ class AdvancedSettingsDialog(QDialog):
             self.curvature_spin.setValue(float(vals["curvature"]))
         if "double_arrow_offset" in vals and hasattr(self.item, "double_arrow_offset"):
             self.item.double_arrow_offset = float(vals["double_arrow_offset"])
-        if "double_arrow_offset" in vals and getattr(self, "spacing_spin", None) is not None:
+        if (
+            "double_arrow_offset" in vals
+            and getattr(self, "spacing_spin", None) is not None
+        ):
             self.spacing_spin.setValue(float(vals["double_arrow_offset"]))
         if "cross_size" in vals and hasattr(self.item, "cross_size"):
             self.item.cross_size = float(vals["cross_size"])

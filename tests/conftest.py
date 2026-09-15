@@ -549,7 +549,9 @@ class _QLineF:
     @staticmethod
     def fromPolar(length, angle):
         rad = math.radians(-angle)
-        return _QLineF(_QPointF(0, 0), _QPointF(length * math.cos(rad), length * math.sin(rad)))
+        return _QLineF(
+            _QPointF(0, 0), _QPointF(length * math.cos(rad), length * math.sin(rad))
+        )
 
 
 class _QByteArray(bytearray):

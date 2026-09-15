@@ -409,9 +409,7 @@ class TestReactionArrowItem:
 
     def test_item_change_selected_has_changed_calls_visibility(self):
         item = ReactionArrowItem(S, E)
-        item.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True
-        )
+        item.itemChange(QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True)
 
     def test_bounding_rect_and_shape(self):
         item = ReactionArrowItem(S, E)
@@ -463,9 +461,7 @@ class TestReactionPlusMinus:
     @pytest.mark.parametrize("cls", [ReactionPlusItem, ReactionMinusItem])
     def test_item_change_calls_visibility_noop(self, cls):
         item = cls(QPointF(0, 0))
-        item.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True
-        )
+        item.itemChange(QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True)
 
     @pytest.mark.parametrize("cls", [ReactionPlusItem, ReactionMinusItem])
     def test_set_size_and_json(self, cls):
@@ -827,9 +823,7 @@ class TestReactionBracketItem:
 
     def test_item_change_selected_has_changed(self):
         item = ReactionBracketItem(S, QPointF(60, 90))
-        item.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True
-        )
+        item.itemChange(QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True)
 
     def test_bounding_rect(self):
         item = ReactionBracketItem(S, QPointF(60, 90))
@@ -886,9 +880,7 @@ class TestReactionCircleItem:
 
     def test_item_change_updates_handle_visibility(self):
         item = ReactionCircleItem(S, QPointF(60, 60))
-        item.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True
-        )
+        item.itemChange(QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True)
 
     def test_rotate_around(self):
         item = ReactionCircleItem(S, QPointF(60, 60))
@@ -971,9 +963,7 @@ class TestReactionFreehandItem:
 
     def test_item_change_and_shape(self):
         item = ReactionFreehandItem(S)
-        item.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True
-        )
+        item.itemChange(QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True)
         assert item.shape() is not None
 
     def test_rotate_around(self):
@@ -1011,9 +1001,7 @@ class TestReactionTextItem:
     def test_shape_and_item_change(self):
         item = ReactionTextItem("A", S)
         assert item.shape() is not None
-        item.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True
-        )
+        item.itemChange(QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged, True)
 
     def test_scene_event_shortcut_override_in_edit_mode_accepts(self):
         item = ReactionTextItem("A", S)
@@ -1416,9 +1404,7 @@ class TestReactionGroupOverlay:
     def test_item_change_scene_change_connects_and_disconnects(self):
         overlay = ReactionGroupOverlay([])
         scene1 = MagicMock()
-        overlay.itemChange(
-            QGraphicsItem.GraphicsItemChange.ItemSceneChange, scene1
-        )
+        overlay.itemChange(QGraphicsItem.GraphicsItemChange.ItemSceneChange, scene1)
         assert scene1.changed.connect.called
 
     def test_connect_scene_none_is_noop(self):
