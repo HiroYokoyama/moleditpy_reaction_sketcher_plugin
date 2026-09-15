@@ -182,6 +182,88 @@ def _mw_with_styled_atoms():
     return mw, c1, c2
 
 
+class TestShowCarbonFollowsSelection:
+    def test_deselecting_the_carbon_switches_the_toggle_off(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        action = MagicMock()
+        mm.show_carbon_action = action
+        c2.setSelected(True)
+        mm.toggle_show_carbon(True)
+        c2.setSelected(False)
+
+        mm.sync_show_carbon_to_selection()
+
+        assert mw.scene._rs_show_carbon is False
+        assert mw.scene._rs_show_carbon_ids == set()
+        assert action.setChecked.call_args[0][0] is False
+
+    def test_labels_move_to_the_newly_selected_carbon(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        c2.setSelected(True)
+        mm.toggle_show_carbon(True)
+        c2.setSelected(False)
+        c1.setSelected(True)
+
+        mm.sync_show_carbon_to_selection()
+
+        assert mw.scene._rs_show_carbon_ids == {1}
+        assert is_carbon_shown(c1) is True
+        assert is_carbon_shown(c2) is False
+
+    def test_show_all_ignores_the_selection(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        mm.toggle_show_carbon(True)
+        c1.setSelected(True)
+
+        mm.sync_show_carbon_to_selection()
+
+        assert mw.scene._rs_show_carbon is True
+        assert mw.scene._rs_show_carbon_ids == set()
+
+    def test_selecting_a_heteroatom_only_switches_off(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        c1.setSelected(True)
+        mm.toggle_show_carbon(True)
+        c1.setSelected(False)
+        o3.setSelected(True)
+
+        mm.sync_show_carbon_to_selection()
+
+        assert mw.scene._rs_show_carbon_ids == set()
+
+    def test_unchanged_selection_does_not_repaint(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        c1.setSelected(True)
+        mm.toggle_show_carbon(True)
+        mm.refresh_carbon_labels = MagicMock()
+
+        mm.sync_show_carbon_to_selection()
+
+        mm.refresh_carbon_labels.assert_not_called()
+
+    def test_following_does_not_push_undo_states(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        c1.setSelected(True)
+        mm.toggle_show_carbon(True)
+        c1.setSelected(False)
+
+        mm.sync_show_carbon_to_selection()
+
+        assert mw.edit_actions_manager.push_undo_state_calls == 1
+
+    def test_no_scene_is_a_no_op(self):
+        mm, mw, *_ = _mode_manager_with_atoms()
+        mw.scene = None
+        mm.sync_show_carbon_to_selection()  # must not raise
+
+    def test_off_state_is_a_no_op(self):
+        mm, mw, c1, *_ = _mode_manager_with_atoms()
+        c1.setSelected(True)
+        mm.refresh_carbon_labels = MagicMock()
+        mm.sync_show_carbon_to_selection()
+        mm.refresh_carbon_labels.assert_not_called()
+
+
 class TestShowCarbonPatches:
     def test_update_style_keeps_shown_carbon_visible(self):
         mw, c1, c2 = _mw_with_styled_atoms()

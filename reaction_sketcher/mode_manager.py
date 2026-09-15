@@ -47,7 +47,7 @@ from PyQt6.QtCore import (
     QFile,
 )
 
-from .utils import sip_isdeleted_safe
+from .utils import show_carbon_state, sip_isdeleted_safe
 from .icons import (
     create_reaction_icon,
     create_shape_variant_icon,
@@ -706,7 +706,8 @@ class ModeManager(QObject):
         self.show_carbon_action.setCheckable(True)
         self.show_carbon_action.setToolTip(
             "Show skeletal carbon labels — only the selected carbons when a "
-            "carbon is selected, otherwise all of them"
+            "carbon is selected (the labels follow the selection and switch "
+            "off when it is cleared), otherwise all of them"
         )
         self.show_carbon_action.toggled.connect(self.toggle_show_carbon)
 
@@ -739,6 +740,9 @@ class ModeManager(QObject):
 
         # Connect selection changed
         self.main_window.scene.selectionChanged.connect(self.sync_property_toolbar)
+        self.main_window.scene.selectionChanged.connect(
+            self.sync_show_carbon_to_selection
+        )
 
     def _is_content_item(self, item):
         # Reliable check for Reaction Items
@@ -1268,14 +1272,16 @@ class ModeManager(QObject):
         """Safely disconnect signals on exit or destruction."""
         try:
             if self.main_window and self.main_window.scene:
-                try:
-                    self.main_window.scene.selectionChanged.disconnect(
-                        self.sync_property_toolbar
-                    )
-                except TypeError:
-                    pass  # not connected — expected
-                except (AttributeError, RuntimeError) as _e:
-                    logging.warning("silenced: %s", _e)
+                for slot in (
+                    self.sync_property_toolbar,
+                    self.sync_show_carbon_to_selection,
+                ):
+                    try:
+                        self.main_window.scene.selectionChanged.disconnect(slot)
+                    except TypeError:
+                        pass  # not connected — expected
+                    except (AttributeError, RuntimeError) as _e:
+                        logging.warning("silenced: %s", _e)
         except (AttributeError, RuntimeError) as _e:
             logging.warning("silenced: %s", _e)
 
@@ -3235,6 +3241,23 @@ class ModeManager(QObject):
         )
         if push_undo_func:
             push_undo_func()
+
+    def sync_show_carbon_to_selection(self):
+        """Keep a selection-narrowed Show C in step with the selection.
+
+        Narrowing is a property of the selected carbons, so deselecting them
+        drops their labels and releases the toolbar toggle.
+        """
+        scene = getattr(self.main_window, "scene", None)
+        if scene is None:
+            return
+        show_all, shown_ids = show_carbon_state(scene)
+        if show_all or not shown_ids:
+            return  # showing every carbon, or off: nothing to follow
+        selected = set(self.selected_carbon_ids())
+        if selected == set(shown_ids):
+            return
+        self.apply_show_carbon_state(False, selected, sync_action=True)
 
     def apply_show_carbon_state(self, show_all, atom_ids, sync_action=False):
         """Store the Show C state on the scene and repaint the affected atoms."""
