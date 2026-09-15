@@ -1331,6 +1331,16 @@ class TestAdvancedSettings:
         mgr.apply_settings_to_selection({"curvature": 0.5, "control_p": [3.0, 4.0]})
         assert item.control_p == QPointF(3.0, 4.0)
 
+    def test_apply_settings_curvature_clears_a_dragged_control_point(self):
+        # get_control_point() prefers control_p, so the new curvature would
+        # otherwise have no visible effect on the arrow's bend.
+        mgr, mw, ctx = make_mm(with_toolbar=True)
+        item = add_arrow(mw, cls=ReactionCurvedArrowItem)
+        item.control_p = QPointF(10.0, -20.0)
+        mgr.apply_settings_to_selection({"curvature": 0.8})
+        assert item.control_p is None
+        assert item.curvature == 0.8
+
     def test_apply_settings_to_selection_text_size(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
         from reaction_sketcher.items import ReactionPlusItem

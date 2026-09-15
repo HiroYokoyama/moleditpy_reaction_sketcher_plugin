@@ -75,11 +75,16 @@ class FakeCombo:
 class FakeCurvedArrowItem:
     """Minimal real fake mimicking ReactionCurvedArrowItem's relevant attrs."""
 
-    def __init__(self):
+    def __init__(self, control_p=None):
         self.head_concavity = 0.5
         self.curvature = 0.4
         self.double_arrow_offset = 10.0
         self.head_style = "chevron"
+        self.control_p = control_p
+        self.sync_calls = 0
+
+    def sync_handles(self):
+        self.sync_calls += 1
 
 
 class FakeSelf:
@@ -133,3 +138,26 @@ class TestSetUiValuesSyncsSpinBoxes:
         }
         assert vals["head_concavity"] == 0.85
         assert vals["curvature"] == 0.9
+
+
+class TestCurvatureBeatsADraggedControlPoint:
+    """get_control_point() prefers control_p, so a new curvature needs it gone.
+
+    Otherwise the Curvature spin box silently did nothing on any electron
+    arrow whose control handle had been dragged.
+    """
+
+    def test_setting_curvature_drops_the_manual_control_point(self):
+        item = FakeCurvedArrowItem(control_p=object())
+        fake_self = FakeSelf(item)
+        _SET_UI_VALUES(fake_self, {"curvature": 1.1})
+        assert item.curvature == 1.1
+        assert item.control_p is None
+        assert item.sync_calls == 1
+
+    def test_untouched_control_point_is_left_alone(self):
+        item = FakeCurvedArrowItem(control_p=None)
+        fake_self = FakeSelf(item)
+        _SET_UI_VALUES(fake_self, {"head_concavity": 0.8})
+        assert item.control_p is None
+        assert item.sync_calls == 0

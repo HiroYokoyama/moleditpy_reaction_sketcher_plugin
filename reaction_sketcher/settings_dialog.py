@@ -323,6 +323,12 @@ class AdvancedSettingsDialog(QDialog):
             self.concavity_spin.setValue(float(vals["head_concavity"]))
         if "curvature" in vals and hasattr(self.item, "curvature"):
             self.item.curvature = float(vals["curvature"])
+            if getattr(self.item, "control_p", None) is not None:
+                # get_control_point() prefers a dragged control point, so the
+                # new curvature would be ignored.
+                self.item.control_p = None
+                if hasattr(self.item, "sync_handles"):
+                    self.item.sync_handles()
         if "curvature" in vals and getattr(self, "curvature_spin", None) is not None:
             self.curvature_spin.setValue(float(vals["curvature"]))
         if "double_arrow_offset" in vals and hasattr(self.item, "double_arrow_offset"):

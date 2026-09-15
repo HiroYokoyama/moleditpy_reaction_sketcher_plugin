@@ -705,9 +705,9 @@ class ModeManager(QObject):
         self.show_carbon_action = self.property_toolbar.addAction("Show C")
         self.show_carbon_action.setCheckable(True)
         self.show_carbon_action.setToolTip(
-            "Show skeletal carbon labels — only the selected carbons when a "
-            "carbon is selected (the labels follow the selection and switch "
-            "off when it is cleared), otherwise all of them"
+            "Show skeletal carbon labels. With carbons selected it only "
+            "changes those (labelling them, or hiding them again while the "
+            "rest stay); with nothing selected it covers every carbon."
         )
         self.show_carbon_action.toggled.connect(self.toggle_show_carbon)
 
@@ -2121,6 +2121,15 @@ class ModeManager(QObject):
                 if "curvature" in settings:
                     if hasattr(item, "curvature"):
                         item.curvature = settings["curvature"]
+                        if (
+                            "control_p" not in settings
+                            and getattr(item, "control_p", None) is not None
+                        ):
+                            # A dragged control point overrides curvature, so
+                            # the new value would otherwise do nothing.
+                            item.control_p = None
+                            if hasattr(item, "sync_handles"):
+                                item.sync_handles()
 
                 if "control_p" in settings and hasattr(item, "control_p"):
                     # Restore manual control point
@@ -3227,13 +3236,20 @@ class ModeManager(QObject):
         """Show skeletal carbons — only the selected ones if any carbon is selected."""
         if not self.main_window or not self.main_window.scene:
             return
-        if checked:
-            selected = self.selected_carbon_ids()
-            # A carbon selection narrows the toggle to those atoms; with nothing
-            # selected the toggle covers every carbon in the scene.
-            self.apply_show_carbon_state(not selected, selected)
+        show_all, exceptions = show_carbon_state(self.main_window.scene)
+        selected = set(self.selected_carbon_ids())
+        if selected:
+            # With carbons selected the button changes only those carbons, so
+            # they become exceptions to the scene-wide setting.
+            exceptions = set(exceptions)
+            if bool(checked) == show_all:
+                exceptions -= selected
+            else:
+                exceptions |= selected
+            self.apply_show_carbon_state(show_all, exceptions, sync_action=True)
         else:
-            self.apply_show_carbon_state(False, [])
+            # Nothing selected: the button covers every carbon in the scene.
+            self.apply_show_carbon_state(bool(checked), [], sync_action=True)
 
         mgr_edit = getattr(self.main_window, "edit_actions_manager", None)
         push_undo_func = (
@@ -3242,36 +3258,56 @@ class ModeManager(QObject):
         if push_undo_func:
             push_undo_func()
 
-    def sync_show_carbon_to_selection(self):
-        """Keep a selection-narrowed Show C in step with the selection.
+    def show_carbon_button_state(self):
+        """Whether the Show C toggle should read as pressed.
 
-        Narrowing is a property of the selected carbons, so deselecting them
-        drops their labels and releases the toolbar toggle.
+        Like Bold/Italic/Underline it reads the first selected item and
+        pressing it flips every selected one. With nothing selected it reads
+        the scene-wide setting. Labels stay put when the selection moves away;
+        only the button follows, so the next press applies to the carbons
+        selected by then.
         """
-        scene = getattr(self.main_window, "scene", None)
-        if scene is None:
+        show_all, exceptions = show_carbon_state(
+            getattr(self.main_window, "scene", None)
+        )
+        selected = self.selected_carbon_ids()
+        if not selected:
+            return show_all
+        return show_all != (selected[0] in exceptions)
+
+    def sync_show_carbon_to_selection(self):
+        """Release or press the Show C toggle as the selection changes.
+
+        The labels themselves stay put — only the button follows, so that the
+        next press applies to the carbons selected by then.
+        """
+        self._sync_show_carbon_action()
+
+    def _sync_show_carbon_action(self):
+        action = getattr(self, "show_carbon_action", None)
+        if action is None:
             return
-        show_all, shown_ids = show_carbon_state(scene)
-        if show_all or not shown_ids:
-            return  # showing every carbon, or off: nothing to follow
-        selected = set(self.selected_carbon_ids())
-        if selected == set(shown_ids):
+        wanted = self.show_carbon_button_state()
+        if action.isChecked() == wanted:
             return
-        self.apply_show_carbon_state(False, selected, sync_action=True)
+        # setChecked() re-enters toggle_show_carbon otherwise.
+        was_blocked = action.blockSignals(True)
+        action.setChecked(wanted)
+        action.blockSignals(was_blocked)
 
     def apply_show_carbon_state(self, show_all, atom_ids, sync_action=False):
-        """Store the Show C state on the scene and repaint the affected atoms."""
+        """Store the Show C state on the scene and repaint the affected atoms.
+
+        atom_ids are the carbons that disagree with show_all.
+        """
         scene = getattr(self.main_window, "scene", None)
         if scene is None:
             return
         scene._rs_show_carbon = bool(show_all)
         scene._rs_show_carbon_ids = set(atom_ids or ())
 
-        action = getattr(self, "show_carbon_action", None)
-        if sync_action and action is not None:
-            was_blocked = action.blockSignals(True)
-            action.setChecked(bool(show_all) or bool(scene._rs_show_carbon_ids))
-            action.blockSignals(was_blocked)
+        if sync_action:
+            self._sync_show_carbon_action()
 
         self.refresh_carbon_labels()
 
