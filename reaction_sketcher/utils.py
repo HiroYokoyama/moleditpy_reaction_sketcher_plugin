@@ -160,6 +160,10 @@ def load_handler_core(main_window, reaction_items):
                 item.head_size = item_data["head_size"]
             if "head_angle" in item_data:
                 item.head_angle = item_data["head_angle"]
+            if "head_concavity" in item_data and hasattr(item, "head_concavity"):
+                item.head_concavity = item_data["head_concavity"]
+            if "head_side" in item_data and hasattr(item, "head_side"):
+                item.head_side = item_data["head_side"]
             item.sync_handles()
 
         elif item_type == "line":
