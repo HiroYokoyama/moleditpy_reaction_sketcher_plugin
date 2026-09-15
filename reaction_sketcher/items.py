@@ -494,6 +494,7 @@ class ReactionArrowItem(QGraphicsItem):
             "width": self.pen_width,
             "head_size": self.head_size,
             "head_angle": self.head_angle,
+            "head_concavity": self.head_concavity,
             "head_style": self.head_style,
             "head_side": getattr(self, "head_side", 1),
             "group_id": self.group_id,
