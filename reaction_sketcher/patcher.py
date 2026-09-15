@@ -1998,7 +1998,7 @@ def apply_core_patches(main_window, context=None):
                 logging.warning("silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(
-                self, "Export 2D as PNG", default_name, "PNG Files (*.png)"
+                self.host, "Export 2D as PNG", default_name, "PNG Files (*.png)"
             )
             if not filePath:
                 return
@@ -2006,7 +2006,7 @@ def apply_core_patches(main_window, context=None):
                 filePath += ".png"
 
             reply = QMessageBox.question(
-                self,
+                self.host,
                 "Choose Background",
                 'Do you want a transparent background?\n(Choose "No" to use the current background color)',
                 QMessageBox.StandardButton.Yes
@@ -2093,7 +2093,7 @@ def apply_core_patches(main_window, context=None):
                 logging.warning("silenced: %s", _e)
 
             filePath, _ = QFileDialog.getSaveFileName(
-                self, "Export 2D as SVG", default_name, "SVG Files (*.svg)"
+                self.host, "Export 2D as SVG", default_name, "SVG Files (*.svg)"
             )
             if not filePath:
                 return
@@ -2101,7 +2101,7 @@ def apply_core_patches(main_window, context=None):
                 filePath += ".svg"
 
             reply = QMessageBox.question(
-                self,
+                self.host,
                 "Choose Background",
                 'Do you want a transparent background?\n(Choose "No" to use the current background color)',
                 QMessageBox.StandardButton.Yes
@@ -2361,6 +2361,27 @@ def apply_core_patches(main_window, context=None):
             MainWindowExport, "copy_svg_to_clipboard", patched_copy_svg_to_clipboard
         )
 
+        def export_callback(window, method_name):
+            """Call an export method resolved at call time.
+
+            The core moved these onto window.export_manager, so binding
+            window.<name> up front would silently drop the button.
+            """
+
+            def run():
+                mgr = getattr(window, "export_manager", None)
+                target = getattr(mgr, method_name, None) or getattr(
+                    window, method_name, None
+                )
+                if target is not None:
+                    target()
+
+            return run
+
+        def has_export_method(window, method_name):
+            mgr = getattr(window, "export_manager", None)
+            return hasattr(mgr, method_name) or hasattr(window, method_name)
+
         def rewire_2d_export_actions(window):
             """Re-point File > Export > 2D Formats at the patched export methods.
 
@@ -2428,9 +2449,9 @@ def apply_core_patches(main_window, context=None):
                 # We can add our PNG/Copy buttons there too.
                 self.property_toolbar.addSeparator()
                 # Use proper error handling to ensure functions exist
-                if hasattr(self.main_window, "export_2d_png"):
+                if has_export_method(self.main_window, "export_2d_png"):
                     self.property_toolbar.addAction(
-                        "Export PNG", lambda: self.main_window.export_2d_png()
+                        "Export PNG", export_callback(self.main_window, "export_2d_png")
                     )
                 if hasattr(self.main_window, "copy_2d_image_to_clipboard"):
                     self.property_toolbar.addAction(
@@ -2451,9 +2472,9 @@ def apply_core_patches(main_window, context=None):
                 )
                 if not has_png:
                     rmm.property_toolbar.addSeparator()
-                    if hasattr(main_window, "export_2d_png"):
+                    if has_export_method(main_window, "export_2d_png"):
                         rmm.property_toolbar.addAction(
-                            "Export PNG", lambda: main_window.export_2d_png()
+                            "Export PNG", export_callback(main_window, "export_2d_png")
                         )
                     if hasattr(main_window, "copy_2d_image_to_clipboard"):
                         rmm.property_toolbar.addAction(

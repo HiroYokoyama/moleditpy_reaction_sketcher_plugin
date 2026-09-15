@@ -152,3 +152,82 @@ class TestRewire2dExportActions:
         patcher_mod.revert_core_patches()
         svg.trigger()
         assert mgr.called == "stock_svg"
+
+
+class TestExportDialogParent:
+    """The patched exporters live on ExportManager, so the parent is its host.
+
+    Passing `self` handed QFileDialog an ExportManager and PyQt raised
+    TypeError: argument 1 has unexpected type 'ExportManager'.
+    """
+
+    @pytest.mark.parametrize(
+        "action_name, caption",
+        [("png", "Export 2D as PNG"), ("svg", "Export 2D as SVG")],
+    )
+    def test_save_dialog_gets_the_window(self, monkeypatch, action_name, caption):
+        mw, mgr, png, svg, other, menu_3d = _mw_with_export_menu()
+        mw.state_manager.data.atoms = {1: object()}
+        patcher_mod.apply_core_patches(mw, context=MagicMock())
+
+        seen = {}
+
+        def fake_save(parent, title, *args, **kwargs):
+            seen["parent"] = parent
+            seen["title"] = title
+            return "", ""
+
+        monkeypatch.setattr(
+            patcher_mod.QFileDialog, "getSaveFileName", staticmethod(fake_save)
+        )
+        {"png": png, "svg": svg}[action_name].trigger()
+
+        assert seen["title"] == caption
+        assert seen["parent"] is mw
+
+
+class TestExportCallback:
+    """The reaction toolbar button must find the exporter on export_manager.
+
+    The core moved export_2d_png off MainWindow, so the old
+    hasattr(main_window, ...) guard dropped the button entirely.
+    """
+
+    class FakeToolbar:
+        def __init__(self):
+            self.added = []
+            self.separators = 0
+
+        def actions(self):
+            return []
+
+        def addSeparator(self):
+            self.separators += 1
+
+        def addAction(self, text, callback=None):
+            self.added.append((text, callback))
+            return MagicMock()
+
+    def _patch_with_toolbar(self, mw):
+        toolbar = self.FakeToolbar()
+        rmm = MagicMock()
+        rmm.property_toolbar = toolbar
+        mw._reaction_mode_manager = rmm
+        patcher_mod.apply_core_patches(mw, context=MagicMock())
+        return dict(toolbar.added)
+
+    def test_button_added_and_routed_to_the_manager(self):
+        mw, mgr, *_ = _mw_with_export_menu()
+        calls = []
+        mgr.export_2d_png = lambda: calls.append("manager")
+        added = self._patch_with_toolbar(mw)
+
+        assert "Export PNG" in added
+        added["Export PNG"]()
+        assert calls == ["manager"]
+
+    def test_button_skipped_when_nothing_provides_it(self):
+        mw, mgr, *_ = _mw_with_export_menu()
+        del mw.export_manager
+        added = self._patch_with_toolbar(mw)
+        assert "Export PNG" not in added
