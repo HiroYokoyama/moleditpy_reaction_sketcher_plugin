@@ -63,6 +63,11 @@ class TestIsCarbonShown:
         assert is_carbon_shown(_AtomStub(1, "C", scene)) is False
         assert is_carbon_shown(_AtomStub(2, "C", scene)) is True
 
+    def test_show_all_with_an_exception_hides_that_carbon(self):
+        scene = _SceneStub(show_all=True, ids={2})
+        assert is_carbon_shown(_AtomStub(2, "C", scene)) is False
+        assert is_carbon_shown(_AtomStub(1, "C", scene)) is True
+
     def test_non_carbon_never_shown(self):
         scene = _SceneStub(show_all=True)
         assert is_carbon_shown(_AtomStub(1, "O", scene)) is False
@@ -75,6 +80,28 @@ class TestIsCarbonShown:
 
         atom.scene = boom
         assert is_carbon_shown(atom) is False
+
+
+class _FakeAction:
+    """Checkable QAction stand-in: blockSignals must stop re-entry."""
+
+    def __init__(self, checked=False):
+        self._checked = checked
+        self._blocked = False
+        self.emitted = []
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, value):
+        self._checked = bool(value)
+        if not self._blocked:
+            self.emitted.append(self._checked)
+
+    def blockSignals(self, block):
+        was = self._blocked
+        self._blocked = bool(block)
+        return was
 
 
 def _mode_manager_with_atoms():
@@ -126,11 +153,31 @@ class TestToggleShowCarbon:
         assert mw.edit_actions_manager.push_undo_state_calls == 1
 
     def test_apply_state_syncs_the_toolbar_action(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        action = _FakeAction(checked=False)
+        mm.show_carbon_action = action
+        c2.setSelected(True)
+        mm.apply_show_carbon_state(False, [2], sync_action=True)
+        assert action.isChecked() is True
+        assert action.emitted == []  # syncing must not re-enter the toggle
+
+    def test_restored_narrowing_leaves_the_button_released(self):
+        # Loading a project or undoing restores labels with nothing selected.
         mm, mw, *_ = _mode_manager_with_atoms()
-        action = MagicMock()
+        action = _FakeAction(checked=True)
         mm.show_carbon_action = action
         mm.apply_show_carbon_state(False, [2], sync_action=True)
-        action.setChecked.assert_called_once_with(True)
+        assert action.isChecked() is False
+
+    def test_adding_a_selection_keeps_the_earlier_labels(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        c2.setSelected(True)
+        mm.toggle_show_carbon(True)
+        c2.setSelected(False)
+        c1.setSelected(True)
+        mm.toggle_show_carbon(True)
+        assert mw.scene._rs_show_carbon_ids == {1, 2}
+        assert mw.scene._rs_show_carbon is False
 
     def test_no_scene_is_a_no_op(self):
         mm, mw, *_ = _mode_manager_with_atoms()
@@ -182,86 +229,163 @@ def _mw_with_styled_atoms():
     return mw, c1, c2
 
 
-class TestShowCarbonFollowsSelection:
-    def test_deselecting_the_carbon_switches_the_toggle_off(self):
+class TestShowCarbonTouchesOnlyTheSelection:
+    """With carbons selected the button changes those carbons and no others."""
+
+    def _show_all(self):
         mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
-        action = MagicMock()
+        action = _FakeAction()
+        mm.show_carbon_action = action
+        mm.toggle_show_carbon(True)
+        assert mw.scene._rs_show_carbon is True
+        return mm, mw, c1, c2, o3, action
+
+    def test_pressing_with_a_selection_hides_only_that_carbon(self):
+        mm, mw, c1, c2, o3, action = self._show_all()
+        c2.setSelected(True)
+        mm.sync_show_carbon_to_selection()
+        assert action.isChecked() is True  # the selected carbon is labelled
+
+        mm.toggle_show_carbon(False)
+
+        assert mw.scene._rs_show_carbon is True  # the rest keep their labels
+        assert mw.scene._rs_show_carbon_ids == {2}
+        assert is_carbon_shown(c2) is False
+        assert is_carbon_shown(c1) is True
+        assert action.isChecked() is False
+
+    def test_button_reads_the_first_selected_carbon(self):
+        # Bold/Italic/Underline read the first selected item; so does this.
+        mm, mw, c1, c2, o3, action = self._show_all()
+        c2.setSelected(True)
+        mm.toggle_show_carbon(False)  # C2 hidden, C1 still labelled
+        c2.setSelected(False)
+        c1.setSelected(True)
+        mm.sync_show_carbon_to_selection()
+        assert action.isChecked() is True
+
+    def test_pressing_flips_every_selected_carbon(self):
+        mm, mw, c1, c2, o3, action = self._show_all()
+        c1.setSelected(True)
+        c2.setSelected(True)
+        mm.toggle_show_carbon(False)
+        assert mw.scene._rs_show_carbon_ids == {1, 2}
+        assert is_carbon_shown(c1) is False
+        assert is_carbon_shown(c2) is False
+
+    def test_pressing_again_brings_the_label_back(self):
+        mm, mw, c1, c2, o3, action = self._show_all()
+        c2.setSelected(True)
+        mm.toggle_show_carbon(False)
+        mm.toggle_show_carbon(True)
+        assert mw.scene._rs_show_carbon_ids == set()
+        assert is_carbon_shown(c2) is True
+
+    def test_clearing_the_selection_still_covers_everything(self):
+        mm, mw, c1, c2, o3, action = self._show_all()
+        c2.setSelected(True)
+        mm.toggle_show_carbon(False)
+        c2.setSelected(False)
+        mm.toggle_show_carbon(False)  # nothing selected: scene-wide off
+        assert mw.scene._rs_show_carbon is False
+        assert mw.scene._rs_show_carbon_ids == set()
+        assert is_carbon_shown(c1) is False
+
+    def test_hiding_a_labelled_carbon_while_off(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        mm.show_carbon_action = _FakeAction()
+        c2.setSelected(True)
+        mm.toggle_show_carbon(True)
+        assert mw.scene._rs_show_carbon_ids == {2}
+        mm.toggle_show_carbon(False)
+        assert mw.scene._rs_show_carbon is False
+        assert mw.scene._rs_show_carbon_ids == set()
+        assert is_carbon_shown(c2) is False
+
+
+class TestShowCarbonButtonFollowsSelection:
+    """Deselecting releases the button but keeps the labels."""
+
+    def _narrowed(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        action = _FakeAction()
         mm.show_carbon_action = action
         c2.setSelected(True)
         mm.toggle_show_carbon(True)
+        assert action.isChecked() is True
+        return mm, mw, c1, c2, o3, action
+
+    def test_deselecting_keeps_the_labels(self):
+        mm, mw, c1, c2, o3, action = self._narrowed()
         c2.setSelected(False)
-
         mm.sync_show_carbon_to_selection()
+        assert mw.scene._rs_show_carbon_ids == {2}
+        assert is_carbon_shown(c2) is True
 
-        assert mw.scene._rs_show_carbon is False
-        assert mw.scene._rs_show_carbon_ids == set()
-        assert action.setChecked.call_args[0][0] is False
+    def test_deselecting_releases_the_button(self):
+        mm, mw, c1, c2, o3, action = self._narrowed()
+        c2.setSelected(False)
+        mm.sync_show_carbon_to_selection()
+        assert action.isChecked() is False
+        assert action.emitted == []
 
-    def test_labels_move_to_the_newly_selected_carbon(self):
-        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+    def test_selecting_an_unlabelled_carbon_leaves_it_released(self):
+        # The next press must add C1, not switch everything off.
+        mm, mw, c1, c2, o3, action = self._narrowed()
+        c2.setSelected(False)
+        c1.setSelected(True)
+        mm.sync_show_carbon_to_selection()
+        assert action.isChecked() is False
+
+    def test_reselecting_a_labelled_carbon_presses_it_again(self):
+        mm, mw, c1, c2, o3, action = self._narrowed()
+        c2.setSelected(False)
+        mm.sync_show_carbon_to_selection()
         c2.setSelected(True)
+        mm.sync_show_carbon_to_selection()
+        assert action.isChecked() is True
+        # ...so that this press clears the labels.
+        mm.toggle_show_carbon(False)
+        assert mw.scene._rs_show_carbon_ids == set()
+
+    def test_show_all_stays_pressed_whatever_is_selected(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        action = _FakeAction()
+        mm.show_carbon_action = action
         mm.toggle_show_carbon(True)
+        for selected in (True, False):
+            c1.setSelected(selected)
+            mm.sync_show_carbon_to_selection()
+            assert action.isChecked() is True
+
+    def test_selecting_a_heteroatom_releases_the_button(self):
+        mm, mw, c1, c2, o3, action = self._narrowed()
         c2.setSelected(False)
-        c1.setSelected(True)
-
-        mm.sync_show_carbon_to_selection()
-
-        assert mw.scene._rs_show_carbon_ids == {1}
-        assert is_carbon_shown(c1) is True
-        assert is_carbon_shown(c2) is False
-
-    def test_show_all_ignores_the_selection(self):
-        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
-        mm.toggle_show_carbon(True)
-        c1.setSelected(True)
-
-        mm.sync_show_carbon_to_selection()
-
-        assert mw.scene._rs_show_carbon is True
-        assert mw.scene._rs_show_carbon_ids == set()
-
-    def test_selecting_a_heteroatom_only_switches_off(self):
-        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
-        c1.setSelected(True)
-        mm.toggle_show_carbon(True)
-        c1.setSelected(False)
         o3.setSelected(True)
-
         mm.sync_show_carbon_to_selection()
+        assert action.isChecked() is False
+        assert mw.scene._rs_show_carbon_ids == {2}
 
-        assert mw.scene._rs_show_carbon_ids == set()
-
-    def test_unchanged_selection_does_not_repaint(self):
-        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
-        c1.setSelected(True)
-        mm.toggle_show_carbon(True)
+    def test_following_does_not_repaint_or_push_undo(self):
+        mm, mw, c1, c2, o3, action = self._narrowed()
         mm.refresh_carbon_labels = MagicMock()
-
+        c2.setSelected(False)
         mm.sync_show_carbon_to_selection()
-
         mm.refresh_carbon_labels.assert_not_called()
-
-    def test_following_does_not_push_undo_states(self):
-        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
-        c1.setSelected(True)
-        mm.toggle_show_carbon(True)
-        c1.setSelected(False)
-
-        mm.sync_show_carbon_to_selection()
-
         assert mw.edit_actions_manager.push_undo_state_calls == 1
 
-    def test_no_scene_is_a_no_op(self):
-        mm, mw, *_ = _mode_manager_with_atoms()
-        mw.scene = None
+    def test_no_action_yet_is_a_no_op(self):
+        mm, mw, c1, *_ = _mode_manager_with_atoms()
+        mm.show_carbon_action = None
         mm.sync_show_carbon_to_selection()  # must not raise
 
-    def test_off_state_is_a_no_op(self):
-        mm, mw, c1, *_ = _mode_manager_with_atoms()
+    def test_off_state_keeps_the_button_released(self):
+        mm, mw, c1, c2, o3 = _mode_manager_with_atoms()
+        action = _FakeAction(checked=True)
+        mm.show_carbon_action = action
         c1.setSelected(True)
-        mm.refresh_carbon_labels = MagicMock()
         mm.sync_show_carbon_to_selection()
-        mm.refresh_carbon_labels.assert_not_called()
+        assert action.isChecked() is False
 
 
 class TestShowCarbonPatches:
