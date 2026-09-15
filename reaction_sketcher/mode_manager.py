@@ -412,6 +412,16 @@ class ModeManager(QObject):
                 "Distribute Horizontally",
                 lambda: self.distribute_items("horizontal"),
             ),
+            (
+                "mirror_h",
+                "Mirror Horizontal (flip vertically)",
+                lambda: self.mirror_items("h"),
+            ),
+            (
+                "mirror_v",
+                "Mirror Vertical (flip horizontally)",
+                lambda: self.mirror_items("v"),
+            ),
         ]
 
         for cat_name, tools in categories:
@@ -690,6 +700,12 @@ class ModeManager(QObject):
         self.update_color_button(QColor("#222222"))
 
         self.property_toolbar.addSeparator()
+
+        # Show Carbon Toggle
+        self.show_carbon_action = self.property_toolbar.addAction("Show C")
+        self.show_carbon_action.setCheckable(True)
+        self.show_carbon_action.setToolTip("Toggle showing/hiding skeletal carbon labels (C)")
+        self.show_carbon_action.toggled.connect(self.toggle_show_carbon)
 
         self.property_toolbar.addSeparator()
 
@@ -2559,9 +2575,10 @@ class ModeManager(QObject):
         if self.main_window:
             _init = getattr(self.main_window, "init_manager", None)
             if _init is not None:
-                if hasattr(_init, "convert_button"):
+                if hasattr(_init, "convert_button") and _init.convert_button is not None:
                     _init.convert_button.setEnabled(enabled)
-                if hasattr(_init, "optimize_3d_button"):
+
+                if hasattr(_init, "optimize_3d_button") and _init.optimize_3d_button is not None:
                     # optimize_3d_button is usually disabled by default until 3D exists,
                     # but we should force disable it if in reaction mode
                     if not enabled:
@@ -3092,6 +3109,97 @@ class ModeManager(QObject):
                 logging.warning("Error: edit_actions_manager missing 'push_undo_state'")
         else:
             logging.warning("Error: main_window missing 'edit_actions_manager'")
+
+    def mirror_items(self, axis):
+        """Mirror selected items (or all items if none selected) across axis ('h' or 'v')."""
+        if not self.main_window or not self.main_window.scene:
+            return
+
+        from .items import mirror_point
+        from .utils import sip_isdeleted_safe
+
+        selected_items = [
+            i for i in self.main_window.scene.selectedItems() if not sip_isdeleted_safe(i)
+        ]
+
+        target_atoms = [i for i in selected_items if hasattr(i, "atom_id")]
+        target_reaction_items = [
+            i for i in selected_items if hasattr(i, "mirror_around")
+        ]
+
+        # When not selected, do not apply
+        if not target_atoms and not target_reaction_items:
+            return
+
+        # Calculate Center of gravity of selected items
+        points = []
+        for atom in target_atoms:
+            points.append(atom.pos())
+        for item in target_reaction_items:
+            if hasattr(item, "start_p") and hasattr(item, "end_p"):
+                p1 = item.mapToScene(item.start_p)
+                p2 = item.mapToScene(item.end_p)
+                points.append(QPointF((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0))
+            else:
+                points.append(item.sceneBoundingRect().center())
+
+        if not points:
+            return
+
+        center_x = sum(p.x() for p in points) / len(points)
+        center_y = sum(p.y() for p in points) / len(points)
+        center = QPointF(center_x, center_y)
+
+        # Mirror atoms
+        data_model = getattr(self.main_window, "data", None)
+        can_sync = data_model is not None and hasattr(data_model, "set_atom_pos")
+        for atom in target_atoms:
+            new_pos = mirror_point(atom.pos(), center, axis)
+            atom.setPos(new_pos)
+            if can_sync:
+                try:
+                    data_model.set_atom_pos(atom.atom_id, new_pos)
+                except (RuntimeError, KeyError, AttributeError):
+                    pass
+
+        # Mirror reaction items
+        for item in target_reaction_items:
+            mirror_func = getattr(item, "mirror_around", None)
+            if mirror_func:
+                mirror_func(center, axis)
+
+        if target_atoms:
+            self.main_window.scene.update_connected_bonds(target_atoms)
+
+        if hasattr(self.main_window, "edit_3d_manager") and hasattr(
+            self.main_window.edit_3d_manager, "update_2d_measurement_labels"
+        ):
+            self.main_window.edit_3d_manager.update_2d_measurement_labels()
+
+        if self.context:
+            self.context.refresh_2d_scene()
+
+        mgr_edit = getattr(self.main_window, "edit_actions_manager", None)
+        if mgr_edit:
+            push_undo_func = getattr(mgr_edit, "push_undo_state", None)
+            if push_undo_func:
+                push_undo_func()
+
+    def toggle_show_carbon(self, checked):
+        """Toggle showing/hiding skeletal carbons in the scene."""
+        if not self.main_window or not self.main_window.scene:
+            return
+        self.main_window.scene._rs_show_carbon = checked
+        scene_atom_items = getattr(self.main_window.scene, "atom_items", {})
+        if isinstance(scene_atom_items, dict):
+            for atom in scene_atom_items.values():
+                if hasattr(atom, "update_style"):
+                    atom.update_style()
+                elif hasattr(atom, "update"):
+                    atom.update()
+        self.main_window.scene.update()
+        if self.context:
+            self.context.refresh_2d_scene()
 
     def toggle_subscript(self):
         self._toggle_text_format("sub")

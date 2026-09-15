@@ -270,6 +270,16 @@ def apply_core_patches(main_window, context=None):
 
     patch_core(MainWindowUiManager, "set_mode", patched_set_mode)
 
+    if hasattr(MainWindowUiManager, "restore_ui_for_editing"):
+        def patched_restore_ui_for_editing(self):
+            if (MainWindowUiManager, "restore_ui_for_editing") in _core_originals:
+                _core_originals[(MainWindowUiManager, "restore_ui_for_editing")](self)
+            rmm = getattr(self.host, "_reaction_mode_manager", None)
+            if rmm and getattr(rmm, "is_reaction_mode", False):
+                rmm.set_3d_action_state(False)
+
+        patch_core(MainWindowUiManager, "restore_ui_for_editing", patched_restore_ui_for_editing)
+
     # --- Connection to Selection Signal ---
     if MoleculeScene:
         # Patch update_template_preview to handle deleted C++ Qt objects gracefully
@@ -825,8 +835,13 @@ def apply_core_patches(main_window, context=None):
 
         custom_color = getattr(self, "pen_color", None)
 
-        if not self.is_visible:
+        scene = self.scene() if hasattr(self, "scene") else None
+        show_carbon = getattr(scene, "_rs_show_carbon", False) if scene else False
+        is_visible = self.is_visible or (show_carbon and getattr(self, "symbol", "") == "C")
+
+        if not is_visible:
             # Still draw selection highlight even if atom is central to a bond (skeletal carbon)
+
             if getattr(self, "has_problem", False):
                 painter.save()
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -863,7 +878,8 @@ def apply_core_patches(main_window, context=None):
                 and self.implicit_h_count > 0
             ):
                 is_skeletal_carbon = (
-                    self.symbol == "C"
+                    not show_carbon
+                    and self.symbol == "C"
                     and self.charge == 0
                     and self.radical == 0
                     and len(self.bonds) > 0
@@ -1056,6 +1072,16 @@ def apply_core_patches(main_window, context=None):
         self.is_group_selected = False
 
     patch_core(AtomItem, "__init__", patched_atom_item_init)
+
+    if hasattr(AtomItem, "update_style"):
+        def patched_atom_update_style(self):
+            if (AtomItem, "update_style") in _core_originals:
+                _core_originals[(AtomItem, "update_style")](self)
+            scene = self.scene() if hasattr(self, "scene") else None
+            if scene and getattr(scene, "_rs_show_carbon", False) and getattr(self, "symbol", "") == "C":
+                self.is_visible = True
+
+        patch_core(AtomItem, "update_style", patched_atom_update_style)
 
     def patched_bond_paint(self, painter, option, widget=None):
         line = self.get_line_in_local_coords()
@@ -1617,6 +1643,18 @@ def apply_core_patches(main_window, context=None):
         patch_core(
             ComputeManager, "on_calculation_finished", patched_on_calculation_finished
         )
+
+        if hasattr(ComputeManager, "setup_convert_button"):
+            def patched_setup_convert_button(self):
+                if (ComputeManager, "setup_convert_button") in _core_originals:
+                    _core_originals[(ComputeManager, "setup_convert_button")](self)
+                rmm = getattr(main_window, "_reaction_mode_manager", None)
+                if rmm and getattr(rmm, "is_reaction_mode", False):
+                    rmm.set_3d_action_state(False)
+
+            patch_core(
+                ComputeManager, "setup_convert_button", patched_setup_convert_button
+            )
 
     def patched_push_undo_state(self):
         # Prevent recursion and checks based on both Manager and Host state
