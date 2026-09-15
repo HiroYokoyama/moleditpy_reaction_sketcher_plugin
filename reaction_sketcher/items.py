@@ -36,16 +36,23 @@ def mirror_point(point, center, axis):
         return QPointF(center.x() + dx, center.y() - dy)
 
 
-def _apply_mirror_rotation(item, axis):
-    """Flip an item's Qt rotation after a mirror transform.
+def mirror_item_in_place(item, center, axis, flip_rotation=True):
+    """Mirror a pos-anchored item so its own centre lands on the mirrored centre.
 
-    Mirroring negates one axis, which is equivalent to reflecting the
-    rotation angle:  vertical flip → negate angle,  horizontal flip → 180°-angle.
+    Reflecting a rotated item maps its angle to -angle (for either axis) once
+    its local geometry is mirrored as well; the symbol glyphs here are symmetric
+    about both of their own axes, so only the angle needs flipping.
+
+    Placement goes through the item's centre because mirroring item.pos() would
+    displace the item by its own width or height: pos() is the top-left corner
+    for the rect-shaped items (brackets, circles), not their middle.
     """
-    if axis == "v":
+    old_center = item.sceneBoundingRect().center()
+    if flip_rotation:
         item.setRotation(-item.rotation())
-    else:  # 'h'
-        item.setRotation(180 - item.rotation())
+    target = mirror_point(old_center, center, axis)
+    new_center = item.sceneBoundingRect().center()
+    item.setPos(item.pos() + (target - new_center))
 
 
 def get_main_window(scene):
@@ -646,8 +653,7 @@ class ReactionPlusItem(QGraphicsItem):
         self.setRotation(self.rotation() + angle_degrees)
 
     def mirror_around(self, center, axis):
-        self.setPos(mirror_point(self.pos(), center, axis))
-        _apply_mirror_rotation(self, axis)
+        mirror_item_in_place(self, center, axis)
 
 class ReactionMinusItem(QGraphicsItem):
     def __init__(self, pos):
@@ -730,8 +736,7 @@ class ReactionMinusItem(QGraphicsItem):
         self.setRotation(self.rotation() + angle_degrees)
 
     def mirror_around(self, center, axis):
-        self.setPos(mirror_point(self.pos(), center, axis))
-        _apply_mirror_rotation(self, axis)
+        mirror_item_in_place(self, center, axis)
 
 class ReactionResonanceArrowItem(ReactionArrowItem):
     def paint(self, painter, option, widget):
@@ -2139,8 +2144,14 @@ class ReactionBracketItem(QGraphicsItem):
         self.setRotation(self.rotation() + angle_degrees)
 
     def mirror_around(self, center, axis):
-        self.setPos(mirror_point(self.pos(), center, axis))
-        _apply_mirror_rotation(self, axis)
+        # A single-sided bracket is the one asymmetric glyph here: a horizontal
+        # flip turns "[" into "]", so swap the side instead of rotating it.
+        if axis == "v":
+            if "_left" in self.bracket_type:
+                self.bracket_type = self.bracket_type.replace("_left", "_right")
+            elif "_right" in self.bracket_type:
+                self.bracket_type = self.bracket_type.replace("_right", "_left")
+        mirror_item_in_place(self, center, axis)
 
 
 class ReactionCircleItem(QGraphicsItem):
@@ -2279,8 +2290,7 @@ class ReactionCircleItem(QGraphicsItem):
         self.setRotation(self.rotation() + angle_degrees)
 
     def mirror_around(self, center, axis):
-        self.setPos(mirror_point(self.pos(), center, axis))
-        _apply_mirror_rotation(self, axis)
+        mirror_item_in_place(self, center, axis)
 
 
 class ReactionLineItem(ReactionArrowItem):
@@ -2534,7 +2544,7 @@ class ReactionFreehandItem(QGraphicsItem):
         origin = QPointF(0, 0)
         self.setPos(mirror_point(self.pos(), center, axis))
         self.set_points([mirror_point(p, origin, axis) for p in self.points])
-        _apply_mirror_rotation(self, axis)
+        self.setRotation(-self.rotation())
 
 
 class ReactionTextItem(QGraphicsTextItem):
@@ -2948,8 +2958,7 @@ class ReactionTextItem(QGraphicsTextItem):
         self.setRotation(self.rotation() + angle_degrees)
 
     def mirror_around(self, center, axis):
-        self.setPos(mirror_point(self.pos(), center, axis))
-        _apply_mirror_rotation(self, axis)
+        mirror_item_in_place(self, center, axis)
 
 
 class ReactionGroupOverlay(QGraphicsItem):

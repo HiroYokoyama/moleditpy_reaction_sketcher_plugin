@@ -86,14 +86,46 @@ def test_plus_minus_mirror(qapp):
     minus.mirror_around(center, 'h')
     assert minus.pos().x() == pytest.approx(120.0)
     assert minus.pos().y() == pytest.approx(70.0)
-    assert minus.rotation() == pytest.approx(135.0)
+    # Reflection maps the angle to -angle for either axis, once the glyph's own
+    # (symmetric) geometry is accounted for. 180-angle would spin it instead.
+    assert minus.rotation() == pytest.approx(-45.0)
+
+
+def test_rect_shaped_items_mirror_by_their_centre(qapp):
+    # pos() is the top-left of a bracket/circle, so mirroring pos() would shift
+    # the item sideways by its own width instead of flipping it in place.
+    center = QPointF(100, 100)
+    for cls in (ReactionBracketItem, ReactionCircleItem):
+        item = cls(QPointF(100, 90), QPointF(160, 110))
+        before = item.sceneBoundingRect().center()
+        item.mirror_around(center, 'v')
+        after = item.sceneBoundingRect().center()
+        assert after.x() == pytest.approx(2 * center.x() - before.x())
+        assert after.y() == pytest.approx(before.y())
+
+
+def test_single_sided_bracket_swaps_side_on_horizontal_flip(qapp):
+    item = ReactionBracketItem(QPointF(0, 0), QPointF(50, 40))
+    item.bracket_type = 'square_left'
+    item.mirror_around(QPointF(100, 100), 'v')
+    assert item.bracket_type == 'square_right'
+    item.mirror_around(QPointF(100, 100), 'v')
+    assert item.bracket_type == 'square_left'
+    # A vertical flip leaves a bracket unchanged; it is symmetric about its own
+    # horizontal axis.
+    item.mirror_around(QPointF(100, 100), 'h')
+    assert item.bracket_type == 'square_left'
 
 
 def test_text_item_mirror(qapp):
     center = QPointF(100, 100)
     txt = ReactionTextItem('Reaction', QPointF(120, 100))
+    before = txt.sceneBoundingRect().center()
     txt.mirror_around(center, 'v')
-    assert txt.pos().x() == pytest.approx(80.0)
+    after = txt.sceneBoundingRect().center()
+    assert after.x() == pytest.approx(2 * center.x() - before.x())
+    # Text stays upright: a flipped label must remain readable.
+    assert txt.rotation() == pytest.approx(0.0)
 
 
 def test_freehand_item_mirror(qapp):
@@ -104,3 +136,42 @@ def test_freehand_item_mirror(qapp):
     assert fh.pos().x() == pytest.approx(80.0)
     assert fh.points[1].x() == pytest.approx(-10.0)
     assert fh.points[1].y() == pytest.approx(20.0)
+
+
+def test_arrow_mirror_flips_the_asymmetric_head(qapp):
+    arrow = ReactionArrowItem(QPointF(0, 0), QPointF(100, 0))
+    arrow.head_side = 1
+    arrow.mirror_around(QPointF(50, 0), 'h')
+    assert arrow.head_side == -1
+    arrow.mirror_around(QPointF(50, 0), 'h')
+    assert arrow.head_side == 1
+
+
+def test_freehand_mirror_flips_rotation_for_either_axis(qapp):
+    for axis in ('h', 'v'):
+        fh = ReactionFreehandItem(QPointF(120, 100))
+        fh.points = [QPointF(0, 0), QPointF(10, 20)]
+        fh.setRotation(25)
+        fh.mirror_around(QPointF(100, 100), axis)
+        # Local points are mirrored too, so the angle maps to -angle, not 180-angle.
+        assert fh.rotation() == pytest.approx(-25.0)
+
+
+def test_double_mirror_is_the_identity(qapp):
+    center = QPointF(100, 100)
+    for axis in ('h', 'v'):
+        arrow = ReactionArrowItem(QPointF(40, 60), QPointF(90, 130))
+        start = arrow.mapToScene(arrow.start_p)
+        end = arrow.mapToScene(arrow.end_p)
+        arrow.mirror_around(center, axis)
+        arrow.mirror_around(center, axis)
+        assert arrow.mapToScene(arrow.start_p).x() == pytest.approx(start.x())
+        assert arrow.mapToScene(arrow.start_p).y() == pytest.approx(start.y())
+        assert arrow.mapToScene(arrow.end_p).x() == pytest.approx(end.x())
+        assert arrow.mapToScene(arrow.end_p).y() == pytest.approx(end.y())
+
+        plus = ReactionPlusItem(QPointF(40, 60))
+        plus.mirror_around(center, axis)
+        plus.mirror_around(center, axis)
+        assert plus.pos().x() == pytest.approx(40.0)
+        assert plus.pos().y() == pytest.approx(60.0)
