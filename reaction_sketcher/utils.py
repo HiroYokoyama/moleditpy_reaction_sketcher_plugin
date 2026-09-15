@@ -40,7 +40,11 @@ def get_main_window(scene):
 
 
 def show_carbon_state(scene):
-    """Return (show_all_carbons, shown_atom_ids) for the sketcher's Show C toggle."""
+    """Return (show_all_carbons, exception_atom_ids) for the Show C toggle.
+
+    The ids are the carbons that disagree with the scene-wide setting: the ones
+    labelled while Show C is off, or the ones kept bare while it is on.
+    """
     if scene is None:
         return False, frozenset()
     ids = getattr(scene, "_rs_show_carbon_ids", None)
@@ -50,8 +54,8 @@ def show_carbon_state(scene):
 def is_carbon_shown(atom):
     """True when the sketcher should label this skeletal carbon.
 
-    Pressing Show C with carbons selected narrows the toggle to those atom ids;
-    with nothing selected it applies to every carbon in the scene.
+    Pressing Show C with carbons selected only changes those carbons, so each
+    one can disagree with the scene-wide setting.
     """
     if getattr(atom, "symbol", "") != "C":
         return False
@@ -60,7 +64,24 @@ def is_carbon_shown(atom):
     except (RuntimeError, AttributeError):
         return False
     show_all, ids = show_carbon_state(scene)
-    return show_all or getattr(atom, "atom_id", None) in ids
+    return show_all != (getattr(atom, "atom_id", None) in ids)
+
+
+def _control_point(item_data):
+    """Local control point for a curved item rebuilt with start_p at the origin.
+
+    cp_dx/cp_dy are the offset from the start point, which is what the local
+    coordinate becomes after the loader re-origins the item. Files written
+    before 3.4.2 only carry cp_x/cp_y in the *old* local frame, which matches
+    only while the old start_p was the origin — the best that data allows.
+    """
+    from PyQt6.QtCore import QPointF
+
+    if "cp_dx" in item_data and "cp_dy" in item_data:
+        return QPointF(item_data["cp_dx"], item_data["cp_dy"])
+    if "cp_x" in item_data and "cp_y" in item_data:
+        return QPointF(item_data["cp_x"], item_data["cp_y"])
+    return None
 
 
 def load_handler_core(main_window, reaction_items):
@@ -144,12 +165,9 @@ def load_handler_core(main_window, reaction_items):
                 QPointF(0, 0), QPointF(dx, dy), is_fish_hook=is_fish
             )
             item.setPos(item_data["start_x"], item_data["start_y"])
-            if "cp_x" in item_data and "cp_y" in item_data:
-                # Coordinate is local if it was saved as local?
-                # In items.py create_json_data we saved cp directly.
-                # If item was moved, cp is relative to item pos?
-                # ReactionCurvedArrowItem expects local control_p logic.
-                item.control_p = QPointF(item_data["cp_x"], item_data["cp_y"])
+            control_p = _control_point(item_data)
+            if control_p is not None:
+                item.control_p = control_p
                 item.sync_handles()
             if "color" in item_data:
                 item.pen_color = QColor(item_data["color"])
@@ -216,8 +234,9 @@ def load_handler_core(main_window, reaction_items):
                 item.pen_width = item_data["width"]
             if "line_style" in item_data:
                 item.line_style = item_data["line_style"]
-            if "cp_x" in item_data and "cp_y" in item_data:
-                item.control_p = QPointF(item_data["cp_x"], item_data["cp_y"])
+            control_p = _control_point(item_data)
+            if control_p is not None:
+                item.control_p = control_p
             if "curvature" in item_data:
                 item.curvature = item_data["curvature"]
             item.sync_handles()
@@ -238,6 +257,8 @@ def load_handler_core(main_window, reaction_items):
             item = ReactionPlusItem(QPointF(item_data["x"], item_data["y"]))
             if "color" in item_data:
                 item.pen_color = QColor(item_data["color"])
+            if "width" in item_data:
+                item.pen_width = item_data["width"]
             if "size" in item_data:
                 item.set_size(item_data["size"])
 
@@ -245,6 +266,8 @@ def load_handler_core(main_window, reaction_items):
             item = ReactionMinusItem(QPointF(item_data["x"], item_data["y"]))
             if "color" in item_data:
                 item.pen_color = QColor(item_data["color"])
+            if "width" in item_data:
+                item.pen_width = item_data["width"]
             if "size" in item_data:
                 item.set_size(item_data["size"])
 

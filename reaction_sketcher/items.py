@@ -1305,6 +1305,7 @@ class ReactionRetroArrowItem(ReactionArrowItem):
     def create_json_data(self):
         data = super().create_json_data()
         data["type"] = "arrow_retro"
+        data["double_arrow_offset"] = getattr(self, "double_arrow_offset", 4.0)
         return data
 
 
@@ -1866,6 +1867,11 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         cp = self.get_control_point()
         data["cp_x"] = cp.x()
         data["cp_y"] = cp.y()
+        # The loader rebuilds the item with start_p at the origin, so the
+        # control point has to travel as an offset from the start point;
+        # cp_x/cp_y stay for older versions of the plugin.
+        data["cp_dx"] = cp.x() - self.start_p.x()
+        data["cp_dy"] = cp.y() - self.start_p.y()
 
         if self.control_p:
             data["control_p"] = [self.control_p.x(), self.control_p.y()]
