@@ -2523,6 +2523,9 @@ class ModeManager(QObject):
         apply_interaction_patches(self.main_window)
         # Rebind button/menu signals because Qt keeps pre-patch bound callables.
         self._rewire_cleanup_2d_triggers()
+        # A Show C state restored from the project file was inert until now:
+        # bonds clip against AtomItem.is_visible, which only the patches set.
+        self.refresh_carbon_labels()
         self.main_window.scene.update()
         self.is_reaction_mode = True
 
@@ -2572,6 +2575,9 @@ class ModeManager(QObject):
         revert_all_patches()
         # Rebind again so button/menu point at restored core method.
         self._rewire_cleanup_2d_triggers()
+        # Shown carbons keep is_visible=True until a style refresh, and the stock
+        # paint would draw them as bare "C" labels.
+        self.refresh_carbon_labels()
 
     def set_3d_action_state(self, enabled):
         # 1. Disable the specific buttons found in main_window_main_init.py
@@ -3118,12 +3124,15 @@ class ModeManager(QObject):
             logging.warning("Error: main_window missing 'edit_actions_manager'")
 
     def mirror_items(self, axis):
-        """Mirror selected items (or all items if none selected) across axis ('h' or 'v')."""
+        """Mirror the selection across axis 'h' or 'v'; a no-op with nothing selected.
+
+        Unlike rotate, this deliberately does not fall back to flipping the whole
+        document: a stray flip of everything is not something a click should do.
+        """
         if not self.main_window or not self.main_window.scene:
             return
 
         from .items import mirror_point
-        from .utils import sip_isdeleted_safe
 
         selected_items = [
             i
