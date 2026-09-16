@@ -46,6 +46,11 @@ import logging
 # Storage for original methods
 _core_originals = {}
 
+# Keys whose method was inherited rather than defined on the class itself. Reverting
+# must delete the attribute: writing an inherited sip method back onto the subclass
+# leaves a non-descriptor that never binds self, so Qt passes the event as `self`.
+_inherited_keys = set()
+
 # Half-extent of the canvas the sketcher wants (scene spans -SIZE..+SIZE on
 # each axis, centred on the origin). Roughly 5x the core app's default area.
 _CANVAS_HALF_EXTENT = 20000.0
@@ -103,6 +108,8 @@ def _patch(target_dict, cls, name, new_func):
     if key not in target_dict:
         if hasattr(cls, name):
             target_dict[key] = getattr(cls, name)
+            if name not in cls.__dict__:
+                _inherited_keys.add(key)
         else:
             target_dict[key] = None  # Marker for new method
         setattr(cls, name, new_func)
@@ -110,11 +117,14 @@ def _patch(target_dict, cls, name, new_func):
 
 def _revert(target_dict):
     """Helper to revert patches in a dict."""
-    for (cls, name), original in target_dict.items():
-        if original is None:
-            delattr(cls, name)
+    for key, original in target_dict.items():
+        cls, name = key
+        if original is None or key in _inherited_keys:
+            if name in cls.__dict__:
+                delattr(cls, name)
         else:
             setattr(cls, name, original)
+        _inherited_keys.discard(key)
     target_dict.clear()
 
 
