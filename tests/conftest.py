@@ -649,6 +649,7 @@ class _Qt:
         Key_Return = 16777220
         Key_Enter = 16777221
         Key_Space = 32
+        Key_Right = 16777236
         Key_B = 66
         Key_I = 73
         Key_U = 85

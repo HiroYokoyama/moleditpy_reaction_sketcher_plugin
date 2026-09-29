@@ -924,3 +924,57 @@ class TestGroupOverlay:
         handler, mw, ctx, mm = make_handler()
         handler.clear_group_overlay()
         assert handler.group_overlay is None
+
+
+# ---------------------------------------------------------------------------
+# Ctrl+Shift+Right: arrow + copy to the right
+# ---------------------------------------------------------------------------
+
+
+class TestExtendReactionRight:
+    CTRL_SHIFT = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+
+    def _key(self, modifiers):
+        return FakeEvent(
+            etype=QEvent.Type.KeyPress, key=Qt.Key.Key_Right, modifiers=modifiers
+        )
+
+    def test_no_selection_not_consumed(self):
+        handler, mw, ctx, mm = make_handler()
+        assert handler.handle_key_press(self._key(self.CTRL_SHIFT)) is False
+        mm.duplicate_items_immediate.assert_not_called()
+
+    def test_plain_ctrl_right_ignored(self):
+        handler, mw, ctx, mm = make_handler()
+        src = ReactionTextItem("A", QPointF(0, 0))
+        mw.scene.addItem(src)
+        src.setSelected(True)
+        event = self._key(Qt.KeyboardModifier.ControlModifier)
+        assert handler.handle_key_press(event) is False
+        mm.duplicate_items_immediate.assert_not_called()
+
+    def test_adds_arrow_and_clone_right_of_selection(self):
+        handler, mw, ctx, mm = make_handler()
+        src = ReactionTextItem("A", QPointF(0, 0))
+        mw.scene.addItem(src)
+        src.setSelected(True)
+        rect = src.sceneBoundingRect()
+        clone = ReactionTextItem("A", QPointF(0, 0))
+        mw.scene.addItem(clone)
+        mm.duplicate_items_immediate.return_value = [clone]
+
+        assert handler.handle_key_press(self._key(self.CTRL_SHIFT)) is True
+
+        arrows = [i for i in mw.scene.items() if isinstance(i, ReactionArrowItem)]
+        assert len(arrows) == 1
+        assert arrows[0].pos().x() == pytest.approx(
+            rect.right() + handler.REACTION_ARROW_GAP
+        )
+        # clone sits past the arrow tip plus one gap
+        assert clone.pos().x() == pytest.approx(
+            rect.width()
+            + 2 * handler.REACTION_ARROW_GAP
+            + handler.REACTION_ARROW_LENGTH
+        )
+        assert clone.isSelected() and not src.isSelected()
+        ctx.push_undo_checkpoint.assert_called_once()

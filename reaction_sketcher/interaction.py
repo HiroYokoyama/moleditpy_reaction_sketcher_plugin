@@ -916,10 +916,95 @@ class InteractionHandler(QObject):
                 self.main_window.main_window_edit_actions.select_all()
             return True
 
+        if event.key() == Qt.Key.Key_Right and (
+            (event.modifiers() & self._CTRL_SHIFT) == self._CTRL_SHIFT
+        ):
+            return self.extend_reaction_right()
+
         if event.key() in [Qt.Key.Key_Delete, Qt.Key.Key_Backspace]:
             return self.delete_selection()
 
         return False
+
+    # Ctrl+Shift+Right layout (scene units)
+    _CTRL_SHIFT = (
+        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+    )
+    REACTION_ARROW_LENGTH = 100.0
+    REACTION_ARROW_GAP = 30.0
+
+    def extend_reaction_right(self):
+        """Ctrl+Shift+Right: place a reaction arrow to the right of the
+        selection and copy the selection to the right of the arrow.
+
+        Returns True when the key was consumed.
+        """
+        scene = self.main_window.scene
+        selected = [
+            i
+            for i in scene.selectedItems()
+            if not sip_isdeleted_safe(i)
+            and (hasattr(i, "create_json_data") or hasattr(i, "atom_id"))
+        ]
+        if not selected or not self.mode_manager:
+            return False
+
+        rect = selected[0].sceneBoundingRect()
+        for item in selected[1:]:
+            rect = rect.united(item.sceneBoundingRect())
+
+        gap = self.REACTION_ARROW_GAP
+        length = self.REACTION_ARROW_LENGTH
+        arrow_start = QPointF(rect.right() + gap, rect.center().y())
+        shift = QPointF(rect.width() + 2 * gap + length, 0.0)
+
+        # Arrow (same defaults as the arrow tool)
+        arrow = ReactionArrowItem(QPointF(0, 0), QPointF(length, 0))
+        arrow.head_style = self.mode_manager.default_head_styles.get(
+            "arrow", "chevron"
+        )
+        props = getattr(self.mode_manager, "default_props", {}).get("arrow", {})
+        if "color" in props:
+            arrow.pen_color = QColor(props["color"])
+        if "width" in props:
+            arrow.pen_width = int(props["width"])
+        if "head_size" in props:
+            arrow.head_size = float(props["head_size"])
+        if "head_angle" in props:
+            arrow.head_angle = float(props["head_angle"])
+        if "head_concavity" in props:
+            arrow.head_concavity = float(props["head_concavity"])
+        arrow.setPos(arrow_start)
+        scene.addItem(arrow)
+        arrow.sync_handles()
+
+        # Copy the selection to the right of the arrow
+        clones = self.mode_manager.duplicate_items_immediate(selected)
+        for c in clones:
+            if not sip_isdeleted_safe(c):
+                c.setPos(c.pos() + shift)
+        # Commit atom positions to the data model and re-route bonds
+        atoms = [
+            c for c in clones if not sip_isdeleted_safe(c) and hasattr(c, "atom_id")
+        ]
+        if atoms:
+            data = getattr(self.main_window, "data", None)
+            if data is not None and hasattr(data, "set_atom_pos"):
+                for atom in atoms:
+                    try:
+                        data.set_atom_pos(atom.atom_id, atom.pos())
+                    except (RuntimeError, KeyError, AttributeError):
+                        continue
+            scene.update_connected_bonds(atoms)
+
+        scene.clearSelection()
+        for c in clones:
+            if not sip_isdeleted_safe(c):
+                c.setSelected(True)
+
+        self.context.refresh_2d_scene()
+        self.context.push_undo_checkpoint()
+        return True
 
     def handle_mouse_double_click(self, event):
         scene_pos = self.main_window.init_manager.view_2d.mapToScene(event.pos())

@@ -20,6 +20,7 @@ A comprehensive chemical reaction sketching tool for MoleditPy, allowing users t
   - **Brackets**: Square, Round, Curly.
   - **Shapes**: Circles and Ellipses.
   - **Grouping**: Select multiple items and press `Ctrl+G` to group them for easy movement and selection. Use `Ctrl+U` to ungroup.
+  - **Quick reaction step**: Select structures and press `Ctrl+Shift+→` to add a reaction arrow to their right and copy the selection to the right of the arrow.
 - **Alignment, Distribution & Flipping**: 
   - Align selected items: Top, Bottom, Left, Right, Center (Horizontal/Vertical).
   - Distribute items evenly: Horizontally or Vertically.
