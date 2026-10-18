@@ -48,9 +48,8 @@ class TestPluginMetadata:
         assert _init.PLUGIN_NAME == "Reaction Sketcher"
 
     def test_version_format(self):
-        assert re.fullmatch(r"\d+\.\d+\.\d+", _init.PLUGIN_VERSION), (
-            f"PLUGIN_VERSION {_init.PLUGIN_VERSION!r} does not match X.Y.Z"
-        )
+        from packaging.version import Version
+        assert Version(_init.PLUGIN_VERSION).public == _init.PLUGIN_VERSION
 
     def test_author_nonempty(self):
         assert _init.PLUGIN_AUTHOR.strip()

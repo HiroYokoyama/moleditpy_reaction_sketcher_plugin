@@ -6,8 +6,8 @@ in reaction_sketcher/interaction.py.
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import Qt, QPointF, QEvent
-from PyQt6.QtWidgets import QApplication, QGraphicsItem
+from PySide6.QtCore import Qt, QPointF, QEvent
+from PySide6.QtWidgets import QApplication, QGraphicsItem
 
 from reaction_sketcher.interaction import InteractionHandler
 from reaction_sketcher.items import ReactionTextItem, ReactionArrowItem

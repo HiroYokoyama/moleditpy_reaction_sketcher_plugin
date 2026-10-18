@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QIcon,
     QPainter,
     QPixmap,
@@ -12,7 +12,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QBrush,
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
+from PySide6.QtCore import Qt, QPointF, QRectF, QLineF
 
 
 def create_reaction_icon(tool_name, size=32):

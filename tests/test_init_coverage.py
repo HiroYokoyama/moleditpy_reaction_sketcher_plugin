@@ -16,7 +16,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 _MOCK_NAMES = (

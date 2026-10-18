@@ -16,8 +16,8 @@ Refactored for MoleditPy V4.0 API.
 """
 
 from functools import partial
-from PyQt6.QtWidgets import QMenu
-from PyQt6.QtGui import QAction, QColor
+from PySide6.QtWidgets import QMenu
+from PySide6.QtGui import QAction, QColor
 
 from .mode_manager import ModeManager
 from .interaction import InteractionHandler
@@ -42,12 +42,12 @@ from .utils import load_handler_core, show_carbon_state
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "3.4.4"
+PLUGIN_VERSION = "4.0.0a1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 )
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0a1, <6.0.0"
 
 REACTION_ITEM_TYPES = (
     ReactionArrowItem,

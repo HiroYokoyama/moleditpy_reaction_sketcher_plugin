@@ -5,32 +5,28 @@ tests/test_utils.py -- unit tests for reaction_sketcher/utils.py.
 from unittest.mock import MagicMock, patch
 import pytest
 
-from reaction_sketcher.utils import sip_isdeleted_safe, get_main_window
+from reaction_sketcher.utils import qt_is_deleted, get_main_window
 
 
 class TestSipIsdeletedSafe:
     def test_none_returns_true(self):
-        assert sip_isdeleted_safe(None) is True
+        assert qt_is_deleted(None) is True
 
     def test_mock_object_does_not_raise(self):
         obj = MagicMock()
         # Should return False (can't confirm deleted) without raising
-        result = sip_isdeleted_safe(obj)
+        result = qt_is_deleted(obj)
         assert isinstance(result, bool)
 
-    def test_pyqt6_sip_path(self):
-        """If PyQt6.sip is importable and reports deleted, return True."""
-        fake_sip = MagicMock()
-        fake_sip.isdeleted.return_value = True
-        with patch.dict("sys.modules", {"PyQt6.sip": fake_sip}):
-            # Force re-import by patching the import inside the function
-            import importlib
-            import reaction_sketcher.utils as utils_mod
-
-            importlib.reload(utils_mod)
-            # The reload may or may not hit the cached branch; just verify no crash
-            result = utils_mod.sip_isdeleted_safe(MagicMock())
-            assert isinstance(result, bool)
+    @pytest.mark.parametrize("valid", [True, False])
+    def test_shiboken_validity(self, valid):
+        """Validity is inverted for live and deleted Qt wrappers."""
+        fake_shiboken = MagicMock()
+        fake_shiboken.isValid.return_value = valid
+        obj = MagicMock()
+        with patch.dict("sys.modules", {"shiboken6": fake_shiboken}):
+            assert qt_is_deleted(obj) is (not valid)
+        fake_shiboken.isValid.assert_called_once_with(obj)
 
 
 class TestGetMainWindow:

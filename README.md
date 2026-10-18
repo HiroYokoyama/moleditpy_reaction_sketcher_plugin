@@ -1,5 +1,7 @@
 # Reaction Sketcher Plugin for MoleditPy
 
+This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin licensing is unchanged.
+
 [![Tests](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->80%25-green)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_reaction_sketcher_plugin?label=version)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/tags)

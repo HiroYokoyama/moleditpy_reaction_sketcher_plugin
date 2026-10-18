@@ -15,7 +15,7 @@ kept in sync.
 
 from unittest.mock import MagicMock
 
-from PyQt6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF
 
 from reaction_sketcher.mode_manager import ModeManager
 

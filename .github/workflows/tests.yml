@@ -29,7 +29,7 @@ jobs:
         run: pip install pytest pytest-cov
 
       - name: Clone main app (real-context integration tests)
-        run: git clone --depth 1 https://github.com/HiroYokoyama/python_molecular_editor.git ../python_molecular_editor || true
+        run: git clone --depth 1 --branch "${{ vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}" https://github.com/HiroYokoyama/python_molecular_editor.git ../python_molecular_editor || true
 
       - name: Run tests with coverage
         env:

@@ -1,31 +1,13 @@
 import logging
 
 
-def sip_isdeleted_safe(obj):
-    """Check if a PyQt object has been deleted at the C++ level."""
+def qt_is_deleted(obj):
+    """Check whether a Qt object's C++ instance has been deleted."""
     if obj is None:
         return True
+    from shiboken6 import isValid
 
-    # Try PyQt6.sip (Standard for modern PyQt6 environments)
-    try:
-        from PyQt6 import sip
-
-        return sip.isdeleted(obj)
-    except ImportError:
-        pass
-
-    # Try top-level sip (Legacy or specific environments)
-    try:
-        import sip
-
-        return sip.isdeleted(obj)
-    except (ImportError, AttributeError, TypeError) as _e:
-        logging.warning("silenced: %s", _e)
-
-    # If we truly cannot check, assume it is NOT deleted to allow functionality.
-    # The RuntimeError is worse than a potential crash in some cases,
-    # but False prevents total failure of the plugin if sip is missing.
-    return False
+    return not isValid(obj)
 
 
 def get_main_window(scene):
@@ -75,7 +57,7 @@ def _control_point(item_data):
     before 3.4.2 only carry cp_x/cp_y in the *old* local frame, which matches
     only while the old start_p was the origin — the best that data allows.
     """
-    from PyQt6.QtCore import QPointF
+    from PySide6.QtCore import QPointF
 
     if "cp_dx" in item_data and "cp_dy" in item_data:
         return QPointF(item_data["cp_dx"], item_data["cp_dy"])
@@ -106,8 +88,8 @@ def load_handler_core(main_window, reaction_items):
         ReactionCircleItem,
         ReactionTextItem,
     )
-    from PyQt6.QtCore import QPointF
-    from PyQt6.QtGui import QColor
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor
 
     created_items = []
     if not reaction_items:

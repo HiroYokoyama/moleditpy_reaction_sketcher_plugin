@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFormLayout,
 )
-from PyQt6.QtGui import QColor
-from PyQt6.QtCore import pyqtSignal
+from PySide6.QtGui import QColor
+from PySide6.QtCore import Signal
 import json
 import os
 import logging
@@ -25,7 +25,7 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 
 class AdvancedSettingsDialog(QDialog):
-    applyRequested = pyqtSignal()
+    applyRequested = Signal()
 
     def __init__(self, parent=None, item=None):
         super().__init__(parent)
@@ -457,7 +457,7 @@ class AdvancedSettingsDialog(QDialog):
             self.set_ui_values(self.templates[name])
 
     def save_template(self):
-        from PyQt6.QtWidgets import QInputDialog
+        from PySide6.QtWidgets import QInputDialog
 
         # Suggest current name
         current = self.tmpl_combo.currentText()

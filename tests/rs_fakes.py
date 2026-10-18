@@ -7,8 +7,8 @@ imported by test_patcher_coverage.py and test_interaction_coverage.py.
 
 from unittest.mock import MagicMock
 
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
-from PyQt6.QtCore import QRectF, QPointF
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
+from PySide6.QtCore import QRectF, QPointF
 
 
 class FakeSignal:

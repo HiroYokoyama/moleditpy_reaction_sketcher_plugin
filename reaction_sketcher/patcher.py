@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import copy
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QColor,
     QPen,
     QBrush,
@@ -14,7 +14,7 @@ from PyQt6.QtGui import (
     QKeySequence,
     qRgba,
 )
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     Qt,
     QPointF,
     QByteArray,
@@ -24,7 +24,7 @@ from PyQt6.QtCore import (
     QBuffer,
     QIODevice,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication,
     QGraphicsItem,
     QFileDialog,
@@ -36,11 +36,11 @@ import os
 import math
 
 try:
-    from PyQt6.QtSvg import QSvgGenerator
+    from PySide6.QtSvg import QSvgGenerator
 except ImportError:
     QSvgGenerator = None
 
-from .utils import is_carbon_shown, show_carbon_state, sip_isdeleted_safe
+from .utils import is_carbon_shown, show_carbon_state, qt_is_deleted
 import logging
 
 # Storage for original methods
@@ -66,7 +66,7 @@ def _ensure_large_canvas(scene):
     already holds content that extends further, grow the rect to include it
     (plus a margin) so nothing is ever cut off.
     """
-    if not scene or sip_isdeleted_safe(scene):
+    if not scene or qt_is_deleted(scene):
         return
 
     rect = QRectF(
@@ -308,19 +308,19 @@ def apply_core_patches(main_window, context=None):
         if orig_update_template_preview:
 
             def patched_update_template_preview(self, *args, **kwargs):
-                from .utils import sip_isdeleted_safe
+                from .utils import qt_is_deleted
 
                 if hasattr(self, "atom_items") and self.atom_items:
                     self.atom_items = {
                         k: v
                         for k, v in self.atom_items.items()
-                        if not sip_isdeleted_safe(v)
+                        if not qt_is_deleted(v)
                     }
                 if hasattr(self, "bond_items") and self.bond_items:
                     self.bond_items = {
                         k: v
                         for k, v in self.bond_items.items()
-                        if not sip_isdeleted_safe(v)
+                        if not qt_is_deleted(v)
                     }
                 try:
                     return orig_update_template_preview(self, *args, **kwargs)
@@ -420,7 +420,7 @@ def apply_core_patches(main_window, context=None):
         if orig:
             result = orig(self, event)
         else:
-            from PyQt6.QtWidgets import QMainWindow
+            from PySide6.QtWidgets import QMainWindow
 
             result = QMainWindow.closeEvent(self, event)
 
@@ -499,7 +499,7 @@ def apply_core_patches(main_window, context=None):
     def patched_copy_selection(self):
         try:
             selected_items = [
-                i for i in self.host.scene.selectedItems() if not sip_isdeleted_safe(i)
+                i for i in self.host.scene.selectedItems() if not qt_is_deleted(i)
             ]
             selected_atoms = [
                 item for item in selected_items if hasattr(item, "atom_id")
@@ -620,7 +620,7 @@ def apply_core_patches(main_window, context=None):
     # --- Paste Selection ---
     def patched_paste_from_clipboard(self):
         try:
-            from PyQt6.QtGui import QCursor
+            from PySide6.QtGui import QCursor
 
             clipboard = QApplication.clipboard()
             mime_data = clipboard.mimeData()
@@ -822,7 +822,7 @@ def apply_core_patches(main_window, context=None):
         scene.blockSignals(True)
         try:
             for item in scene.items():
-                if sip_isdeleted_safe(item):
+                if qt_is_deleted(item):
                     continue
                 if hasattr(item, "create_json_data") or isinstance(
                     item, (AtomItem, BondItem)
@@ -1137,7 +1137,7 @@ def apply_core_patches(main_window, context=None):
         for bond in getattr(atom, "bonds", None) or []:
             try:
                 other = bond.atom1 if bond.atom2 is atom else bond.atom2
-                if other is not None and not sip_isdeleted_safe(other):
+                if other is not None and not qt_is_deleted(other):
                     total_dx += other.pos().x() - my_x
             except (RuntimeError, AttributeError):
                 continue
@@ -1259,7 +1259,7 @@ def apply_core_patches(main_window, context=None):
             import math
 
             selected_items = [
-                i for i in self.host.scene.selectedItems() if not sip_isdeleted_safe(i)
+                i for i in self.host.scene.selectedItems() if not qt_is_deleted(i)
             ]
 
             # Identify targets
@@ -1276,7 +1276,7 @@ def apply_core_patches(main_window, context=None):
 
                 # Gather reaction items from scene
                 for item in self.host.scene.items():
-                    if sip_isdeleted_safe(item):
+                    if qt_is_deleted(item):
                         continue
                     if hasattr(item, "rotate_around"):
                         target_reaction_items.append(item)
@@ -1364,14 +1364,14 @@ def apply_core_patches(main_window, context=None):
             ):
                 # Standard QGraphicsScene logic ensures focusItem receives the key.
                 # We skip MoleculeScene's shortcuts but let the base class deliver the event.
-                from PyQt6.QtWidgets import QGraphicsScene
+                from PySide6.QtWidgets import QGraphicsScene
 
                 return QGraphicsScene.keyPressEvent(self, event)
 
         orig = _core_originals.get((MoleculeScene, "keyPressEvent"))
         if orig:
             return orig(self, event)
-        from PyQt6.QtWidgets import QGraphicsScene
+        from PySide6.QtWidgets import QGraphicsScene
 
         return QGraphicsScene.keyPressEvent(self, event)
 
@@ -1568,7 +1568,7 @@ def apply_core_patches(main_window, context=None):
                 else {}
             )
             for bond_item in _bond_items_dict.values():
-                if not bond_item or sip_isdeleted_safe(bond_item):
+                if not bond_item or qt_is_deleted(bond_item):
                     continue
                 if not bond_item.scene():
                     continue
@@ -2610,7 +2610,7 @@ def apply_interaction_patches(main_window):
                 atom_items = {
                     i.atom_id: i
                     for i in scene.items()
-                    if hasattr(i, "atom_id") and not sip_isdeleted_safe(i)
+                    if hasattr(i, "atom_id") and not qt_is_deleted(i)
                 }
                 bond_scene_items = [
                     i
@@ -2618,7 +2618,7 @@ def apply_interaction_patches(main_window):
                     if hasattr(i, "atom1")
                     and hasattr(i, "atom2")
                     and hasattr(getattr(i, "atom1", None), "atom_id")
-                    and not sip_isdeleted_safe(i)
+                    and not qt_is_deleted(i)
                 ]
                 # Build adjacency: atom_id -> [(bond_item, neighbour_atom_id)]
                 adj = {aid: [] for aid in atom_items}
@@ -2728,7 +2728,7 @@ except ImportError:
     FONT_WEIGHT_BOLD = 75
     CPK_COLORS = {"Default": QColor("#000000")}
 
-# Removed shadowed sip_isdeleted_safe - using the version from .utils instead
+# Removed shadowed qt_is_deleted - using the version from .utils instead
 
 # Removed redundant top-level patched_atom_paint - nested version inside apply_core_patches is used instead.
 

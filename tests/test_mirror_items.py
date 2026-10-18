@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PySide6.QtCore import QPointF
 
 import reaction_sketcher.patcher as patcher_mod
 from reaction_sketcher.items import ReactionArrowItem, ReactionPlusItem
