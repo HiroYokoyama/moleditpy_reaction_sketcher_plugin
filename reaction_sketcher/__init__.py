@@ -47,7 +47,7 @@ PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 )
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0a1, <6.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
 
 REACTION_ITEM_TYPES = (
     ReactionArrowItem,
