@@ -1,7 +1,7 @@
 """
 tests/conftest.py -- headless test setup for Reaction Sketcher.
 
-PyQt6 is stubbed with pure-Python stand-ins so the plugin code can be
+PySide6 is stubbed with pure-Python stand-ins so the plugin code can be
 imported and exercised without a display or installed Qt binaries.
 """
 
@@ -12,6 +12,12 @@ import types
 from unittest.mock import MagicMock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# The stub suite resolves host classes from its fake instances. An unrelated
+# installed host must not supply real classes through the plugin's fallback.
+_host_stub = types.ModuleType("moleditpy")
+_host_stub.__path__ = []
+sys.modules.setdefault("moleditpy", _host_stub)
 
 # ---------------------------------------------------------------------------
 # Minimal Qt stand-ins
@@ -611,9 +617,9 @@ class _QPainterPath:
 
 
 class _Flag(int):
-    """int subclass exposing a PyQt6-style `.value` accessor.
+    """int subclass exposing a PySide6-style `.value` accessor.
 
-    Real PyQt6 KeyboardModifier/MouseButton constants are IntFlag-like
+    Real PySide6 KeyboardModifier/MouseButton constants are IntFlag-like
     objects with a `.value` attribute (code in interaction.py does
     ``modifiers.value & Qt.KeyboardModifier.ShiftModifier.value``). Plain
     ints don't have `.value`, so wrap the stub constants in this subclass.
@@ -848,7 +854,7 @@ _brush_mock = MagicMock()
 _font_mock = MagicMock()
 
 _qt_core = _make_stub(
-    "PyQt6.QtCore",
+    "PySide6.QtCore",
     QPointF=_QPointF,
     QRectF=_QRectF,
     Qt=_Qt,
@@ -868,10 +874,10 @@ _qt_core = _make_stub(
     QRect=MagicMock(),
     QMargins=MagicMock(),
     QUrl=MagicMock(),
-    # PyQt6 signal/slot/property
-    pyqtSignal=MagicMock(),
-    pyqtSlot=MagicMock(),
-    pyqtProperty=MagicMock(),
+    # PySide6 signal/slot/property
+    Signal=MagicMock(),
+    Slot=MagicMock(),
+    Property=MagicMock(),
     # Version attrs required by pytest-qt
     PYQT_VERSION=0x060700,
     PYQT_VERSION_STR="6.7.0",
@@ -888,7 +894,7 @@ _qt_core = _make_stub(
     QMessageLogger=MagicMock(),
 )
 _qt_gui = _make_stub(
-    "PyQt6.QtGui",
+    "PySide6.QtGui",
     QColor=_QColor,
     QPainterPath=_QPainterPath,
     QPen=MagicMock(return_value=_pen_mock),
@@ -930,7 +936,7 @@ _qt_gui = _make_stub(
     QContextMenuEvent=MagicMock(),
 )
 _qt_widgets = _make_stub(
-    "PyQt6.QtWidgets",
+    "PySide6.QtWidgets",
     QGraphicsItem=_QGraphicsItem,
     QGraphicsTextItem=_QGraphicsTextItem,
     QGraphicsScene=_QGraphicsScene,
@@ -1003,17 +1009,17 @@ _qt_widgets = _make_stub(
     QAbstractButton=MagicMock(),
     QDialogButtonBox=MagicMock(),
 )
-_qt_test = _make_stub("PyQt6.QtTest", QTest=MagicMock())
-_qt_svg = _make_stub("PyQt6.QtSvg", QSvgGenerator=MagicMock(), QSvgRenderer=MagicMock())
+_qt_test = _make_stub("PySide6.QtTest", QTest=MagicMock())
+_qt_svg = _make_stub("PySide6.QtSvg", QSvgGenerator=MagicMock(), QSvgRenderer=MagicMock())
 _qt_svg_widgets = _make_stub(
-    "PyQt6.QtSvgWidgets", QGraphicsSvgItem=MagicMock(), QSvgWidget=MagicMock()
+    "PySide6.QtSvgWidgets", QGraphicsSvgItem=MagicMock(), QSvgWidget=MagicMock()
 )
-_qt_opengl = _make_stub("PyQt6.QtOpenGL", QOpenGLWidget=MagicMock())
+_qt_opengl = _make_stub("PySide6.QtOpenGL", QOpenGLWidget=MagicMock())
 _qt_print = _make_stub(
-    "PyQt6.QtPrintSupport", QPrinter=MagicMock(), QPrintDialog=MagicMock()
+    "PySide6.QtPrintSupport", QPrinter=MagicMock(), QPrintDialog=MagicMock()
 )
-_pyqt6 = _make_stub(
-    "PyQt6",
+_pyside6 = _make_stub(
+    "PySide6",
     QtCore=_qt_core,
     QtGui=_qt_gui,
     QtWidgets=_qt_widgets,
@@ -1021,20 +1027,20 @@ _pyqt6 = _make_stub(
     QtSvg=_qt_svg,
 )
 
-_sip_mock = MagicMock()
-_sip_mock.isdeleted.return_value = False
+_shiboken_mock = MagicMock()
+_shiboken_mock.isValid.return_value = True
 
 for name, mod in [
-    ("PyQt6", _pyqt6),
-    ("PyQt6.QtCore", _qt_core),
-    ("PyQt6.QtGui", _qt_gui),
-    ("PyQt6.QtWidgets", _qt_widgets),
-    ("PyQt6.QtTest", _qt_test),
-    ("PyQt6.QtSvg", _qt_svg),
-    ("PyQt6.QtSvgWidgets", _qt_svg_widgets),
-    ("PyQt6.QtOpenGL", _qt_opengl),
-    ("PyQt6.QtPrintSupport", _qt_print),
-    ("PyQt6.sip", _sip_mock),
+    ("PySide6", _pyside6),
+    ("PySide6.QtCore", _qt_core),
+    ("PySide6.QtGui", _qt_gui),
+    ("PySide6.QtWidgets", _qt_widgets),
+    ("PySide6.QtTest", _qt_test),
+    ("PySide6.QtSvg", _qt_svg),
+    ("PySide6.QtSvgWidgets", _qt_svg_widgets),
+    ("PySide6.QtOpenGL", _qt_opengl),
+    ("PySide6.QtPrintSupport", _qt_print),
+    ("shiboken6", _shiboken_mock),
 ]:
     sys.modules.setdefault(name, mod)
 

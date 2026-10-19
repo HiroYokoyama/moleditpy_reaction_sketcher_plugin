@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QStyle
-from PyQt6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPainterPath
-from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent, pyqtSignal
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QStyle
+from PySide6.QtGui import QPen, QColor, QBrush, QPainter, QPolygonF, QFont, QPainterPath
+from PySide6.QtCore import Qt, QPointF, QRectF, QLineF, QEvent, Signal
 import math
 
-from .utils import sip_isdeleted_safe
+from .utils import qt_is_deleted
 import logging
 
 
@@ -152,7 +152,7 @@ class ReactionHandle(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             # Angle Snapping (30 degrees)
-            from PyQt6.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
 
             modifiers = QApplication.keyboardModifiers()
             if not (modifiers.value & Qt.KeyboardModifier.AltModifier.value):
@@ -296,7 +296,7 @@ class ReactionArrowItem(QGraphicsItem):
         self.update()
 
     def contextMenuEvent(self, event):
-        from PyQt6.QtWidgets import QMenu
+        from PySide6.QtWidgets import QMenu
 
         menu = QMenu()
 
@@ -385,7 +385,7 @@ class ReactionArrowItem(QGraphicsItem):
         path.lineTo(self.end_p)
 
         # Stroke the line part
-        from PyQt6.QtGui import QPainterPathStroker
+        from PySide6.QtGui import QPainterPathStroker
 
         s = QPainterPathStroker()
         s.setWidth(24)  # Increased hit width (from 10 to 24)
@@ -1568,7 +1568,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         self.update()
 
     def contextMenuEvent(self, event):
-        from PyQt6.QtWidgets import QMenu
+        from PySide6.QtWidgets import QMenu
 
         menu = QMenu()
         # flip_pos_act = menu.addAction("Flip Head Position") # Disabled by user request
@@ -1617,7 +1617,7 @@ class ReactionCurvedArrowItem(ReactionArrowItem):
         path = QPainterPath()
         path.moveTo(self.start_p)
         path.quadTo(cp, self.end_p)
-        from PyQt6.QtGui import QPainterPathStroker
+        from PySide6.QtGui import QPainterPathStroker
 
         s = QPainterPathStroker()
         s.setWidth(24)  # Increased from 12
@@ -2041,7 +2041,7 @@ class ReactionBracketItem(QGraphicsItem):
             path.lineTo(r.bottomRight() - QPointF(bw, 0))
 
         # Create a stroke path for detection
-        from PyQt6.QtGui import QPainterPathStroker
+        from PySide6.QtGui import QPainterPathStroker
 
         stroker = QPainterPathStroker()
         stroker.setWidth(24)  # Hit tolerance increased from 10
@@ -2225,7 +2225,7 @@ class ReactionCircleItem(QGraphicsItem):
         return path
 
     def shape(self):
-        from PyQt6.QtGui import QPainterPathStroker
+        from PySide6.QtGui import QPainterPathStroker
 
         path = self._outline_path()
 
@@ -2498,7 +2498,7 @@ class ReactionFreehandItem(QGraphicsItem):
         return super().itemChange(change, value)
 
     def shape(self):
-        from PyQt6.QtGui import QPainterPathStroker
+        from PySide6.QtGui import QPainterPathStroker
 
         s = QPainterPathStroker()
         s.setWidth(24)  # Increased from 10
@@ -2556,7 +2556,7 @@ class ReactionFreehandItem(QGraphicsItem):
 
 class ReactionTextItem(QGraphicsTextItem):
     # Signal for UI updates
-    cursorChanged = pyqtSignal()
+    cursorChanged = Signal()
 
     def __init__(self, text, pos):
         super().__init__(text)
@@ -2679,11 +2679,11 @@ class ReactionTextItem(QGraphicsTextItem):
             mw = getattr(self, "_last_main_window", None)
 
         mgr = None
-        if mw is not None and not sip_isdeleted_safe(mw):
+        if mw is not None and not qt_is_deleted(mw):
             mgr = getattr(mw, "_reaction_mode_manager", None)
             if mgr is None and hasattr(mw, "ui_manager"):
                 mgr = getattr(mw.ui_manager, "_reaction_mode_manager", None)
-        if mgr is not None and not sip_isdeleted_safe(mgr):
+        if mgr is not None and not qt_is_deleted(mgr):
             try:
                 mgr.enable_main_window_shortcuts()
             except (RuntimeError, AttributeError) as _e:
@@ -2843,7 +2843,7 @@ class ReactionTextItem(QGraphicsTextItem):
     def format_as_chemical(self):
         """Format the text as a chemical formula."""
         import re
-        from PyQt6.QtGui import QTextCursor, QTextCharFormat
+        from PySide6.QtGui import QTextCursor, QTextCharFormat
 
         # Helper to apply sub/sup
         def apply_format(regex, format_type):
@@ -3016,7 +3016,7 @@ class ReactionGroupOverlay(QGraphicsItem):
             # Center of scaling is origin (TopLeft of group box)
 
             for item in self.group_items:
-                if not sip_isdeleted_safe(item):
+                if not qt_is_deleted(item):
                     # Logic:
                     # NewPos = Origin + (OldPos - Origin) * scale
                     # Item.scale *= scale ??
@@ -3147,7 +3147,7 @@ class ReactionGroupOverlay(QGraphicsItem):
         r = QRectF()
         for item in self.group_items:
             try:
-                if item.scene() == self.scene() and not sip_isdeleted_safe(item):
+                if item.scene() == self.scene() and not qt_is_deleted(item):
                     if r.isNull():
                         r = item.sceneBoundingRect()
                     else:

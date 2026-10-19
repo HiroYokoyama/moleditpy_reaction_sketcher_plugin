@@ -7,7 +7,7 @@ state has to survive undo/redo (app state) and save/load (project file).
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF
 
 import reaction_sketcher.patcher as patcher_mod
 from reaction_sketcher.mode_manager import ModeManager

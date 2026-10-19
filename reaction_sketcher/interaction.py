@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtCore import QObject, QEvent, Qt, QPointF, QLineF
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QGraphicsItem, QApplication
+from PySide6.QtCore import QObject, QEvent, Qt, QPointF, QLineF
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QGraphicsItem, QApplication
 from .items import (
     ReactionArrowItem,
     ReactionResonanceArrowItem,
@@ -22,7 +22,7 @@ from .items import (
     ReactionCircleItem,
     ReactionGroupOverlay,
 )
-from .utils import sip_isdeleted_safe
+from .utils import qt_is_deleted
 import logging
 
 
@@ -189,7 +189,7 @@ class InteractionHandler(QObject):
 
         # Check for Handles first (Resize/Reshape)
         for item in items_under:
-            if sip_isdeleted_safe(item):
+            if qt_is_deleted(item):
                 continue
             if hasattr(item, "handle_type"):
                 # Pass to standard handler for handles, but ensure we are in select tool
@@ -216,7 +216,7 @@ class InteractionHandler(QObject):
 
             # Filter for our items or Atoms/Bonds
             for i in items_under:
-                if sip_isdeleted_safe(i):
+                if qt_is_deleted(i):
                     continue
                 if (
                     hasattr(i, "create_json_data")
@@ -253,7 +253,7 @@ class InteractionHandler(QObject):
                         group_items = [
                             x
                             for x in self.main_window.scene.items()
-                            if not sip_isdeleted_safe(x)
+                            if not qt_is_deleted(x)
                             and hasattr(x, "group_id")
                             and x.group_id == gid
                         ]
@@ -266,7 +266,7 @@ class InteractionHandler(QObject):
                 selected_items = [
                     i
                     for i in self.main_window.scene.selectedItems()
-                    if not sip_isdeleted_safe(i)
+                    if not qt_is_deleted(i)
                 ]
                 movable_items = [
                     i
@@ -547,7 +547,7 @@ class InteractionHandler(QObject):
                 if self.mode_manager:
                     # Reset originals to their starting positions
                     for item in self._drag_items:
-                        if sip_isdeleted_safe(item):
+                        if qt_is_deleted(item):
                             continue
                         if item in self._drag_original_positions:
                             item.setPos(self._drag_original_positions[item])
@@ -578,7 +578,7 @@ class InteractionHandler(QObject):
 
             # Apply movement delta to current drag items
             for item in self._drag_items:
-                if sip_isdeleted_safe(item):
+                if qt_is_deleted(item):
                     continue
                 if item in self._drag_initial_positions:
                     new_pos = self._drag_initial_positions[item] + delta
@@ -589,7 +589,7 @@ class InteractionHandler(QObject):
             dragged_atoms = [
                 i
                 for i in self._drag_items
-                if hasattr(i, "atom_id") and not sip_isdeleted_safe(i)
+                if hasattr(i, "atom_id") and not qt_is_deleted(i)
             ]
             if dragged_atoms:
                 bonds_to_update = set()
@@ -602,7 +602,7 @@ class InteractionHandler(QObject):
                             bonds_to_update.add(bond)
 
                 for bond in bonds_to_update:
-                    if not sip_isdeleted_safe(bond) and hasattr(
+                    if not qt_is_deleted(bond) and hasattr(
                         bond, "update_position"
                     ):
                         # Calling update_position() ensures the bond line matches the new atom positions
@@ -671,7 +671,7 @@ class InteractionHandler(QObject):
                 atoms = [
                     i
                     for i in self._drag_items
-                    if not sip_isdeleted_safe(i) and hasattr(i, "atom_id")
+                    if not qt_is_deleted(i) and hasattr(i, "atom_id")
                 ]
                 if atoms:
                     # Commit the dragged atom-item positions back into the
@@ -729,7 +729,7 @@ class InteractionHandler(QObject):
                             group_items = [
                                 x
                                 for x in self.main_window.scene.items()
-                                if not sip_isdeleted_safe(x)
+                                if not qt_is_deleted(x)
                                 and hasattr(x, "group_id")
                                 and x.group_id == gid
                             ]
@@ -804,7 +804,7 @@ class InteractionHandler(QObject):
         selected = [
             i
             for i in self.main_window.scene.selectedItems()
-            if not sip_isdeleted_safe(i)
+            if not qt_is_deleted(i)
         ]
         if not selected:
             return False
@@ -943,7 +943,7 @@ class InteractionHandler(QObject):
         selected = [
             i
             for i in scene.selectedItems()
-            if not sip_isdeleted_safe(i)
+            if not qt_is_deleted(i)
             and (hasattr(i, "create_json_data") or hasattr(i, "atom_id"))
         ]
         if not selected or not self.mode_manager:
@@ -981,11 +981,11 @@ class InteractionHandler(QObject):
         # Copy the selection to the right of the arrow
         clones = self.mode_manager.duplicate_items_immediate(selected)
         for c in clones:
-            if not sip_isdeleted_safe(c):
+            if not qt_is_deleted(c):
                 c.setPos(c.pos() + shift)
         # Commit atom positions to the data model and re-route bonds
         atoms = [
-            c for c in clones if not sip_isdeleted_safe(c) and hasattr(c, "atom_id")
+            c for c in clones if not qt_is_deleted(c) and hasattr(c, "atom_id")
         ]
         if atoms:
             data = getattr(self.main_window, "data", None)
@@ -999,7 +999,7 @@ class InteractionHandler(QObject):
 
         scene.clearSelection()
         for c in clones:
-            if not sip_isdeleted_safe(c):
+            if not qt_is_deleted(c):
                 c.setSelected(True)
 
         self.context.refresh_2d_scene()
@@ -1014,7 +1014,7 @@ class InteractionHandler(QObject):
             Qt.SortOrder.DescendingOrder,
             self.main_window.init_manager.view_2d.transform(),
         )
-        items = [i for i in raw_items if not sip_isdeleted_safe(i)]
+        items = [i for i in raw_items if not qt_is_deleted(i)]
 
         # Prioritize Text Edit
         for item in items:
@@ -1108,23 +1108,23 @@ class InteractionHandler(QObject):
         if start_atom:
             # BFS to select connected component. atom.bonds can contain stale
             # references to deleted BondItems, so guard every hop with
-            # sip_isdeleted_safe to avoid "wrapped C/C++ object ... deleted".
+            # qt_is_deleted to avoid "wrapped C/C++ object ... deleted".
             visited = set()
             stack = [start_atom]
 
             while stack:
                 atom = stack.pop()
-                if atom in visited or sip_isdeleted_safe(atom):
+                if atom in visited or qt_is_deleted(atom):
                     continue
                 visited.add(atom)
                 atom.setSelected(True)
 
                 for bond in getattr(atom, "bonds", []):
-                    if sip_isdeleted_safe(bond):
+                    if qt_is_deleted(bond):
                         continue
                     bond.setSelected(True)
                     other = bond.atom1 if bond.atom2 is atom else bond.atom2
-                    if other and not sip_isdeleted_safe(other) and other not in visited:
+                    if other and not qt_is_deleted(other) and other not in visited:
                         stack.append(other)
             return True
 
@@ -1140,7 +1140,7 @@ class InteractionHandler(QObject):
     def clear_group_overlay(self):
         if self.group_overlay:
             if (
-                not sip_isdeleted_safe(self.group_overlay)
+                not qt_is_deleted(self.group_overlay)
                 and self.group_overlay.scene()
             ):
                 self.main_window.scene.removeItem(self.group_overlay)

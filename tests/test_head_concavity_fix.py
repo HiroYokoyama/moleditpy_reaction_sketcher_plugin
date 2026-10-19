@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PySide6.QtCore import QPointF
 from reaction_sketcher.items import (
     ReactionArrowItem,
     ReactionCurvedArrowItem,

@@ -19,9 +19,9 @@ import math
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QGraphicsItem
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QGraphicsItem
 
 import reaction_sketcher.items as items_mod
 from reaction_sketcher.items import (
@@ -206,7 +206,7 @@ class TestReactionHandle:
         h.mouseReleaseEvent(MagicMock())  # must not raise, no mw available
 
     def test_item_change_position_change_alt_skips_snap(self, monkeypatch):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
             qtw.QApplication,
@@ -224,7 +224,7 @@ class TestReactionHandle:
     def test_item_change_position_change_non_start_end_handle_no_snap(
         self, monkeypatch
     ):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
             qtw.QApplication,
@@ -240,7 +240,7 @@ class TestReactionHandle:
         assert result is new_pos
 
     def test_item_change_position_change_curved_parent_skips_snap(self, monkeypatch):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
             qtw.QApplication,
@@ -256,7 +256,7 @@ class TestReactionHandle:
         assert result is new_pos
 
     def test_item_change_position_change_shift_axis_constraint(self, monkeypatch):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
             qtw.QApplication,
@@ -271,7 +271,7 @@ class TestReactionHandle:
         assert hasattr(result, "x") and hasattr(result, "y")
 
     def test_item_change_position_change_short_line_no_snap(self, monkeypatch):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
             qtw.QApplication,
@@ -348,7 +348,7 @@ class TestReactionArrowItem:
     def test_context_menu_harpoon_flip_pushes_undo_via_scene_push_undo(
         self, monkeypatch
     ):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         item = ReactionArrowItem(S, E)
         item.head_style = "harpoon"
@@ -367,7 +367,7 @@ class TestReactionArrowItem:
     def test_context_menu_harpoon_flip_falls_back_to_window_push_undo_state(
         self, monkeypatch
     ):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         item = ReactionArrowItem(S, E)
         item.head_style = "harpoon"
@@ -705,7 +705,7 @@ class TestReactionCurvedArrowItem:
         item.on_handle_moved(item.h_concavity)
 
     def test_context_menu_fish_hook_flips_side(self, monkeypatch):
-        import PyQt6.QtWidgets as qtw
+        import PySide6.QtWidgets as qtw
 
         item = ReactionCurvedArrowItem(S, E, is_fish_hook=True)
         item.head_side = 1
@@ -1394,7 +1394,7 @@ class TestReactionGroupOverlay:
 
     def test_on_handle_moved_skips_deleted_items(self, monkeypatch):
         arrow = _ArrowLikeItem()
-        monkeypatch.setattr(items_mod, "sip_isdeleted_safe", lambda x: True)
+        monkeypatch.setattr(items_mod, "qt_is_deleted", lambda x: True)
         overlay = ReactionGroupOverlay([arrow])
         overlay._rect = items_mod.QRectF(0, 0, 10, 10)
         overlay.h_scale.setPos(QPointF(20, 20))

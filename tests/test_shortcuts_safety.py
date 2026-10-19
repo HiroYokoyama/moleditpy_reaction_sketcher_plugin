@@ -8,7 +8,7 @@ menus, which is the exact bug these tests guard against.
 """
 
 from unittest.mock import MagicMock, patch
-from PyQt6.QtCore import QPointF
+from PySide6.QtCore import QPointF
 from reaction_sketcher.items import ReactionTextItem
 from reaction_sketcher.mode_manager import ModeManager
 
@@ -38,7 +38,7 @@ def test_text_item_focus_out_restores_shortcuts_even_if_scene_is_none():
         pass
 
     # Set TextEditorInteraction flag so focusInEvent tries to disable shortcuts
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
     item.focusInEvent(DummyEvent())

@@ -14,7 +14,7 @@ import types
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF
 
 import reaction_sketcher.patcher as patcher_mod
 from reaction_sketcher.patcher import (
@@ -255,14 +255,14 @@ class TestSceneWiring:
     def test_update_template_preview_prunes_deleted_items(self):
         mw, a1, a2, bond = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6 import sip
+        import shiboken6
 
-        orig = sip.isdeleted
-        sip.isdeleted = lambda o: o is a1 or o is bond
+        orig = shiboken6.isValid
+        shiboken6.isValid = lambda o: o is not a1 and o is not bond
         try:
             mw.scene.update_template_preview()
         finally:
-            sip.isdeleted = orig
+            shiboken6.isValid = orig
         assert 1 not in mw.scene.atom_items
         assert 2 in mw.scene.atom_items
         assert (1, 2) not in mw.scene.bond_items
@@ -414,7 +414,7 @@ class TestBondAtomPatches:
     def test_atom_paint_custom_pen_color(self):
         mw, a1, a2, bond = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6.QtGui import QColor
+        from PySide6.QtGui import QColor
 
         a1.pen_color = QColor("red")
         a1.paint(MagicMock(), MagicMock(), MagicMock())
@@ -497,8 +497,8 @@ class TestAxisConstraint:
     def test_itemchange_shift_locks_axis(self):
         mw, *_ = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QApplication, QGraphicsItem
-        from PyQt6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication, QGraphicsItem
+        from PySide6.QtCore import Qt
 
         item = ReactionArrowItem(QPointF(0, 0), QPointF(10, 10))
         mw.scene.addItem(item)
@@ -513,7 +513,7 @@ class TestAxisConstraint:
     def test_itemchange_no_shift_passthrough(self):
         mw, *_ = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QGraphicsItem
+        from PySide6.QtWidgets import QGraphicsItem
 
         item = ReactionArrowItem(QPointF(0, 0), QPointF(10, 10))
         mw.scene.addItem(item)
@@ -562,7 +562,7 @@ class TestCopyPaste:
         mw, *_ = make_mw_with_atoms()
         ctx = MagicMock()
         apply_patches_ctx(mw, ctx)
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         clip = MagicMock()
         clip.mimeData.return_value = None
@@ -576,7 +576,7 @@ class TestCopyPaste:
         a1.setSelected(True)
         a2.setSelected(True)
 
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         # Real stateful QMimeData/clipboard stand-ins -- copy_selection creates
         # its own QMimeData() and hands it to clipboard.setMimeData(); paste
@@ -655,7 +655,7 @@ class TestCopyPaste:
                 return self._by_format[fmt]
 
         holder = {}
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         clip = MagicMock()
         clip.setMimeData = lambda m: holder.__setitem__("m", m)
@@ -684,7 +684,7 @@ class TestCopyPaste:
         mw, *_ = make_mw_with_atoms()
         ctx = MagicMock()
         apply_patches_ctx(mw, ctx)
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         clip = MagicMock()
         mime = MagicMock()
@@ -730,7 +730,7 @@ class TestSaveProject:
         mw, *_ = make_mw_with_atoms()
         apply_patches_ctx(mw)
         mw.init_manager.current_file_path = None
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         f = tmp_path / "new.pmeprj"
         QFileDialog.getSaveFileName.return_value = (str(f), "")
@@ -747,7 +747,7 @@ class TestSaveProject:
     def test_save_project_as_cancelled(self):
         mw, *_ = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mw.io_manager.save_project_as()  # should not raise
@@ -755,7 +755,7 @@ class TestSaveProject:
     def test_save_project_as_appends_extension(self, tmp_path):
         mw, *_ = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         f = tmp_path / "noext"
         QFileDialog.getSaveFileName.return_value = (str(f), "")
@@ -788,7 +788,7 @@ class TestSaveProject:
         apply_patches_ctx(mw)
         item = ReactionArrowItem(QPointF(0, 0), QPointF(1, 1))
         mw.scene.addItem(item)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mw.io_manager.save_project_as()  # cancels but must not report "nothing to save"
@@ -841,14 +841,14 @@ class TestDeleteSelectAllDelegation:
     def test_select_all_skips_deleted_items(self):
         mw, a1, a2, bond = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6 import sip
+        import shiboken6
 
-        orig = sip.isdeleted
-        sip.isdeleted = lambda o: o is a1
+        orig = shiboken6.isValid
+        shiboken6.isValid = lambda o: o is not a1
         try:
             mw.edit_actions_manager.select_all()
         finally:
-            sip.isdeleted = orig
+            shiboken6.isValid = orig
         assert not a1.isSelected()
         assert a2.isSelected()
 
@@ -974,7 +974,7 @@ class TestSceneKeyPressEvent:
     def test_editing_text_item_delegates_to_base(self):
         mw, *_ = make_mw_with_atoms()
         apply_patches_ctx(mw)
-        from PyQt6.QtCore import Qt
+        from PySide6.QtCore import Qt
 
         text_item = ReactionTextItem("hi", QPointF(0, 0))
         text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
@@ -1320,7 +1320,7 @@ class TestExportPatches:
     def test_export_2d_png_cancelled_dialog(self):
         mw, *_ = self._mw_with_export()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mw.export_manager.export_2d_png()  # should not raise
@@ -1329,7 +1329,7 @@ class TestExportPatches:
         mw, *_ = self._mw_with_export()
         ctx = MagicMock()
         apply_patches_ctx(mw, ctx)
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         f = tmp_path / "out.png"
         QFileDialog.getSaveFileName.return_value = (str(f), "")
@@ -1340,7 +1340,7 @@ class TestExportPatches:
     def test_export_2d_png_cancel_background_choice(self):
         mw, *_ = self._mw_with_export()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         QFileDialog.getSaveFileName.return_value = ("out.png", "")
         QMessageBox.question.return_value = QMessageBox.StandardButton.Cancel
@@ -1381,7 +1381,7 @@ class TestExportPatches:
     def test_export_2d_svg_cancelled(self):
         mw, *_ = self._mw_with_export()
         apply_patches_ctx(mw)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mw.export_manager.export_2d_svg()
@@ -1390,7 +1390,7 @@ class TestExportPatches:
         mw, a1, a2, bond = self._mw_with_export()
         ctx = MagicMock()
         apply_patches_ctx(mw, ctx)
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         f = tmp_path / "out.svg"
         QFileDialog.getSaveFileName.return_value = (str(f), "")
@@ -1405,7 +1405,7 @@ class TestExportPatches:
         mw.state_manager.data.atoms = {1: {"symbol": "C", "pos": [0, 0]}}
         ctx = MagicMock()
         apply_patches_ctx(mw, ctx)
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         QFileDialog.getSaveFileName.return_value = ("out.svg", "")
         QMessageBox.question.return_value = QMessageBox.StandardButton.Yes
@@ -1562,7 +1562,7 @@ class TestInteractionPatchesInstalled:
     def test_key_press_text_edit_passthrough(self):
         mw, view, *_ = self._view_and_mw()
         apply_interaction_patches(mw)
-        from PyQt6.QtCore import Qt
+        from PySide6.QtCore import Qt
 
         rmm = MagicMock()
         rmm.is_reaction_mode = True

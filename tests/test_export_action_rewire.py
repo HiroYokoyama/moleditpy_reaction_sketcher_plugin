@@ -83,7 +83,7 @@ class FakeMenu:
 
 
 def _mw_with_export_menu():
-    from PyQt6.QtCore import QPointF
+    from PySide6.QtCore import QPointF
     from tests.rs_fakes import FakeAtomItem, FakeBondItem
 
     mw = FakeMainWindow()

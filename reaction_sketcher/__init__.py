@@ -4,7 +4,7 @@
 # This file is part of MoleditPy Reaction Sketcher Plugin.
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Lesser General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
@@ -16,8 +16,8 @@ Refactored for MoleditPy V4.0 API.
 """
 
 from functools import partial
-from PyQt6.QtWidgets import QMenu
-from PyQt6.QtGui import QAction, QColor
+from PySide6.QtWidgets import QMenu
+from PySide6.QtGui import QAction, QColor
 
 from .mode_manager import ModeManager
 from .interaction import InteractionHandler
@@ -42,12 +42,12 @@ from .utils import load_handler_core, show_carbon_state
 import logging
 
 PLUGIN_NAME = "Reaction Sketcher"
-PLUGIN_VERSION = "3.4.4"
+PLUGIN_VERSION = "4.0.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Adds 2D reaction drawing tools (Arrows, Plus, Text) with a dedicated toolbar."
 )
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
 
 REACTION_ITEM_TYPES = (
     ReactionArrowItem,

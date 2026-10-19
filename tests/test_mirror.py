@@ -1,5 +1,5 @@
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF
 from reaction_sketcher.items import (
     mirror_point,
     ReactionArrowItem,

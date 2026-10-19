@@ -4,7 +4,7 @@
 import json
 import os
 import uuid
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QToolBar,
     QToolButton,
     QComboBox,
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QMenu,
 )
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QIcon,
     QColor,
     QFont,
@@ -32,8 +32,8 @@ from PyQt6.QtGui import (
     QFontDatabase,
     QImage,
 )
-from PyQt6.QtSvg import QSvgGenerator
-from PyQt6.QtCore import (
+from PySide6.QtSvg import QSvgGenerator
+from PySide6.QtCore import (
     Qt,
     QSize,
     QRectF,
@@ -47,7 +47,7 @@ from PyQt6.QtCore import (
     QFile,
 )
 
-from .utils import show_carbon_state, sip_isdeleted_safe
+from .utils import show_carbon_state, qt_is_deleted
 from .icons import (
     create_reaction_icon,
     create_shape_variant_icon,
@@ -384,7 +384,7 @@ class ModeManager(QObject):
         ]
 
         row = 0
-        from PyQt6.QtWidgets import QFrame
+        from PySide6.QtWidgets import QFrame
 
         # Define Alignment Tools
         align_tools = [
@@ -929,7 +929,7 @@ class ModeManager(QObject):
             self.context.show_status_message("No reaction items to export.")
             return
 
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         folder = os.getcwd()
         if (
@@ -1020,7 +1020,7 @@ class ModeManager(QObject):
             return
 
         if filename is None:
-            from PyQt6.QtWidgets import QFileDialog
+            from PySide6.QtWidgets import QFileDialog
 
             folder = os.getcwd()
             if (
@@ -1144,7 +1144,7 @@ class ModeManager(QObject):
         reaction_items = [
             i
             for i in items
-            if not sip_isdeleted_safe(i)
+            if not qt_is_deleted(i)
             and (hasattr(i, "create_json_data") or isinstance(i, (AtomItem, BondItem)))
         ]
 
@@ -1189,7 +1189,7 @@ class ModeManager(QObject):
 
         if has_text:
             try:
-                from PyQt6.QtGui import QTextCursor
+                from PySide6.QtGui import QTextCursor
             except ImportError:
                 pass
 
@@ -2043,7 +2043,7 @@ class ModeManager(QObject):
 
     def show_about_dialog(self):
         """Display About dialog with plugin version and information."""
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
         from . import PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR, PLUGIN_DESCRIPTION
 
         about_text = f"""<h2>{PLUGIN_NAME}</h2>
@@ -2134,7 +2134,7 @@ class ModeManager(QObject):
                 if "control_p" in settings and hasattr(item, "control_p"):
                     # Restore manual control point
                     cp_data = settings["control_p"]
-                    from PyQt6.QtCore import QPointF
+                    from PySide6.QtCore import QPointF
 
                     item.control_p = QPointF(cp_data[0], cp_data[1])
                     # We must force update handles or internal state
@@ -2705,7 +2705,7 @@ class ModeManager(QObject):
             if (
                 not self.main_window
                 or not self.main_window.scene
-                or sip_isdeleted_safe(self.main_window.scene)
+                or qt_is_deleted(self.main_window.scene)
             ):
                 return
 
@@ -2725,7 +2725,7 @@ class ModeManager(QObject):
         # Identify items that belong to a logical group (Explicit Group or Molecule)
         # We use get_logical_units to find blocks.
         # Any unit with > 1 item is a candidate for purple highlight if selected.
-        valid_selected = [i for i in selected_items if not sip_isdeleted_safe(i)]
+        valid_selected = [i for i in selected_items if not qt_is_deleted(i)]
         units = self.get_logical_units(valid_selected)
         purple_items = set()
 
@@ -2750,7 +2750,7 @@ class ModeManager(QObject):
                     purple_items.add(item)
         # Update flags for ALL items in the scene that have the attribute
         for item in self.main_window.scene.items():
-            if sip_isdeleted_safe(item):
+            if qt_is_deleted(item):
                 continue
             if hasattr(item, "is_group_selected"):
                 old_val = item.is_group_selected
@@ -2810,7 +2810,7 @@ class ModeManager(QObject):
                     for bond_item in current.bonds:
                         if bond_item in visited_in_fragment:
                             continue
-                        if sip_isdeleted_safe(bond_item):
+                        if qt_is_deleted(bond_item):
                             continue
                         try:
                             in_scene = bond_item.scene() is not None
@@ -2827,7 +2827,7 @@ class ModeManager(QObject):
                         a2 = getattr(bond_item, "atom2", None)
                         if (
                             a1
-                            and not sip_isdeleted_safe(a1)
+                            and not qt_is_deleted(a1)
                             and a1 != current
                             and a1 not in visited_in_fragment
                         ):
@@ -2835,7 +2835,7 @@ class ModeManager(QObject):
                             stack.append(a1)
                         if (
                             a2
-                            and not sip_isdeleted_safe(a2)
+                            and not qt_is_deleted(a2)
                             and a2 != current
                             and a2 not in visited_in_fragment
                         ):
@@ -2850,7 +2850,7 @@ class ModeManager(QObject):
                     ]:
                         if (
                             atom_item
-                            and not sip_isdeleted_safe(atom_item)
+                            and not qt_is_deleted(atom_item)
                             and atom_item not in visited_in_fragment
                         ):
                             visited_in_fragment.add(atom_item)
@@ -2859,7 +2859,7 @@ class ModeManager(QObject):
             return fragment
 
         for item in items:
-            if sip_isdeleted_safe(item) or item in visited:
+            if qt_is_deleted(item) or item in visited:
                 continue
 
             unit_members = []
@@ -2897,7 +2897,7 @@ class ModeManager(QObject):
                 continue
 
             # Filter out deleted members before calculating bounds
-            unit_members = [m for m in unit_members if not sip_isdeleted_safe(m)]
+            unit_members = [m for m in unit_members if not qt_is_deleted(m)]
             if not unit_members:
                 continue
 
@@ -2991,7 +2991,7 @@ class ModeManager(QObject):
             # Apply delta
             if abs(dx) > 0.1 or abs(dy) > 0.1:
                 for item in u["members"]:
-                    if sip_isdeleted_safe(item):
+                    if qt_is_deleted(item):
                         continue
                     # Only move atoms, bonds update automatically
                     if hasattr(item, "atom_id"):
@@ -3082,7 +3082,7 @@ class ModeManager(QObject):
                 dx = start_val + (i * gap) - current_centers[i]
                 if abs(dx) > 0.1:
                     for item in units[i]["members"]:
-                        if sip_isdeleted_safe(item):
+                        if qt_is_deleted(item):
                             continue
                         if hasattr(item, "atom_id"):
                             item.moveBy(dx, 0)
@@ -3106,7 +3106,7 @@ class ModeManager(QObject):
                 dy = start_val + (i * gap) - current_centers[i]
                 if abs(dy) > 0.1:
                     for item in units[i]["members"]:
-                        if sip_isdeleted_safe(item):
+                        if qt_is_deleted(item):
                             continue
                         if hasattr(item, "atom_id"):
                             item.moveBy(0, dy)
@@ -3152,7 +3152,7 @@ class ModeManager(QObject):
         selected_items = [
             i
             for i in self.main_window.scene.selectedItems()
-            if not sip_isdeleted_safe(i)
+            if not qt_is_deleted(i)
         ]
 
         target_atoms = [i for i in selected_items if hasattr(i, "atom_id")]
@@ -3225,7 +3225,7 @@ class ModeManager(QObject):
             return []
         ids = []
         for item in scene.selectedItems():
-            if sip_isdeleted_safe(item):
+            if qt_is_deleted(item):
                 continue
             aid = getattr(item, "atom_id", None)
             if aid is not None and getattr(item, "symbol", "") == "C":
@@ -3319,7 +3319,7 @@ class ModeManager(QObject):
         atom_items = getattr(scene, "atom_items", {})
         if isinstance(atom_items, dict):
             for atom in atom_items.values():
-                if sip_isdeleted_safe(atom):
+                if qt_is_deleted(atom):
                     continue
                 if hasattr(atom, "update_style"):
                     atom.update_style()
@@ -3329,7 +3329,7 @@ class ModeManager(QObject):
         bond_items = getattr(scene, "bond_items", {})
         if isinstance(bond_items, dict):
             for bond in bond_items.values():
-                if not sip_isdeleted_safe(bond) and hasattr(bond, "update"):
+                if not qt_is_deleted(bond) and hasattr(bond, "update"):
                     bond.update()
         scene.update()
         refresh = (
@@ -3351,7 +3351,7 @@ class ModeManager(QObject):
         # Check for focused text item (editing mode)
         item = self.main_window.scene.focusItem()
         from .items import ReactionTextItem
-        from PyQt6.QtGui import QTextCharFormat
+        from PySide6.QtGui import QTextCharFormat
 
         # If no focus item, check selected items
         targets = []
@@ -3471,7 +3471,7 @@ class ModeManager(QObject):
             return
 
         from .items import ReactionTextItem
-        from PyQt6.QtGui import QTextCharFormat
+        from PySide6.QtGui import QTextCharFormat
         import re
 
         focus_item = self.main_window.scene.focusItem()

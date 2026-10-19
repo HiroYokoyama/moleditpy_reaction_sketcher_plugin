@@ -5,7 +5,7 @@ Uses a real QGraphicsScene so items are actually added and can be counted.
 """
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PySide6.QtCore import QPointF
 
 from reaction_sketcher.utils import load_handler_core
 

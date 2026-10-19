@@ -1,5 +1,7 @@
 # Reaction Sketcher Plugin for MoleditPy
 
+This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin licensing is unchanged.
+
 [![Tests](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/actions/workflows/tests.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->80%25-green)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy_reaction_sketcher_plugin?label=version)](https://github.com/HiroYokoyama/moleditpy_reaction_sketcher_plugin/tags)
@@ -77,4 +79,8 @@ The side toolbar provides categorized tools:
 - **Angle Snap**: Hold **Alt** to draw arrows at free angles.
 
 ## License & Disclaimer
-This project is licensed under the GNU General Public License v3.0 (GPLv3) - see the [LICENSE](LICENSE) file for details. As open-source software, it is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate them for critical applications (such as publications). If you encounter any bugs, please open an issue.
+This project is licensed under the GNU Lesser General Public License v3.0 (LGPLv3) - see the [LICENSE](LICENSE) file for details. As open-source software, it is provided 'as is' without warranty of any kind, and the author assumes no responsibility or liability for the results. Although outputs have been carefully verified, users are strongly encouraged to independently check and validate them for critical applications (such as publications). If you encounter any bugs, please open an issue.
+
+## Licensing scope
+
+First-party code in this migration is LGPL-3.0-or-later. See [LICENSE](LICENSE), [COPYING](COPYING) and [dependency/provenance terms](LICENSING.md). Third-party components and historical releases retain their own terms.

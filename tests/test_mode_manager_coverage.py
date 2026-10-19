@@ -15,8 +15,8 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor
 
 import reaction_sketcher.mode_manager as mm_mod
 from reaction_sketcher.mode_manager import ModeManager
@@ -459,7 +459,7 @@ class TestExportHelpers:
         mgr, mw, ctx = make_mm()
         add_arrow(mw)
         out_file = tmp_path / "out.png"
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = (str(out_file), "")
         mgr.export_image()  # QFile is a Qt stub -- doesn't hit the real filesystem
@@ -468,7 +468,7 @@ class TestExportHelpers:
     def test_export_image_cancelled_dialog(self, monkeypatch):
         mgr, mw, ctx = make_mm()
         add_arrow(mw)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mgr.export_image()
@@ -477,7 +477,7 @@ class TestExportHelpers:
         mgr, mw, ctx = make_mm()
         add_arrow(mw)
         mw.init_manager.current_file_path = str(tmp_path / "proj.pmeprj")
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mgr.export_image()
@@ -515,7 +515,7 @@ class TestExportHelpers:
     def test_export_svg_dialog_cancelled(self):
         mgr, mw, ctx = make_mm()
         add_arrow(mw)
-        from PyQt6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog
 
         QFileDialog.getSaveFileName.return_value = ("", "")
         mgr.export_svg()
@@ -556,7 +556,7 @@ class TestPropertyToolbar:
 
     def test_choose_color_valid(self, monkeypatch):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        from PyQt6.QtWidgets import QColorDialog
+        from PySide6.QtWidgets import QColorDialog
 
         QColorDialog.getColor.return_value = QColor("#abcdef")
         mgr.is_reaction_mode = True
@@ -565,7 +565,7 @@ class TestPropertyToolbar:
 
     def test_choose_color_invalid_is_noop(self, monkeypatch):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        from PyQt6.QtWidgets import QColorDialog
+        from PySide6.QtWidgets import QColorDialog
 
         bad_color = QColor("#000000")
         monkeypatch.setattr(bad_color, "isValid", lambda: False)
@@ -1066,7 +1066,7 @@ class TestReactionMode:
         mgr, mw, ctx = make_mm(with_toolbar=True)
         mgr.is_reaction_mode = True
         add_arrow(mw)
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
 
         QMessageBox.question.return_value = QMessageBox.StandardButton.Yes
         mgr.toggle_reaction_mode()
@@ -1076,7 +1076,7 @@ class TestReactionMode:
         mgr, mw, ctx = make_mm(with_toolbar=True)
         mgr.is_reaction_mode = True
         add_arrow(mw)
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
 
         QMessageBox.question.return_value = QMessageBox.StandardButton.No
         mgr.toggle_reaction_mode()
@@ -1215,7 +1215,7 @@ class TestModeChangeAndShortcuts:
             def accept(self):
                 self.accepted = True
 
-        from PyQt6.QtCore import QEvent
+        from PySide6.QtCore import QEvent
 
         ev = Ev()
         result = mgr.eventFilter(mw, ev)
@@ -1224,7 +1224,7 @@ class TestModeChangeAndShortcuts:
 
     def test_event_filter_shortcuts_enabled_passthrough(self):
         mgr, mw, ctx = make_mm(with_toolbar=True)
-        from PyQt6.QtCore import QEvent
+        from PySide6.QtCore import QEvent
 
         class Ev:
             def type(self):

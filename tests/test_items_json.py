@@ -6,8 +6,8 @@ required keys and correct type tag.  No scene/main_window is needed.
 """
 
 import pytest
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QColor
 
 from reaction_sketcher.items import (
     ReactionArrowItem,

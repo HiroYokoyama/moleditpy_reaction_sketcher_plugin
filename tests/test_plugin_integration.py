@@ -27,12 +27,12 @@ from unittest.mock import MagicMock
 
 
 def _install_stubs():
-    if "PyQt6" in sys.modules and hasattr(sys.modules["PyQt6"], "__file__"):
+    if "PySide6" in sys.modules and hasattr(sys.modules["PySide6"], "__file__"):
         return  # real Qt already available
 
-    pyqt6 = types.ModuleType("PyQt6")
+    pyside6 = types.ModuleType("PySide6")
 
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = MagicMock()
 
     class _QTimer:
@@ -41,21 +41,21 @@ def _install_stubs():
             pass  # suppress deferred Qt calls
 
     qt_core.QTimer = _QTimer
-    qt_core.pyqtSignal = MagicMock()
+    qt_core.Signal = MagicMock()
     qt_core.QThread = MagicMock()
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     for cls_name in ["QMenu", "QDialog", "QVBoxLayout", "QHBoxLayout", "QWidget"]:
         setattr(qt_widgets, cls_name, MagicMock())
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     qt_gui.QAction = MagicMock()
     qt_gui.QColor = MagicMock()
 
-    sys.modules.setdefault("PyQt6", pyqt6)
-    sys.modules.setdefault("PyQt6.QtCore", qt_core)
-    sys.modules.setdefault("PyQt6.QtWidgets", qt_widgets)
-    sys.modules.setdefault("PyQt6.QtGui", qt_gui)
+    sys.modules.setdefault("PySide6", pyside6)
+    sys.modules.setdefault("PySide6.QtCore", qt_core)
+    sys.modules.setdefault("PySide6.QtWidgets", qt_widgets)
+    sys.modules.setdefault("PySide6.QtGui", qt_gui)
 
 
 _install_stubs()
@@ -136,10 +136,8 @@ class TestMetadata(unittest.TestCase):
         self.assertEqual(PLUGIN_NAME, "Reaction Sketcher")
 
     def test_plugin_version_is_semver(self):
-        parts = PLUGIN_VERSION.split(".")
-        self.assertEqual(len(parts), 3)
-        for p in parts:
-            self.assertTrue(p.isdigit(), f"Non-numeric version part: {p!r}")
+        from packaging.version import Version
+        assert Version(PLUGIN_VERSION).public == PLUGIN_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -295,11 +293,11 @@ except ImportError:
 
 
 def _clear_qt_stubs():
-    """Remove fake PyQt6 stub modules so real PyQt6 can be imported by moleditpy."""
+    """Remove fake PySide6 stub modules so real PySide6 can be imported by moleditpy."""
     to_remove = [
         k
         for k in list(sys.modules)
-        if k.startswith("PyQt6") and not hasattr(sys.modules[k], "__file__")
+        if k.startswith("PySide6") and not hasattr(sys.modules[k], "__file__")
     ]
     for k in to_remove:
         del sys.modules[k]
@@ -317,7 +315,7 @@ class TestWithRealPluginContext(unittest.TestCase):
         if not HAS_MAIN_APP:
             return
         # Load plugin_interface.py directly to avoid triggering moleditpy/__init__.py
-        # which imports PyQt6 and conflicts with PySide6 loaded by pytest-qt on Windows.
+        # which imports PySide6 and conflicts with PySide6 loaded by pytest-qt on Windows.
         import importlib.util as _ilu
 
         _pi_path = os.path.join(

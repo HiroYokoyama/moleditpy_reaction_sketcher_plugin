@@ -20,8 +20,8 @@ import os
 from unittest.mock import MagicMock
 
 import reaction_sketcher.settings_dialog as sd
-import PyQt6.QtWidgets as qtw
-from PyQt6.QtGui import QColor
+import PySide6.QtWidgets as qtw
+from PySide6.QtGui import QColor
 
 
 def _bind_real_get_factory_defaults(fake_self):
