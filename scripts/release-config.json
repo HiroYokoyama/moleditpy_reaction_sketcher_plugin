@@ -1,0 +1,19 @@
+{
+  "source": "reaction_sketcher/__init__.py",
+  "title": "Reaction Sketcher",
+  "package": "reaction_sketcher",
+  "archive": "reaction_sketcher_{version}.zip",
+  "assets": [
+    "reaction_sketcher_{version}.zip"
+  ],
+  "include": [
+    "README.md",
+    "LICENSE",
+    "COPYING",
+    "LICENSING.md"
+  ],
+  "exclude": [
+    "*/__pycache__/*",
+    "*/.git/*"
+  ]
+}
