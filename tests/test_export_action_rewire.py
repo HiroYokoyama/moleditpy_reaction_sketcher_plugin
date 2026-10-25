@@ -61,9 +61,11 @@ class FakeAction:
     def connect(self, slot):
         self.slots.append(slot)
 
-    def disconnect(self):
+    def disconnect(self, slot):
         self.disconnect_calls += 1
-        self.slots.clear()
+        if slot not in self.slots:
+            raise TypeError("not connected")
+        self.slots.remove(slot)
 
     def trigger(self):
         for slot in list(self.slots):
@@ -139,6 +141,15 @@ class TestRewire2dExportActions:
         patcher_mod.apply_core_patches(mw, context=MagicMock())
         assert png.disconnect_calls == 1
         assert len(png.slots) == 1
+
+    def test_rewiring_preserves_existing_observers(self):
+        mw, mgr, png, svg, *_ = _mw_with_export_menu()
+        observer = MagicMock()
+        png.triggered.connect(observer)
+        patcher_mod.apply_core_patches(mw, context=MagicMock())
+        patcher_mod.apply_core_patches(mw, context=MagicMock())
+        png.trigger()
+        observer.assert_called_once_with(False)
 
     def test_host_without_find_children_is_skipped(self):
         mw, mgr, png, svg, other, menu_3d = _mw_with_export_menu()

@@ -54,7 +54,10 @@ from .icons import (
     create_style_icon,
     create_alignment_icon,
 )
-from .patcher import apply_interaction_patches, apply_core_patches, revert_all_patches
+from .patcher import (
+    apply_interaction_patches, apply_core_patches, revert_all_patches,
+    rewire_method_signal,
+)
 from .items import (
     ReactionTextItem,
     ReactionArrowItem,
@@ -226,33 +229,19 @@ class ModeManager(QObject):
     def _rewire_cleanup_2d_triggers(self):
         """Ensure UI triggers call the currently active clean_up_2d method."""
         mgr = getattr(self.main_window, "edit_actions_manager", None)
-        if mgr:
-            target = mgr.clean_up_2d_structure
-        else:
+        if not mgr:
             logging.warning("Error: main_window missing 'edit_actions_manager'")
             return
 
         btn = getattr(self.main_window.init_manager, "cleanup_button", None)
         if btn is not None:
-            try:
-                btn.clicked.disconnect()
-            except TypeError:
-                pass  # not connected — expected
-            except RuntimeError as _e:
-                logging.warning("silenced: %s", _e)
-            btn.clicked.connect(target)
+            rewire_method_signal(btn, "clicked", mgr, "clean_up_2d_structure")
         else:
             logging.warning("Error: init_manager missing 'cleanup_button'")
 
         cleanup_action = self._find_menu_action("Clean Up 2D")
         if cleanup_action is not None:
-            try:
-                cleanup_action.triggered.disconnect()
-            except TypeError:
-                pass  # not connected — expected
-            except RuntimeError as _e:
-                logging.warning("silenced: %s", _e)
-            cleanup_action.triggered.connect(target)
+            rewire_method_signal(cleanup_action, "triggered", mgr, "clean_up_2d_structure")
         else:
             logging.warning("Error: 'Clean Up 2D' action not found in menu")
 
@@ -271,13 +260,7 @@ class ModeManager(QObject):
             action = getattr(im, action_attr, None) if im else None
             target_method = getattr(mgr, method_name, None)
             if action is not None and target_method is not None:
-                try:
-                    action.triggered.disconnect()
-                except TypeError:
-                    pass  # not connected — expected
-                except RuntimeError as _e:
-                    logging.warning("silenced: %s", _e)
-                action.triggered.connect(target_method)
+                rewire_method_signal(action, "triggered", mgr, method_name)
 
         # Save / Save As have the same stale-callable problem: the core wired
         # Ctrl+S to the original io_manager.save_project at startup, so without
@@ -292,13 +275,7 @@ class ModeManager(QObject):
                 action = self._find_menu_action(menu_text)
                 target_method = getattr(io_mgr, method_name, None)
                 if action is not None and target_method is not None:
-                    try:
-                        action.triggered.disconnect()
-                    except TypeError:
-                        pass  # not connected — expected
-                    except RuntimeError as _e:
-                        logging.warning("silenced: %s", _e)
-                    action.triggered.connect(target_method)
+                    rewire_method_signal(action, "triggered", io_mgr, method_name)
 
     def setup_toolbar(self, context=None):
         if self.reaction_toolbar:
