@@ -20,6 +20,25 @@ env:
   MOLEDITPY_REF: ${{ inputs.moleditpy_ref || vars.MOLEDITPY_REF || 'main' }}
 
 jobs:
+  native-signals:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install real Qt test dependencies
+        run: pip install pytest PySide6-Essentials
+      - name: Check real signal ownership
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTEST_QT_API: pyside6
+        run: python -m pytest tests_native/ -v -W error::RuntimeWarning
+
   test:
     runs-on: ubuntu-latest
     strategy:

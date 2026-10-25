@@ -120,7 +120,10 @@ def rewire_method_signal(sender, signal_name, receiver, method_name):
             warnings.filterwarnings("always", message=".*Failed to disconnect.*", category=RuntimeWarning)
             signal.disconnect(original)
         for notice in notices:
-            logging.debug("[Reaction Sketcher] %s", notice.message)
+            if issubclass(notice.category, RuntimeWarning) and "Failed to disconnect" in str(notice.message):
+                logging.debug("[Reaction Sketcher] %s", notice.message)
+            else:
+                warnings.warn_explicit(notice.message, notice.category, notice.filename, notice.lineno)
     except (TypeError, RuntimeError) as exc:
         logging.debug("[Reaction Sketcher] No captured %s connection: %s", method_name, exc)
 
