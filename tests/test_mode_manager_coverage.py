@@ -366,9 +366,11 @@ class TestMenuActions:
         mw.init_manager.paste_action = FakeMenuAction("Paste")
 
         mgr._rewire_cleanup_2d_triggers()
-        mw.init_manager.cleanup_button.clicked.connect.assert_called_with(
-            mw.edit_actions_manager.clean_up_2d_structure
-        )
+        signal = mw.init_manager.cleanup_button.clicked
+        signal.disconnect.assert_called_once_with(mw.edit_actions_manager.clean_up_2d_structure)
+        dispatch = signal.connect.call_args.args[0]
+        dispatch(False)
+        mw.edit_actions_manager.clean_up_2d_structure.assert_called_once_with()
 
     def test_rewire_cleanup_2d_triggers_missing_everything(self):
         mgr, mw, ctx = make_mm()

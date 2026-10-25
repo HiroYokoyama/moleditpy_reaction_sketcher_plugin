@@ -61,9 +61,11 @@ class FakeAction:
     def connect(self, slot):
         self.slots.append(slot)
 
-    def disconnect(self):
+    def disconnect(self, slot):
         self.disconnect_calls += 1
-        self.slots.clear()
+        if slot not in self.slots:
+            raise TypeError("not connected")
+        self.slots.remove(slot)
 
     def trigger(self):
         for slot in list(self.slots):

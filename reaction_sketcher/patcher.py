@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import copy
+import warnings
 from PySide6.QtGui import (
     QColor,
     QPen,
@@ -97,6 +98,38 @@ def _ensure_large_canvas(scene):
 
 
 _interaction_originals = {}
+
+def rewire_method_signal(sender, signal_name, receiver, method_name):
+    """Replace only the captured host method with a persistent dispatcher."""
+    key = (signal_name, method_name)
+    bindings = sender.__dict__.setdefault("_rs_method_signal_bindings", {})
+    if key in bindings:
+        return
+
+    original = getattr(receiver, method_name)
+    for cls in type(receiver).__mro__:
+        saved = _core_originals.get((cls, method_name))
+        if saved is not None:
+            original = saved.__get__(receiver, type(receiver))
+            break
+    signal = getattr(sender, signal_name)
+    try:
+        # A fresh action may never have had the original host connection.
+        # PySide reports a missing specific slot as a warning, not TypeError.
+        with warnings.catch_warnings(record=True) as notices:
+            warnings.filterwarnings("always", message=".*Failed to disconnect.*", category=RuntimeWarning)
+            signal.disconnect(original)
+        for notice in notices:
+            logging.debug("[Reaction Sketcher] %s", notice.message)
+    except (TypeError, RuntimeError) as exc:
+        logging.debug("[Reaction Sketcher] No captured %s connection: %s", method_name, exc)
+
+    def dispatch(*_args):
+        # Resolve at invocation time, including after patches are reverted.
+        getattr(receiver, method_name)()
+
+    bindings[key] = signal.connect(dispatch)
+
 
 # Mime type for clipboard - fallback if not importable
 CLIPBOARD_MIME_TYPE = "application/x-moleditpy-fragment"
@@ -2410,9 +2443,6 @@ def apply_core_patches(main_window, context=None):
                 "SVG Image...": "export_2d_svg",
             }
 
-            def dispatch(method_name):
-                return lambda *_: getattr(mgr, method_name)()
-
             for menu in find_children(QMenu):
                 if menu.title() != "2D Formats":
                     continue
@@ -2420,11 +2450,7 @@ def apply_core_patches(main_window, context=None):
                     method_name = targets.get(action.text())
                     if not method_name or action.property("_rs_export_rewired"):
                         continue
-                    try:
-                        action.triggered.disconnect()
-                    except TypeError:
-                        pass
-                    action.triggered.connect(dispatch(method_name))
+                    rewire_method_signal(action, "triggered", mgr, method_name)
                     action.setProperty("_rs_export_rewired", True)
 
         rewire_2d_export_actions(main_window)
