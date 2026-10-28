@@ -189,7 +189,7 @@ class TestExportDialogParent:
             return "", ""
 
         monkeypatch.setattr(
-            patcher_mod.QFileDialog, "getSaveFileName", staticmethod(fake_save)
+            patcher_mod, "QFileDialog", MagicMock(getSaveFileName=fake_save)
         )
         {"png": png, "svg": svg}[action_name].trigger()
 

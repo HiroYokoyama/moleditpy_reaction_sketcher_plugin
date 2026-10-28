@@ -209,9 +209,13 @@ class TestReactionHandle:
         import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
-            qtw.QApplication,
-            "keyboardModifiers",
-            MagicMock(return_value=Qt.KeyboardModifier.AltModifier),
+            qtw,
+            "QApplication",
+            MagicMock(
+                keyboardModifiers=MagicMock(
+                    return_value=Qt.KeyboardModifier.AltModifier
+                )
+            ),
         )
         parent = ReactionArrowItem(S, E)
         h = parent.h_start
@@ -227,9 +231,11 @@ class TestReactionHandle:
         import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
-            qtw.QApplication,
-            "keyboardModifiers",
-            MagicMock(return_value=Qt.KeyboardModifier.NoModifier),
+            qtw,
+            "QApplication",
+            MagicMock(
+                keyboardModifiers=MagicMock(return_value=Qt.KeyboardModifier.NoModifier)
+            ),
         )
         parent = ReactionArrowItem(S, E)
         h = parent.h_head  # handle_type "head_size", not in (start, end)
@@ -243,9 +249,11 @@ class TestReactionHandle:
         import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
-            qtw.QApplication,
-            "keyboardModifiers",
-            MagicMock(return_value=Qt.KeyboardModifier.NoModifier),
+            qtw,
+            "QApplication",
+            MagicMock(
+                keyboardModifiers=MagicMock(return_value=Qt.KeyboardModifier.NoModifier)
+            ),
         )
         parent = ReactionCurvedArrowItem(S, E)
         h = parent.h_start
@@ -259,9 +267,13 @@ class TestReactionHandle:
         import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
-            qtw.QApplication,
-            "keyboardModifiers",
-            MagicMock(return_value=Qt.KeyboardModifier.ShiftModifier),
+            qtw,
+            "QApplication",
+            MagicMock(
+                keyboardModifiers=MagicMock(
+                    return_value=Qt.KeyboardModifier.ShiftModifier
+                )
+            ),
         )
         parent = ReactionArrowItem(S, E)
         h = parent.h_start
@@ -274,9 +286,11 @@ class TestReactionHandle:
         import PySide6.QtWidgets as qtw
 
         monkeypatch.setattr(
-            qtw.QApplication,
-            "keyboardModifiers",
-            MagicMock(return_value=Qt.KeyboardModifier.NoModifier),
+            qtw,
+            "QApplication",
+            MagicMock(
+                keyboardModifiers=MagicMock(return_value=Qt.KeyboardModifier.NoModifier)
+            ),
         )
         parent = ReactionArrowItem(S, E)
         h = parent.h_end
